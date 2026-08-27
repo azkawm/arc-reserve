@@ -105,8 +105,68 @@ These are high-priority when replacing fixtures:
 9. **No chain guard:** the user experience does not strongly block writes on the wrong network.
 10. **Mixed policy/live surfaces:** target escrow and partial-settlement visuals sit beside live MVP
     controls; badges help, but all future additions must preserve the distinction.
-11. **Encoding artifacts:** several source strings contain mojibake from mis-decoded ellipsis,
-    separator, and range punctuation. Normalize affected source files to UTF-8.
+11. ~~Encoding artifacts~~ — resolved; a byte scan on 2026-08-27 found only valid UTF-8 punctuation.
+12. **KYC-blind (since D-021, 2026-08-27):** the token is permissioned. Any wallet other than the
+    registered demo accounts gets a raw `RecipientNotVerified()` revert on buy. No verification
+    badge, no `transferRestriction` pre-check, no explanation. This is task 0 in the frontend brief.
+
+### 5.1 Full audit findings (2026-08-27)
+
+Recorded so the frontend agent does not rediscover them. File references are as of the audit.
+
+**Correctness / safety**
+- `action-deck.tsx`: `{claimable ? formatUnits(claimable, 6) : "142.80"}` — a failed, disconnected,
+  **or legitimately zero** read renders the fixture (`0n` is falsy). Violates D-019.
+- `action-deck.tsx`: `buy(..., 0n)` and `redeem(..., 0n, 0)` — no slippage floor; redemption mode
+  hardcoded to Normal.
+- `engine-controls.tsx`: one fixed tick pair `[-276540, -275940]` for `rebalanceToNAV`, `slide`,
+  `sweep`; sign-locked to `assetIsToken0 == true`; not idempotent after a successful move; differs
+  from the seeded anchor `[-276600, -276000]`. The `engineAbi` is declared inline, not in
+  `contracts.ts`.
+- `operator-forms.tsx`: the "Register an asset" inputs are uncontrolled `defaultValue`s never read;
+  `submitAsset` always sends the hardcoded "Solar Indonesia 02" literals and
+  `keccak256(toHex("solar-indonesia-02"))`.
+- No `useWaitForTransactionReceipt` anywhere; "Submitted 0x…" is shown on broadcast; no refetch of
+  `claimableRevenue` after `claimRevenue`.
+- No chain guard: `wagmiConfig` has only chain 31337 and nothing calls `useChainId`/`useSwitchChain`.
+- `contractsConfigured` requires all eight addresses including the never-used `addresses.token`;
+  validation is `startsWith("0x")` only.
+- `IssuerForms.guard()` checks `contractsConfigured` but not `isConnected`.
+- Raw `error.message` rendered to users; `engine-controls` truncates at 100 chars.
+- `wagmi.ts`: `ssr: true` without cookie storage → wallet state lost on reload; `injected()` only;
+  no `blockExplorers`, so no tx links.
+
+**Dead / non-functional UI**
+- Marketplace search input and the four filter buttons have no state or handlers.
+- Asset-page tab bar (Overview / Documents / Cash flow / Activity): dead buttons.
+- `/verifier` review-queue buttons (Open metadata / Reject / Approve): no handlers; `approveAsset` is
+  not in `registryAbi`.
+- `price-chart.tsx`: `period` state set by 1H/1D/1W/1M but never consumed; Y-domain hardcoded
+  `[0.78, 1.06]`.
+- Asset-page "copy address" button has no `onClick`.
+- Nav labels `/assets/solar-indonesia-01` as "Activity".
+
+**Data / architecture**
+- 14 of 25 ABI entries are unused (`navOf`, `redemptionPrice`, `redemptionReserve`,
+  `reserveRatioBps`, `isSolvent`, `circulatingSupply`, `yieldEligibleBalanceOf`, `yieldExcluded`,
+  `balanceOf`, `allowance`, `faucet`, `stablecoinRaised`, `availableTokenInventory`) — exactly the
+  reads that would replace hardcoded numbers with no backend.
+- Most numeric fields of `solarAsset` are never read; the same values are duplicated as JSX string
+  literals across four files (`1.018` ≥ 8 places, `0.820`, `24,600`, supply figures, `38.4%` bar
+  widths). Swapping the fixture will not change the UI until those literals go.
+- `data.ts` stores pre-formatted display strings (`"24.6k mUSD"`, `"0.700 - 0.880 mUSD"`,
+  `"+60 ticks"`, `time: "09:00"`); `engine-chart.tsx` duplicates the band bounds as literals rather
+  than reading `liquidityPositions`.
+- Route is the literal folder `assets/solar-indonesia-01`, not `assets/[slug]`.
+- Tailwind is installed and configured but unused; all styling is hand-written in `globals.css`.
+- `dev-server*.log` and `tsconfig.tsbuildinfo` sat in the frontend root (now git-ignored).
+
+**Provenance labelling today**
+- The only clear label is the chart's "Mock market feed" chip. `position-liquidity.tsx` says "Mock
+  live balances" (contradictory). Every `Metric` card on `/engine`, `/issuer`, `/verifier`, the
+  marketplace stats band and hero, the asset header price, floor callout, reserve card, supply
+  panel, safety-gates list, verifier review grid, and all `ActionDeck` previews are unlabelled
+  fixtures indistinguishable from the one genuinely live figure (claimable revenue).
 
 ## 6. Chart implementation
 

@@ -109,7 +109,9 @@ Do not weaken these rules without an explicit product decision and corresponding
 
 One agent per stack: read `docs/stacks/README.md`, then the brief for your stack
 (`AGENT_CONTRACTS.md`, `AGENT_BACKEND.md`, `AGENT_FRONTEND.md`) and the boundary docs that touch it.
-Interface changes are announced in the boundary doc in the same change.
+Interface changes are announced in the boundary doc in the same change. Kickoff prompts are in
+`docs/stacks/PROMPTS.md`; cross-session messages go in `docs/stacks/HANDOFF_LOG.md`; the reasoning
+behind settled decisions is in `docs/DESIGN_RATIONALE.md` — do not re-litigate it in code.
 
 ## Source-of-truth order
 
@@ -151,7 +153,9 @@ arc-reserve/
     |-- DECISIONS.md                   Accepted decisions and open questions
     |-- AI_COMPREHENSION_CHECK.md      Pre-implementation questions and answer key
     |-- SECURITY.md                    Threat model and pre-production requirements
-    |-- stacks/                        Cross-stack boundary docs and per-stack agent briefs
+    |-- USER_FLOWS.md                  Formal issuer/verifier/investor/keeper flows
+    |-- DESIGN_RATIONALE.md            Why decisions were made; verified vs assumed
+    `-- stacks/                        Boundary docs, agent briefs, PROMPTS.md, HANDOFF_LOG.md
     |-- PRD.md                         Product requirements and acceptance criteria
     `-- DEMO.md                        Local demo runbook
 ```

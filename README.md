@@ -60,7 +60,9 @@ For another coding agent, start with [CLAUDE.md](CLAUDE.md) and complete the
 | [Testing](docs/TESTING.md) | Suite map, coverage, commands, production test gaps |
 | [Security](docs/SECURITY.md) | Threat model, emergency behavior, pre-production work |
 | [Demo](docs/DEMO.md) | Local deployment and presentation runbook |
-| [Stack boundaries](docs/stacks/README.md) | Contracts / backend / frontend interface docs and per-stack agent briefs |
+| [User flows](docs/USER_FLOWS.md) | Issuer, verifier, investor, keeper flows with gates, artifacts, and onchain footprint |
+| [Design rationale](docs/DESIGN_RATIONALE.md) | Why each decision was made, alternatives rejected, verified vs assumed |
+| [Stack boundaries](docs/stacks/README.md) | Contracts / backend / frontend interface docs, agent briefs, kickoff prompts, handoff log |
 
 ## Prerequisites
 

@@ -38,6 +38,9 @@ the contract wins and the boundary doc must be fixed.
 | B. Contracts → Backend | [`CONTRACTS_TO_BACKEND.md`](CONTRACTS_TO_BACKEND.md) | Exact event signatures to index, which events rebuild which read model, ordering/idempotency keys, ABI artifact location, address discovery, mock-pool limits |
 | C. Backend → Frontend | [`BACKEND_TO_FRONTEND.md`](BACKEND_TO_FRONTEND.md) | `/v1` routes, response envelope, provenance + staleness semantics, number encoding, and the mapping from every `frontend/src/lib/data.ts` fixture to its replacement API shape |
 
+Session tooling: [`PROMPTS.md`](PROMPTS.md) — worktree setup and the kickoff prompt for each
+stack session; [`HANDOFF_LOG.md`](HANDOFF_LOG.md) — the append-only channel between sessions.
+
 External stack under evaluation: [`ATS_INTEGRATION.md`](ATS_INTEGRATION.md) — Hedera Asset
 Tokenization Studio study, concept map, and integration options.
 

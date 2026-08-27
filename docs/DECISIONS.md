@@ -376,6 +376,15 @@ remaining limit. Suitability acknowledgements are recorded offchain by hash at s
 (target, with the escrow milestone). In line with D-027 this is a demonstration of class-gating,
 not a licensed retail offering.
 
+## D-029: Verifier is ArcReserve-operated for the demo; independent multisig is the production path
+
+Status: accepted 2026-08-27 (owner delegated to the default).
+
+For the testnet demo the `VERIFIER_ROLE` is held by an ArcReserve-operated key and every verifier
+surface is labelled "demo verifier". The documented production path is an independent 2/3 multisig
+(ideally a third-party verification firm) because ArcReserve verifying assets it also markets is a
+conflict of interest. `docs/USER_FLOWS.md` §1 and `docs/SECURITY.md` carry both.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:
