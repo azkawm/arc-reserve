@@ -1,0 +1,23 @@
+# Local PostgreSQL for the ArcReserve backend. Port 5442 avoids colliding with any
+# other Postgres already running on this machine.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arcreserve-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arcreserve
+      POSTGRES_PASSWORD: arcreserve
+      POSTGRES_DB: arcreserve
+    ports:
+      - "127.0.0.1:5450:5432"
+    volumes:
+      - arcreserve-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arcreserve -d arcreserve"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  arcreserve-pgdata:

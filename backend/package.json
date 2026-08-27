@@ -1,0 +1,47 @@
+{
+  "name": "@arcreserve/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ArcReserve backend, chain indexer, and OHLC service (hackathon, testnet only)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "node-pg-migrate -m migrations --envPath .env up",
+    "migrate:down": "node-pg-migrate -m migrations --envPath .env down",
+    "sync-abis": "node scripts/sync-abis.mjs",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d --wait && npm run migrate"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.2.2",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "node-pg-migrate": "^7.9.0",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "viem": "^2.22.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.18.0",
+    "globals": "^17.11.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^3.0.2"
+  }
+}

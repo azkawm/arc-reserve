@@ -1,6 +1,9 @@
 # Backend, Indexer, and OHLC Specification
 
-Status: approved implementation direction; no backend code exists in the repository yet.
+Status: approved implementation direction. **Milestone A is implemented** in `backend/`
+(workspace, validated configuration, migrations, chain-identity guards, `/v1/health`); milestones
+B–E are still specification. Stack choices are fixed by D-030. See `backend/README.md` for how to
+run it and what currently exists.
 
 This specification is intentionally detailed enough for another agent to scaffold the service. It
 must not be used to imply that current frontend metrics are indexed or live.
@@ -134,11 +137,17 @@ Recommended response metadata:
   "chainId": 31337,
   "indexedBlock": 123,
   "indexedBlockHash": "0x...",
-  "asOf": "2026-08-17T10:00:00Z",
+  "asOf": 1786932000,
   "provenance": "derived",
-  "stale": false
+  "stale": false,
+  "lagBlocks": 0
 }
 ```
+
+`asOf` is the **chain timestamp of the indexed block in unix seconds**, matching the shared
+timestamp convention, not an ISO string and not wall-clock time. `indexedBlockHash` and `asOf` are
+`null` before the first block is indexed, and that state is always `stale: true`.
+`docs/stacks/BACKEND_TO_FRONTEND.md` §1 is the authoritative form of this envelope.
 
 Never return a mock number with `onchain` or `derived` provenance. Never replace a live-query error
 with a fixture without changing the visible UI state.
@@ -148,15 +157,34 @@ with a fixture without changing the visible UI state.
 Use integer/numeric storage for blockchain quantities. Do not store financial values as floating
 point. Preserve raw base units and expose formatted strings at the API boundary.
 
-### 6.1 Chain integrity tables
+### 6.0 Value domains (implemented)
+
+Financial columns use two SQL domains rather than a bare numeric type:
+
+```sql
+CREATE DOMAIN uint256 AS NUMERIC CHECK (SCALE(VALUE) = 0 AND VALUE >= 0 AND VALUE <= 2^256-1);
+CREATE DOMAIN int256  AS NUMERIC CHECK (SCALE(VALUE) = 0 AND VALUE BETWEEN -2^255 AND 2^255-1);
+```
+
+Deliberately **unconstrained** `NUMERIC`, not `NUMERIC(78,0)`: a typmod is applied before the
+domain check, so `NUMERIC(78,0)` accepts `1.5` and silently stores `2`. With no typmod the value
+keeps its scale and the check rejects it. This is the storage-level half of the no-floats rule;
+`bigint` in application code is the other half.
+
+`eth_address`, `eth_hash`, `eth_topic` and `eth_hexdata` domains enforce lowercase `0x` hex of the
+right length, so a checksummed address can never become a second lookup key.
+
+### 6.1 Chain integrity tables (implemented)
 
 #### `chains`
 
 | Column | Notes |
 | --- | --- |
-| `chain_id` | Primary key |
+| `chain_id` | Primary key. CHECK constrains it to 31337 / 84532 / 296 (D-027) |
 | `name` | Human-readable network |
 | `finality_confirmations` | Applied confirmation depth |
+| `registry_address`, `factory_address`, `stablecoin_address` | Deployment fingerprint. A process configured for different addresses on the same chain id is refused rather than interleaving two histories |
+| `start_block` | Configured backfill origin |
 
 #### `indexed_blocks`
 
@@ -192,7 +220,28 @@ point. Preserve raw base units and expose formatted strings at the API boundary.
 | `worker` | `arc-events`, `pool-swaps`, `candles`, etc. |
 | `block_number` | Last committed block |
 | `block_hash` | Must match before continuing |
+| `block_timestamp` | Chain time of that block; the `asOf` in every response envelope |
+| `reorg_depth` | Non-zero while recovering; surfaces as `degraded` in `/v1/health` |
+| `last_error` | Last failure text, or null |
 | `updated_at` | Liveness metric |
+
+`raw_logs` carries a cascading foreign key to `indexed_blocks (chain_id, number)`, so deleting an
+orphaned block deletes its logs in the same statement. That is the primitive the reorg rollback in
+§8 is built on, and it also makes a log for an unindexed block impossible to write.
+
+#### `projection_anomalies`
+
+| Column | Notes |
+| --- | --- |
+| `id` | Surrogate key |
+| `chain_id`, `block_number`, `transaction_hash`, `log_index` | Where the discrepancy was seen |
+| `worker`, `kind` | e.g. `arc-events`, `allocation_balance_mismatch` |
+| `detail` | JSONB: emitted value, applied value, category |
+| `resolved` | Open anomalies make `/v1/health` report `degraded` |
+
+Required by the projection rule in `CONTRACTS_TO_BACKEND.md` §2: when an applied delta disagrees
+with the emitted new balance, **flag the row, never overwrite silently**. This table is evidence,
+never trusted state.
 
 ### 6.2 Protocol projection tables
 
@@ -559,11 +608,18 @@ candle rebuilds.
 
 ## 17. Milestones and acceptance criteria
 
-### Milestone A: foundation
+### Milestone A: foundation — **done (2026-08-27)**
 
 - backend workspace, config validation, database migration, health route;
 - chain identity check; and
 - block/raw-log/cursor tables.
+
+Delivered on branch `backend/foundation`: validated configuration that refuses a non-testnet chain,
+a zero root address, and `CONFIRMATIONS=0` in production; PostgreSQL migrations with the value
+domains above; the four-step startup guard (RPC identity, deployment presence, database
+fingerprint, cursor hash) including fresh-chain-restart detection; `GET /v1/health`; and 80 tests
+covering exact-decimal arithmetic, the envelope rules, schema integrity against a real PostgreSQL,
+and the guards. Run instructions in `backend/README.md`.
 
 ### Milestone B: ArcReserve indexer
 

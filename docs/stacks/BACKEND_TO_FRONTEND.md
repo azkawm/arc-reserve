@@ -18,8 +18,8 @@ Every `/v1` response:
   "meta": {
     "chainId": 31337,
     "indexedBlock": 1234,
-    "indexedBlockHash": "0x…",
-    "asOf": 1786932000,
+    "indexedBlockHash": "0x…" | null,
+    "asOf": 1786932000 | null,
     "provenance": "onchain" | "derived" | "mock",
     "stale": false,
     "lagBlocks": 0
@@ -27,7 +27,12 @@ Every `/v1` response:
 }
 ```
 
+`indexedBlockHash` and `asOf` are `null` **only** before the first block is indexed, and that state
+always carries `stale: true` (CHANGED 2026-08-27). Reporting `indexedBlock: 0` as fresh would let
+the UI present an empty read model as current chain state.
+
 Errors: HTTP 4xx/5xx with `{ "error": { "code": "ASSET_NOT_FOUND" | "INDEXER_BEHIND" | "MOCK_DISABLED" | "BAD_REQUEST" | "INTERNAL", "message": "…" } }`.
+An unknown route is `404` with `BAD_REQUEST`; a rate-limited request is `429` with `BAD_REQUEST`.
 
 Rules (from D-019):
 - All financial quantities are **decimal strings in human units** (`"1.018000"`, `"20000.000000"`),
@@ -42,6 +47,7 @@ Rules (from D-019):
 | Route | Purpose | Replaces fixture |
 | --- | --- | --- |
 | `GET /v1/health` | status, chain ids, DB, cursors, lag | — |
+| **`?chainId=`** on every asset route | selects the chain; defaults to the single chain in the database | — |
 | `GET /v1/assets?status=&limit=&cursor=` | marketplace list | `marketPipeline` |
 | `GET /v1/assets/:assetId` | identity + deployment | `solarAsset` (identity fields) |
 | `GET /v1/assets/:assetId/metrics` | current numbers | `solarAsset` (numeric fields), all `Metric` cards |
@@ -54,6 +60,19 @@ Rules (from D-019):
 | `GET /v1/accounts/:address/assets/:assetId` | holdings + claim/redeem context | "Your position" card |
 
 `:assetId` is the bytes32 hex; the frontend may also resolve `slug` via `/v1/assets`.
+
+`GET /v1/health` is shipped (Milestone A). Its payload is documented in `backend/README.md`; the
+fields the UI needs are `data.status`, `data.chain.latestBlock`, `data.indexers[].blockNumber`, and
+`meta.indexedBlock` for the transaction-reconciliation poll in section 5. Two deliberate
+departures from the rules above (CHANGED 2026-08-27):
+
+- it returns the **data envelope in every case**, including failure, because an operator reading
+  it needs the detail rather than an opaque error body; and
+- its HTTP status is a readiness signal — `200` while healthy or degraded, `503` once unhealthy —
+  so a probe and the UI poll can both use it.
+
+Its `meta.provenance` is `derived`: health is this service's own operational state, never a chain
+value.
 
 ## 3. Shapes
 
@@ -201,3 +220,6 @@ with `rejected / reverted / indexing-delayed` terminals.
 | Date | Change | Migration |
 | --- | --- | --- |
 | 2026-08-27 | Initial target contract, derived from `docs/BACKEND_INDEXER.md` §12–13 and `frontend/src/lib/data.ts` | — |
+| 2026-08-27 | **CHANGED** — `meta.indexedBlockHash` and `meta.asOf` are nullable before the first indexed block, and that state is always `stale: true`. | Frontend must accept `null` for both and treat it as "not indexed yet", not as an error. |
+| 2026-08-27 | **CHANGED** — `GET /v1/health` ships and always returns the data envelope; HTTP `200` healthy/degraded, `503` unhealthy. Unknown route → `404` `BAD_REQUEST`; rate limited → `429` `BAD_REQUEST`. | The typed client must not treat a `503` health response as a transport failure; parse the body. |
+| 2026-08-27 | **CHANGED** — `?chainId=` query parameter reserved on every asset route (D-030: one database, three chains). | Optional while one chain is configured; required once a second chain is indexed. |
