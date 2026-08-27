@@ -71,7 +71,12 @@ The compliance layer (D-021) is merged: 75 tests, `src/compliance/`, permissione
    (lower, upper)` requiring `upper ≤ floorTick` (price terms) and passing the normal safety gates.
    Invariants: `floorPrice ≤ min(NAV, backing)` always; `floorTick` never moves down in price
    while Active; backing never decreases through a redemption; at most one step per cooldown.
-8. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; synthetic OHLC hook decision
+8. **Term-sheet binding (D-026).** `approveAsset(assetId, initialNAV, termsHash)` +
+   `reapproveTerms`; registry stores/exposes `termsHashOf(assetId)`; factory checks
+   `keccak256(abi.encode(params))` and reverts `TermsMismatch()`. Emit `TermsApproved(assetId,
+   termsHash)`. Update `DeployLocal`, `ArcReserveTestBase`, and the `CHANGED` rows (frontend
+   `approveAsset`/verifier UI and backend event catalog both change).
+9. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; synthetic OHLC hook decision
    (`MockUniswapV3Pool` emitting `Swap` vs backend-synthetic); factory role-renounce decision.
 
 Every step: update `docs/SYSTEM_SPEC.md`, `docs/BUSINESS_MODEL.md` "current vs target" table, and

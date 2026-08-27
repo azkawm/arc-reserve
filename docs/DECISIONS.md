@@ -324,6 +324,18 @@ publishing an unbacked floor. The ratchet applies only in Active; in Suspended/D
 published reference is the emergency settlement price. A floor level is a reference, not a bid
 (D-010 unchanged).
 
+## D-026: Deployment parameters are bound to the verifier-approved term sheet
+
+Status: accepted 2026-08-27; target contract change.
+
+`approveAsset(assetId, initialNAV, termsHash)` records the hash of the term sheet the verifier
+committee approved. `AssetFactory.deployAssetSystem(params)` requires
+`keccak256(abi.encode(params)) == termsHash` and reverts with `TermsMismatch()` otherwise. The
+`DeploymentParams` struct is therefore the canonical term sheet; the offchain legal pack references
+the same hash. Amending terms after approval requires `reapproveTerms(assetId, newTermsHash)` by the
+verifier (and, in the institutional flow, restarts the approval time-lock). Closes the
+"approved X, deployed Y" hole at near-zero cost.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:

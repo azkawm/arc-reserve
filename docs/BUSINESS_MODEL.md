@@ -222,7 +222,7 @@ Draft -> Verification -> Approved (time-lock) -> Fundraising
 
 1. Verifier: ArcReserve or independent party.
 2. Investor classes in the MVP (retail vs accredited) and per-class limits.
-3. Term-sheet hash binding at deployment.
+3. ~~Term-sheet hash binding at deployment~~ — accepted (D-026).
 4. Parameters: level-up cooldown, reporting and default grace periods, demo revenue share, step
    size (fixed at one tick spacing).
 5. Reserve yield source (mock vs ERC-4626 stable).
