@@ -84,7 +84,11 @@ The compliance layer (D-021) is merged: 75 tests, `src/compliance/`, permissione
    `keccak256(abi.encode(params))` and reverts `TermsMismatch()`. Emit `TermsApproved(assetId,
    termsHash)`. Update `DeployLocal`, `ArcReserveTestBase`, and the `CHANGED` rows (frontend
    `approveAsset`/verifier UI and backend event catalog both change).
-9. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; synthetic OHLC hook decision
+9. **Class-based purchase caps (D-028).** `PrimaryOffering.walletPurchaseLimitByClass(uint8)`
+   (admin-settable, default = `walletPurchaseLimit`), read `investorClass` from the token's
+   registry on `buy`; optional per-class aggregate cap; event `ClassLimitSet`. Demo: retail
+   5,000 / accredited 50,000 / institutional uncapped. Tests per class + fallback.
+10. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; synthetic OHLC hook decision
    (`MockUniswapV3Pool` emitting `Swap` vs backend-synthetic); factory role-renounce decision.
 
 Every step: update `docs/SYSTEM_SPEC.md`, `docs/BUSINESS_MODEL.md` "current vs target" table, and

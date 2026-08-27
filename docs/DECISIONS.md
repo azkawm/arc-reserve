@@ -362,6 +362,20 @@ Consequences for each stack:
 - **Keys**: Anvil keys never leave Anvil; testnet deployer keys in untracked `.env` only; one
   admin key per chain is acceptable for the demo.
 
+## D-028: Investor classes — retail allowed, class-based purchase caps
+
+Status: accepted 2026-08-27; target contract change (small).
+
+The demo admits retail investors. `IdentityRegistry.investorClass` is the source of truth:
+`1 retail`, `2 accredited`, `3 institutional`. `PrimaryOffering` gains per-class wallet purchase
+limits (`walletPurchaseLimitByClass[class]`, falling back to `walletPurchaseLimit`) and a
+per-class aggregate cap where the term sheet requires one (e.g. a maximum share of the raise from
+retail). Demo values: retail 5,000 mUSD, accredited 50,000 mUSD, institutional uncapped within the
+fundraising cap. The verifier UI and asset page display the class of the connected wallet and its
+remaining limit. Suitability acknowledgements are recorded offchain by hash at subscription
+(target, with the escrow milestone). In line with D-027 this is a demonstration of class-gating,
+not a licensed retail offering.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:
