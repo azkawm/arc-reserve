@@ -1,0 +1,12 @@
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/lib/*/.git/
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/dev-server*.log
+.DS_Store
+.runtime/

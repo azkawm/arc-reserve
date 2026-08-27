@@ -1,0 +1,432 @@
+# ArcReserve Agent Handoff
+
+This file is the primary context document for Claude Code, Codex, or another implementation agent.
+Read it before changing the repository. Then follow the links to the detailed specifications.
+
+Before material implementation, complete [`docs/AI_COMPREHENSION_CHECK.md`](docs/AI_COMPREHENSION_CHECK.md)
+and present the answers to the project owner. This is a required context check, not a coding task.
+
+## Mission
+
+ArcReserve is a hackathon MVP for launching verified real-world asset participation markets. Each
+asset series combines:
+
+- a capped ERC-20 token;
+- a category-accounted stablecoin vault;
+- an initial offering;
+- revenue distribution to yield-eligible circulating holders;
+- reserve-limited redemption;
+- a guarded concentrated-liquidity manager; and
+- an issuer, verifier, investor, and keeper interface.
+
+The demonstration series is **Solar Indonesia 01 (SOLAR01)**. The product tagline is **Real assets.
+Programmable liquidity.**
+
+This is infrastructure and product-prototype software. It does not itself establish legal title,
+equity, a guaranteed return, a price peg, or guaranteed 1:1 redemption.
+
+## Non-negotiable product rules
+
+Do not weaken these rules without an explicit product decision and corresponding test changes:
+
+1. **Supply is capped.** SOLAR01 is not an unlimited-supply token.
+2. **The market manager cannot mint.** It trades only inventory transferred to it.
+3. **Protected reserve and market inventory are different accounting buckets.** Market making may
+   withdraw only the vault's market allocation.
+4. **NAV, market spot, TWAP, protected floor reference, and redemption price are distinct values.**
+5. **Redemption is reserve-limited.** It is not an always-on promise to redeem at NAV.
+6. **Asset tokens burn before stablecoin leaves the vault during redemption.**
+7. **Revenue uses yield-eligible circulating supply.** Yield-excluded vesting balances do not dilute
+   active holders and cannot earn retroactive revenue when released.
+8. **Price appreciation is not protocol profit.** Only realized revenue, fees, settlement proceeds,
+   or realized rebalancing surplus can be allocated.
+9. **Hikari is a lifecycle reference, not code to clone.** ArcReserve borrows the UX concepts of
+   anchor movement and discovery refresh, not Hikari's uncapped minting or bonding-curve AMM.
+10. **UI policy previews must be labeled.** Do not present a target feature as onchain-enforced when
+    the corresponding contract does not exist.
+11. **The token is permissioned.** Every non-exempt transfer leg must pass the identity registry.
+    Only infrastructure that is not an investor (canonical pool, market manager, vesting wallet)
+    may be compliance-exempt, and a burn (redemption exit) is never blocked by a stale KYC claim.
+
+## Current repository state
+
+| Layer | Status | Notes |
+| --- | --- | --- |
+| Solidity contracts | Implemented | Foundry project under `contracts/` |
+| Local deployment | Implemented | Anvil deployment script and deterministic mock pool |
+| Contract tests | Implemented | 74 passing tests at the last verification (2026-08-27) |
+| Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
+| Market-manager coverage | Strong | 98.17% lines, 95.50% statements, 73.91% branches, 100% functions |
+| Frontend | Implemented prototype | Next.js 15, React 19, wagmi, viem, Recharts; typecheck/lint/build clean |
+| Wallet writes | Partially live | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls |
+| Market data | Mostly mocked | Static profile, metrics, liquidity cards, rebalances, and OHLC candles |
+| Backend API | Not implemented | No `backend/` service exists yet |
+| Chain indexer | Not implemented | No event ingestion, persistence, or reorg handling |
+| Canonical OHLC | Not implemented | Current candles are fixtures; mock pool swaps do not produce real price discovery |
+| Escrowed fundraising | Target only | Current offering mints immediately on each purchase |
+| Threshold settlement | Target only | Full/partial/failed settlement rules exist only in specification and UI preview |
+| Company vesting | Partially implemented | Vesting contract and local-script wiring exist; factory settlement does not create it |
+| Controlled issuance headroom | Target only | Cap exists, policy controller does not |
+| Lock and earn | Target only | UI preview and business rules only |
+
+## Working per stack
+
+One agent per stack: read `docs/stacks/README.md`, then the brief for your stack
+(`AGENT_CONTRACTS.md`, `AGENT_BACKEND.md`, `AGENT_FRONTEND.md`) and the boundary docs that touch it.
+Interface changes are announced in the boundary doc in the same change.
+
+## Source-of-truth order
+
+When sources disagree, use this order:
+
+1. Solidity implementation and passing tests.
+2. `docs/SYSTEM_SPEC.md` and `docs/DECISIONS.md`.
+3. Other files in `docs/`.
+4. Frontend copy and `frontend/src/lib/data.ts`.
+
+Frontend fixture values illustrate the intended UX and are not authoritative protocol state.
+
+## Repository map
+
+```text
+arc-reserve/
+|-- CLAUDE.md                         This handoff
+|-- README.md                         Human-oriented project entry point
+|-- contracts/
+|   |-- src/                          Solidity implementation
+|   |-- script/DeployLocal.s.sol      Seeded Anvil deployment
+|   |-- test/unit/                    Component and control tests
+|   |-- test/integration/             Lifecycle and market happy paths
+|   |-- test/invariant/               Stateful financial invariants
+|   `-- deployments/31337.json        Last local addresses; regenerate after Anvil restart
+|-- frontend/
+|   |-- src/app/                      Marketplace, asset, engine, issuer, verifier routes
+|   |-- src/components/               Charts, transaction panels, controls, shared UI
+|   |-- src/lib/contracts.ts          Minimal ABIs and environment addresses
+|   `-- src/lib/data.ts               Explicit demo fixtures
+`-- docs/
+    |-- SYSTEM_SPEC.md                Canonical implementation-level specification
+    |-- ARCHITECTURE.md               Components, trust boundaries, and flows
+    |-- BUSINESS_MODEL.md             Target commercial and settlement model
+    |-- MARKET_MAKING.md              ARC liquidity engine and Hikari mapping
+    |-- BACKEND_INDEXER.md            Planned API, indexer, and OHLC design
+    |-- FRONTEND.md                    Current UI behavior and integration plan
+    |-- TESTING.md                     Test map, commands, coverage, and gaps
+    |-- DECISIONS.md                   Accepted decisions and open questions
+    |-- AI_COMPREHENSION_CHECK.md      Pre-implementation questions and answer key
+    |-- SECURITY.md                    Threat model and pre-production requirements
+    |-- stacks/                        Cross-stack boundary docs and per-stack agent briefs
+    |-- PRD.md                         Product requirements and acceptance criteria
+    `-- DEMO.md                        Local demo runbook
+```
+
+## Demo configuration
+
+The local script deploys one series with these values:
+
+| Parameter | Value |
+| --- | --- |
+| Token | SOLAR01, 18 decimals |
+| Stablecoin | mUSD, 6 decimals, test faucet |
+| Maximum token supply | 100,000 SOLAR01 |
+| Offering inventory | 80,000 SOLAR01 |
+| Company vesting allocation | 20,000 SOLAR01 in the local script |
+| Offering price | 1.000000 mUSD per SOLAR01 |
+| Fundraising cap | 80,000 mUSD |
+| Wallet purchase limit | 50,000 mUSD |
+| Minimum purchase | 1 mUSD |
+| Initial protected reserve | 20,000 mUSD |
+| Minimum reserve ratio | 20% of NAV-valued issued supply |
+| Maturity | Deployment time plus three years |
+| Revenue split | 60% holders / 25% reserve / 10% operator / 5% protocol |
+| Primary purchase split | 70% issuer / 20% reserve / 10% market allocation |
+| Redemption period | One day |
+| Redemption limit | 25,000 SOLAR01 per period |
+| Verified wallets | Anvil #0 (deployer) and Anvil #1 (investor), country 360, class 1, no expiry |
+| Compliance modules | `CountryAllowModule` (Indonesia only), `TransferLockModule` (hold period 0) |
+| NAV stale threshold | Two days |
+| Maximum NAV move | 20% per update |
+| Market TWAP window | 30 minutes |
+| Rebalance cooldown | 30 minutes |
+| Maximum spot/TWAP deviation | 3% |
+| Maximum TWAP/NAV deviation | 20% |
+| Maximum range move | 1,200 ticks |
+
+The script also creates a one-year linear `CompanyVestingWallet`, registers it as yield-excluded
+before minting, mints 20,000 SOLAR01 to it, and revokes the deployer's temporary mint role.
+
+## Contract model in one page
+
+### Registry and factory
+
+`AssetRegistry` owns asset identity, metadata commitment, NAV, maturity, lifecycle status, and the
+addresses of deployed components. `AssetFactory` may deploy a system only for an approved record,
+from an approved pool factory, and only for the registered issuer. Component deployers keep factory
+runtime bytecode below the EIP-170 limit.
+
+Asset status is:
+
+```text
+Pending -> Approved -> Active -> Suspended -> Active
+   |                      |          |
+   `-> Closed             |          `-> Defaulted
+                          |-> Defaulted
+                          `-> Matured -> Closed
+```
+
+Some transitions are implemented as dedicated functions rather than a generic state machine. Read
+`AssetRegistry.sol` before adding a transition.
+
+### Token and supply
+
+`AssetToken` is ERC-20 Permit plus pause and roles. The offering is the normal issuance controller.
+The redemption controller is the only component allowed to burn another holder's tokens. Supply may
+never exceed `maximumSupply`.
+
+Transfers are permissioned (ERC-3643 function names). `AssetToken._update` checks, in order:
+sender/recipient address freeze, partial-freeze balance, `identityRegistry.isVerified` for each
+non-exempt leg (burns skip the sender check), then `compliance.canTransfer`. `transferRestriction()`
+returns the selector of the first failing rule for UI previews. `TRANSFER_AGENT_ROLE` may freeze and
+`forcedTransfer`. The factory binds the shared `IdentityRegistry` and exempts the pool and market
+manager; `ModularCompliance` (per token) with `CountryAllowModule` / `TransferLockModule` is bound
+post-deploy by the admin. See `src/compliance/`.
+
+The local vesting script temporarily grants a mint role to the protocol admin to create the disclosed
+company allocation. That path is demo wiring, not a generic settlement controller.
+
+### Vault accounting
+
+The vault tracks five categories:
+
+```text
+redemptionReserve
++ marketMakingAllocation
++ assetRevenue
++ issuerProceeds
++ protocolFees
+= totalAccounted
+```
+
+Required solvency:
+
+```text
+stablecoin balance >= totalAccounted
+redemptionReserve >= minimumRequiredReserve
+
+minimumRequiredReserve = NAV value of total issued supply * minimum reserve ratio
+```
+
+Direct token transfers to the vault are unaccounted until an authorized function credits a category.
+
+### Offering
+
+The current `PrimaryOffering` is a direct purchase contract, not escrow. A successful `buy` transfers
+mUSD to the vault, accounts it 70/20/10, and immediately mints tokens to the buyer. It checks time,
+asset status, fundraising cap, wallet limit, inventory, minimum purchase, and minimum token output.
+
+The target full/partial/failed fundraising settlement in `BUSINESS_MODEL.md` is not implemented.
+
+### Revenue and vesting eligibility
+
+`RevenueDistributor` uses a cumulative-revenue-per-eligible-token accumulator. The token calls its
+transfer hook before every mint, burn, or transfer so past revenue remains with the economic holder
+who earned it. An excluded address has zero eligible balance and its holdings are tracked in
+`excludedSupply`.
+
+Excluding an account does not erase revenue already earned. Removing exclusion starts the balance at
+the current accumulator, preventing retroactive yield.
+
+### Redemption
+
+Normal redemption is allowed only while active, maturity redemption only while matured, and emergency
+redemption only while suspended or defaulted. The price is:
+
+```text
+liquid backing per token = redemption reserve / current total supply
+reference = emergency settlement price when set in emergency mode, otherwise NAV
+redemption price = min(reference, liquid backing per token)
+```
+
+The period limit and reserve liquidity are checked before the token burns and the vault pays.
+
+### ARC Liquidity Engine
+
+The manager records four Uniswap V3-style positions: reserve-floor range, anchor, discovery, and
+optional intermediary. The reserve-floor range is market inventory and is not the protected floor
+reference.
+
+Range updates follow an explicit keeper lifecycle:
+
+```text
+remove old liquidity -> verify safety -> update range -> remint in a second transaction
+```
+
+The three Hikari-inspired happy paths are:
+
+- `slide`: move an empty anchor after an upward spot/TWAP signal;
+- `sweep`: move an empty anchor after a downward signal; and
+- `refreshDiscovery`: move an empty discovery range.
+
+This manager does not implement Hikari's bonding curve, dynamic minting, or automatic reserve
+borrowing. See `docs/MARKET_MAKING.md`.
+
+## Frontend truth boundary
+
+The frontend intentionally mixes executable controls and visual fixtures.
+
+Live when contract addresses and a wallet are configured:
+
+- mUSD approval;
+- offering purchase;
+- holder revenue claim and claimable read;
+- normal redemption;
+- issuer reserve deposit and revenue deposit;
+- asset submission;
+- verifier NAV/status actions; and
+- keeper `slide`, `sweep`, and `rebalanceToNAV` calls.
+
+Mock or static today:
+
+- OHLC candles and period switching;
+- spot, TWAP, NAV, and floor numbers shown in most cards;
+- market list and issuer profile;
+- liquidity balances and ranges;
+- keeper history;
+- portfolio balances and protocol statistics;
+- sell execution; and
+- full/partial offering settlement preview.
+
+`frontend/src/lib/data.ts` is the fixture source. Do not call it indexed or live data.
+
+The candle chart uses Recharts with a custom candle shape. TradingView Lightweight Charts is not
+installed. A future chart should consume indexed canonical pool swaps as specified in
+`docs/BACKEND_INDEXER.md`.
+
+## Backend and indexer: next major subsystem
+
+There is no backend directory yet. The agreed next direction is a backend API, event indexer, and
+OHLC aggregation service. Before implementing it, read `docs/BACKEND_INDEXER.md` in full.
+
+Key requirements:
+
+- idempotent log ingestion keyed by chain, transaction hash, and log index;
+- block-hash checkpoints and reorg rollback;
+- derived views for assets, supply, reserve buckets, revenue, redemptions, and liquidity positions;
+- canonical-pool swap ingestion for OHLC;
+- explicit data provenance (`onchain`, `derived`, or `mock`);
+- no backend-held user signing keys; and
+- frontend fallback that never silently substitutes mock data for failed live data.
+
+The current mock pool does not emit canonical Uniswap `Swap` events and its swaps do not move price.
+Real OHLC cannot be honestly derived from it. Use a clearly labeled synthetic demo feed or integrate a
+canonical pool/fork before calling candles live.
+
+## Commands
+
+PowerShell examples from the repository root:
+
+```powershell
+cd contracts
+C:\Users\willi\.foundry\bin\forge.exe build
+C:\Users\willi\.foundry\bin\forge.exe test
+C:\Users\willi\.foundry\bin\forge.exe coverage --report summary
+```
+
+If Foundry is on `PATH`, use `forge` directly.
+
+Local demo:
+
+```powershell
+anvil
+cd contracts
+forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+Frontend:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.local
+npm install
+npm run typecheck
+npm run lint
+npm run build
+npm run dev
+```
+
+If PowerShell blocks `npm.ps1`, use `npm.cmd run <script>` on this Windows machine.
+
+Anvil addresses are ephemeral. Regenerate the deployment and update `.env.local` after restarting a
+fresh chain. The checked-in `deployments/31337.json` may describe an older local run.
+
+## Tests and validation baseline
+
+Last contract verification:
+
+- 74 tests passed (2026-08-27, including 18 compliance-gate tests);
+- zero failures and zero skips;
+- five stateful financial invariants;
+- `AssetMarketManager`: 98.17% lines, 95.50% statements, 73.91% branches, 100% functions;
+- `AssetToken` (with compliance gate): 95.65% lines, 91.50% statements, 75.76% branches; and
+- overall Solidity sources: 80.91% lines, 80.50% statements, 50.42% branches, 79.28% functions
+  (the new `IdentityRegistry` / `ModularCompliance` admin paths are the least covered).
+
+Last frontend verification: `npm.cmd run typecheck`, `npm.cmd run lint`, and
+`npm.cmd run build` all passed. Next.js generated the marketplace, asset, engine, issuer, and verifier
+routes successfully.
+
+Coverage is not an audit. The local pool is a callback harness, not an economic AMM simulator.
+
+See `docs/TESTING.md` before changing financial or market behavior. Preserve unrelated user changes.
+
+## Implementation priorities
+
+Reprioritized 2026-08-27 (see D-022–D-024 and `docs/stacks/AGENT_CONTRACTS.md`): the contracts
+track now runs the business-model alignment (company-token treatment, sinking-fund reserve
+schedule, dynamic split, reserve yield, residual return, 65/30/5) **in parallel** with the backend
+track below. Frontend tasks 0–2 in `docs/stacks/AGENT_FRONTEND.md` need neither.
+
+Backend track order:
+
+1. Backend/indexer foundation and schema.
+2. Event ingestion with reorg-safe cursors.
+3. Read APIs for assets, metrics, positions, and activity.
+4. Canonical or explicitly synthetic OHLC pipeline.
+5. Frontend migration from fixtures to provenance-labeled queries.
+6. Production Uniswap V3 fork tests and position fee accounting.
+7. Escrowed fundraising and deterministic full/partial/failed settlement.
+8. Factory-integrated company vesting and governed issuance headroom.
+9. Lock-and-earn funded only by realized stablecoin revenue or fees.
+
+Do not combine steps 7-9 into the current direct offering without a migration and accounting plan.
+
+## Known pitfalls
+
+- `redemptionReserve` is not spendable market liquidity.
+- `market floor range` is not the protected floor reference.
+- The current offering is immediate minting, despite target fundraising copy in parts of the UI.
+- The vesting contract exists, but only the local script wires it automatically.
+- `contracts/deployments/31337.json` is a snapshot, not a durable address registry.
+- `EngineControls` uses a fixed tick pair suitable only for the seeded demo and may revert after a
+  previous range update or when token ordering differs.
+- Sell is intentionally not implemented in the frontend.
+- Frontend mojibake was cleaned up; a byte scan on 2026-08-27 found only valid UTF-8 punctuation in
+  `frontend/src`. Keep files UTF-8 when editing on Windows.
+- The mock pool does not model price impact, tick crossing, fee growth, MEV, or liquidity exhaustion.
+- `collectFees` cannot separate fees from principal at the generic manager interface level.
+- A paused market still permits authorized liquidity removal, fee collection, and return of idle mUSD.
+  This is intentional recovery behavior.
+- Solidity and stablecoin decimals differ. Token amounts are 18 decimals; mUSD, NAV, and quoted prices
+  use 6 decimals in the current system.
+
+## Definition of done for future changes
+
+A change is complete only when:
+
+1. implementation and UI labels agree about whether behavior is live, derived, or mock;
+2. financial category movements are explicit and tested;
+3. authorization and pause behavior are tested;
+4. relevant unit, integration, and invariant tests pass;
+5. frontend typecheck, lint, and build pass for UI changes;
+6. documentation updates distinguish current implementation from target policy; and
+7. no claim of ownership, guarantee, peg, or dividend is introduced without legal/product approval.

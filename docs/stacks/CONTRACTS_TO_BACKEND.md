@@ -1,0 +1,244 @@
+# Boundary B — Contracts → Backend / Indexer
+
+What the Solidity layer emits and exposes for an event indexer and read-model service. Event
+signatures are verbatim from `contracts/src/` as of 2026-08-27. Design of the backend itself is in
+`docs/BACKEND_INDEXER.md`; this file is only the *input contract*.
+
+## 1. Discovery and configuration
+
+| Input | Source |
+| --- | --- |
+| Chain id | `31337` (Anvil) — verify against `eth_chainId` at startup |
+| Root addresses | `contracts/deployments/<chainId>.json` → `arcReserve.registry`, `arcReserve.factory`, `arcReserve.mockUSD` |
+| Per-asset component addresses | **Do not read from the JSON.** Derive from `AssetFactory.AssetSystemDeployed` (or `AssetRegistry.AssetContractsSet`) so multi-asset works |
+| Company vesting address | Not emitted by any event (created outside the factory in `DeployLocal`). Read `deployments.json → companyVesting`, and treat any address with `RevenueDistributor.YieldExclusionChanged(excluded=true)` as yield-excluded |
+| ABIs | `contracts/out/<Name>.sol/<Name>.json` (`.abi`) after `forge build`; commit a copied `backend/abis/` snapshot so the backend does not depend on the Foundry cache |
+| Start block | `0` on Anvil; on public chains the factory deployment block |
+
+Watched address set = `{registry, factory, mockUSD} ∪ {token, vault, offering, revenueDistributor,
+redemptionController, marketManager, pool}` per deployed asset (grow dynamically on
+`AssetSystemDeployed`).
+
+## 2. Event catalog (exact signatures)
+
+Ordering key everywhere: `(blockNumber, transactionIndex, logIndex)`. Idempotency key:
+`(chainId, transactionHash, logIndex)`.
+
+### AssetRegistry
+```solidity
+event AssetSubmitted(bytes32 indexed assetId, address indexed issuer, string name, string category, string metadataURI, bytes32 metadataHash, uint64 maturityTimestamp);
+event AssetStatusChanged(bytes32 indexed assetId, uint8 previousStatus, uint8 newStatus); // enum AssetStatus
+event NAVUpdated(bytes32 indexed assetId, uint256 previousNAV, uint256 newNAV, uint64 timestamp);
+event AssetContractsSet(bytes32 indexed assetId, (address token,address vault,address offering,address marketManager,address revenueDistributor,address redemptionController) contracts_);
+event OraclePolicyUpdated(uint32 staleAfter, uint16 maxMovementBps);
+```
+`AssetStatus`: `0 Pending, 1 Approved, 2 Active, 3 Suspended, 4 Defaulted, 5 Matured, 6 Closed`.
+`approveAsset` emits `NAVUpdated(assetId, 0, initialNAV, ts)` **and** `AssetStatusChanged(Pending→Approved)`.
+
+### AssetFactory
+```solidity
+event PoolFactoryApprovalChanged(address indexed poolFactory, bool approved);
+event AssetSystemDeployed(bytes32 indexed assetId, address indexed issuer, (address token,address vault,address offering,address marketManager,address revenueDistributor,address redemptionController,address pool) deployment);
+```
+
+### AssetToken (ERC-20 + roles)
+```solidity
+event Transfer(address indexed from, address indexed to, uint256 value);   // from==0 mint, to==0 burn
+event Approval(address indexed owner, address indexed spender, uint256 value);
+event RevenueDistributorSet(address indexed distributor);
+event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender);
+event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender);
+event Paused(address account); event Unpaused(address account);
+```
+`totalSupply` projection = Σ mints − Σ burns; must equal `AssetToken.totalSupply()` at the block.
+
+### AssetVault
+```solidity
+event AllocationChanged(bytes32 indexed category, int256 delta, uint256 newCategoryBalance, uint256 totalAccounted);
+event InitialReserveDeposited(address indexed issuer, uint256 amount);
+event IssuerProceedsWithdrawn(address indexed issuer, uint256 amount);
+event ProtocolFeesWithdrawn(address indexed recipient, uint256 amount);
+event RedemptionReleased(address indexed recipient, uint256 amount);
+event MarketFundsReleased(address indexed marketManager, uint256 amount);
+event MarketFundsReturned(address indexed marketManager, uint256 amount);
+```
+`category` is a left-aligned bytes32 string literal: `"REDEMPTION_RESERVE"`, `"MARKET_ALLOCATION"`,
+`"ASSET_REVENUE"`, `"ISSUER_PROCEEDS"`, `"PROTOCOL_FEES"`. **Projection rule:** apply `delta` to the
+running category balance and assert it equals `newCategoryBalance`; on mismatch flag the row, never
+overwrite silently. `AllocationChanged` is the single source for all five buckets; the other vault
+events are annotations.
+
+### PrimaryOffering
+```solidity
+event TokensPurchased(address indexed buyer, uint256 stablecoinAmount, uint256 tokenAmount, uint256 issuerShare, uint256 reserveShare, uint256 marketShare);
+```
+Same tx also emits three `AllocationChanged` (issuer, reserve, market) and one token `Transfer(0→buyer)`.
+
+### RevenueDistributor
+```solidity
+event RevenueDeposited(address indexed depositor, uint256 grossAmount, uint256 holderAmount, uint256 reserveAmount, uint256 operatorAmount, uint256 protocolAmount);
+event RevenueClaimed(address indexed holder, uint256 amount);
+event OperatorRevenueClaimed(address indexed operator, uint256 amount);
+event YieldExclusionChanged(address indexed account, bool excluded, uint256 accountBalance);
+```
+Holder + operator shares stay in the distributor; reserve + protocol move to the vault in the same
+tx (two `AllocationChanged`). `excludedSupply` projection = Σ balances of excluded accounts,
+updated on `YieldExclusionChanged` and on every `Transfer` touching an excluded account.
+
+### RedemptionController
+```solidity
+event Redeemed(address indexed holder, uint8 indexed mode, uint256 tokenAmount, uint256 stablecoinAmount, uint256 nav, uint256 redemptionPrice); // mode: 0 Normal,1 Maturity,2 Emergency
+event EmergencySettlementPriceSet(uint256 previousPrice, uint256 newPrice);
+event RedemptionPeriodReset(uint64 startedAt);
+```
+Same tx: token `Transfer(holder→0)` **before** `RedemptionReleased` + `AllocationChanged(REDEMPTION_RESERVE, −amount)`.
+
+### AssetMarketManager
+```solidity
+event PositionConfigured(uint8 indexed kind, int24 tickLower, int24 tickUpper);          // kind: 0 ReserveFloor,1 Anchor,2 Discovery,3 Intermediary
+event PositionLiquidityAdded(uint8 indexed kind, uint128 liquidity, uint256 amount0, uint256 amount1);
+event PositionLiquidityRemoved(uint8 indexed kind, uint128 liquidity, uint256 amount0, uint256 amount1);
+event FeesCollected(uint8 indexed kind, uint256 amount0, uint256 amount1);
+event Rebalanced(bytes32 indexed operation, uint256 spotPrice, uint256 twapPrice, uint256 nav, int24 anchorLower, int24 anchorUpper);
+event SwapExecuted(bool indexed zeroForOne, uint256 amountIn, uint256 amountOut, uint160 sqrtPriceLimitX96);
+event MarketAllocationFunded(uint256 amount);
+event TokenInventoryFunded(address indexed funder, uint256 amount);
+event SafetyPolicyUpdated(uint32 twapWindow, uint32 cooldown, uint16 spotTwapBps, uint16 marketNavBps, int24 maxTickShift);
+```
+`operation` literals: `"SLIDE"`, `"SWEEP"`, `"REFRESH_DISCOVERY"`, `"REBALANCE_TO_NAV"`.
+`Rebalanced` carries the anchor ticks even for `REFRESH_DISCOVERY`; read the moved range from the
+`positions(kind)` state or the accompanying `PositionConfigured`-style effect (the manager updates
+storage without a separate configured event on rebalance — verify with `positions()` at that block).
+`amount0/amount1` are in **token0/token1 order**; use `assetIsToken0()` to label them.
+
+### Canonical Uniswap V3 pool (production only)
+```solidity
+event Initialize(uint160 sqrtPriceX96, int24 tick);
+event Mint(address sender, address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1);
+event Burn(address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1);
+event Collect(address indexed owner, address recipient, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount0, uint128 amount1);
+event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick);
+```
+**`MockUniswapV3Pool` emits none of these** and its `swap` does not move `sqrtPriceX96`. On Anvil,
+OHLC must come from an explicitly `mock`-labeled synthetic adapter (gated by
+`ALLOW_MOCK_MARKET_DATA=true`), never from `SwapExecuted` alone.
+
+### AssetToken — compliance (added 2026-08-27)
+```solidity
+event IdentityRegistryAdded(address indexed identityRegistry);
+event ComplianceAdded(address indexed compliance);            // zero address = compliance removed
+event ComplianceExemptionChanged(address indexed account, bool exempt);
+event AddressFrozen(address indexed userAddress, bool indexed isFrozen, address indexed owner);
+event TokensFrozen(address indexed userAddress, uint256 amount);
+event TokensUnfrozen(address indexed userAddress, uint256 amount);
+event ForcedTransfer(address indexed from, address indexed to, uint256 amount, address indexed agent); // accompanied by a normal Transfer
+```
+
+### IdentityRegistry (protocol-wide, address from `deployments.json → identityRegistry`)
+```solidity
+event IdentityRegistered(address indexed investorAddress, address indexed identity);
+event IdentityRemoved(address indexed investorAddress, address indexed identity);
+event IdentityUpdated(address indexed investorAddress, address indexed newIdentity);
+event CountryUpdated(address indexed investorAddress, uint16 indexed country);
+event InvestorClassUpdated(address indexed investorAddress, uint8 investorClass);
+event ClaimExpiryUpdated(address indexed investorAddress, uint64 expiresAt);   // 0 = no expiry
+```
+`registerIdentity` emits all four of `IdentityRegistered`, `CountryUpdated`, `InvestorClassUpdated`,
+`ClaimExpiryUpdated` in that order. Derived `isVerified` = registered && (expiresAt == 0 || expiresAt > now)
+— **time-dependent**, recompute at query time, do not store as a fact.
+
+### ModularCompliance / modules (per token, addresses from `deployments.json`)
+```solidity
+event TokenBound(address indexed token);  event TokenUnbound(address indexed token);
+event ModuleAdded(address indexed module); event ModuleRemoved(address indexed module);
+// CountryAllowModule
+event CountryAllowed(address indexed compliance, uint16 indexed country);
+event CountryDisallowed(address indexed compliance, uint16 indexed country);
+// TransferLockModule
+event HoldPeriodSet(address indexed compliance, uint64 holdPeriod);
+event HolderLocked(address indexed compliance, address indexed holder, uint64 lockedUntil);
+```
+
+### MockUSD (demo only)
+```solidity
+event FaucetUsed(address indexed account, uint256 amount);
+```
+
+## 3. Event → read-model map
+
+| Read model | Built from | Validate against (at block) |
+| --- | --- | --- |
+| `assets` | `AssetSubmitted`, `AssetStatusChanged`, `AssetContractsSet`, `AssetSystemDeployed` | `registry.getAsset(id)` |
+| `nav_history` | `NAVUpdated` | `registry.navOf(id)` |
+| `supply` (issued / excluded / eligible) | token `Transfer`, `YieldExclusionChanged` | `token.totalSupply()`, `revenue.excludedSupply()`, `revenue.circulatingSupply()` |
+| `holders` | token `Transfer` | `token.balanceOf(a)` |
+| `vault_allocations` (5 buckets, history) | `AllocationChanged` | the five vault getters, `totalAccounted()` |
+| `offering_purchases` | `TokensPurchased` | `stablecoinRaised()`, `tokensSold()`, `purchasedByWallet(a)` |
+| `revenue_deposits`, `revenue_claims` | `RevenueDeposited`, `RevenueClaimed`, `OperatorRevenueClaimed` | `totalHolderRevenue()`, `totalClaimed()`, `operatorAccrued()` |
+| `redemptions` | `Redeemed`, `EmergencySettlementPriceSet`, `RedemptionPeriodReset` | `totalRedeemedTokens()`, `totalStablecoinPaid()`, `redeemedThisPeriod()` |
+| `position_configs`, `position_liquidity_events` | `PositionConfigured`, `PositionLiquidityAdded/Removed`, `FeesCollected` | `positions(kind)` |
+| `market_rebalances` | `Rebalanced` | `lastRebalanceAt()` |
+| `identities` (wallet → country, class, expiry, identity) | `IdentityRegistered/Removed/Updated`, `CountryUpdated`, `InvestorClassUpdated`, `ClaimExpiryUpdated` | `IdentityRegistry.getIdentity(a)` |
+| `holder_restrictions` (frozen, frozenTokens, exempt, lockedUntil) | `AddressFrozen`, `TokensFrozen/Unfrozen`, `ComplianceExemptionChanged`, `HolderLocked` | `isFrozen(a)`, `getFrozenTokens(a)`, `isComplianceExempt(a)`, `lockedUntil(c,a)` |
+| `compliance_config` | `ComplianceAdded`, `Module*`, `Country*`, `HoldPeriodSet` | `getModules()` |
+| `manager_swaps` | `SwapExecuted` | — |
+| `pool_swaps`, `candles` | canonical `Swap` (or synthetic adapter) | `marketPrices().spotPrice` |
+
+Derived values the API computes (never store as "onchain"):
+```
+eligibleSupply          = totalSupply - excludedSupply
+obligationsAtNAV        = totalSupply * nav / 1e18                       (6d)
+minimumRequiredReserve  = obligationsAtNAV * minimumReserveRatioBps / 10_000
+reserveRatioBps         = redemptionReserve * 10_000 / obligationsAtNAV  (∞ if 0 supply)
+liquidBackingPerToken   = redemptionReserve * 1e18 / totalSupply          (6d; 0 supply → undefined)
+redemptionPrice(Normal) = min(nav, liquidBackingPerToken)
+```
+Prefer calling `RedemptionController.redemptionPrice(0)` at the block and label it `onchain`.
+
+## 4. Scales
+
+| Value | Scale |
+| --- | --- |
+| Token amounts (`Transfer.value`, `tokenAmount`, `liquidity`-adjacent token amounts) | 18d |
+| mUSD amounts, all vault buckets, all `*Share`, `stablecoinAmount` | 6d |
+| `nav`, `newNAV`, `redemptionPrice`, `spotPrice`, `twapPrice`, `emergencySettlementPrice` | 6d mUSD per whole token |
+| `sqrtPriceX96` | Q64.96; price = `(sqrtP/2^96)^2 * 10^(dec0−dec1)` |
+| `liquidity` | raw `uint128`; never convert to amounts without a real curve |
+| bps | `10_000 = 100%` |
+
+Store raw base units as `NUMERIC`/`bigint`; format to decimal strings at the API edge.
+
+## 5. Reorg and finality inputs
+
+- Anvil: `CONFIRMATIONS=0` acceptable; block hashes still must be checkpointed so a restart
+  with a fresh chain (all addresses change) is detected as "chain mismatch", not silently indexed.
+- Detect fresh-Anvil restart: cursor block hash ≠ RPC block hash at that height **and** registry
+  code at the configured address is empty → refuse to run and instruct to reset the DB.
+- Public chains: choose `CONFIRMATIONS` per chain; serve provisional-tip data with `finalized:false`.
+
+## 6. Roles and admin surface an indexer may want to track
+
+Role hashes: `keccak256("VERIFIER_ROLE")`, `"ISSUER_ROLE"`, `"KEEPER_ROLE"`, `"REVENUE_DEPOSITOR_ROLE"`,
+`"PAUSER_ROLE"`, `"FACTORY_ROLE"`, `"ISSUANCE_CONTROLLER_ROLE"`, `"REDEMPTION_CONTROLLER_ROLE"`,
+`"ALLOCATOR_ROLE"`, `"MARKET_MANAGER_ROLE"`; `DEFAULT_ADMIN_ROLE = bytes32(0)`.
+
+Note: after factory handoff the **factory itself still holds** `PAUSER_ROLE` on all six components
+and `KEEPER_ROLE` on the redemption controller and market manager. An "admin activity" view should
+not treat those grants as anomalies unless the contracts agent changes the handoff.
+
+## 7. Test fixtures the backend can reuse
+
+- `forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast`
+  produces a deterministic seed: 1 asset, 20,000 SOLAR01 minted to vesting (excluded), 20,000 mUSD
+  reserve, three configured positions with zero liquidity, no purchases.
+- Replay acceptance: a fresh DB replaying that chain must yield `totalSupply = 20_000e18`,
+  `excludedSupply = 20_000e18`, `circulating = 0`, `redemptionReserve = 20_000e6`, all other
+  buckets `0`, status `Active`, NAV `1_000_000`.
+- Anvil accounts: #0 = issuer/verifier/admin/keeper/depositor; #1 = investor.
+
+## 8. Change log
+
+| Date | Change | Migration |
+| --- | --- | --- |
+| 2026-08-27 | Initial boundary snapshot | — |
+| 2026-08-27 | **CHANGED** — compliance layer (D-021): new event sections for `AssetToken` compliance, `IdentityRegistry`, `ModularCompliance` + modules; three new read models; watched-address set gains `identityRegistry`, `compliance`, modules. | Add the new addresses to discovery; `isVerified` is time-dependent. |
