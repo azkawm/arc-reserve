@@ -32,7 +32,10 @@ Rules:
 - Anvil addresses change on every chain restart; `.env.local` must be regenerated. A script that
   copies `deployments/31337.json` into `.env.local` is a legitimate frontend-agent task.
 - `NEXT_PUBLIC_RPC_URL` defaults to `http://127.0.0.1:8545`; chain id is `31337`.
-- The UI must verify `chainId` from the wallet equals the configured chain before any write.
+- Target chains (D-027): Anvil `31337`, Base Sepolia `84532`, Hedera testnet `296`. Addresses are
+  per chain (`deployments/<chainId>.json`); the frontend should hold a `chainId → addresses` map
+  rather than a single set of env vars once the testnet deployments exist.
+- The UI must verify `chainId` from the wallet is one of the supported chains before any write.
 
 ## 2. ABI artifacts
 

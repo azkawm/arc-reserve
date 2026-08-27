@@ -1,5 +1,9 @@
 # Security Model
 
+> **Hackathon scope (D-027).** This document describes the threat model of a testnet demo
+> (Anvil, Base Sepolia, Hedera testnet) with a mock stablecoin and no real funds. It has not been
+> audited. The "pre-production requirements" section is a roadmap, not a claim.
+
 ## Protected properties
 
 - SOLAR01 supply cannot exceed the immutable maximum.

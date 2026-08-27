@@ -1,5 +1,8 @@
 # Stack boundaries and agent assignment
 
+> **Hackathon scope (D-027).** Testnet-only: Anvil `31337`, Base Sepolia `84532`, Hedera testnet
+> `296`. Mock stablecoin, unaudited, no real funds. Every agent keeps that framing in code and copy.
+
 This folder is the **integration layer** of the documentation. The existing files in `docs/` describe
 each subsystem from the inside. The files here describe what each stack *promises to the others*, so
 that one agent per stack can work in parallel without re-reading the whole repository.
@@ -59,7 +62,7 @@ Tokenization Studio study, concept map, and integration options.
 
 | Convention | Value |
 | --- | --- |
-| Chain for the demo | Anvil, chain id `31337` |
+| Chains | Anvil `31337` (local), Base Sepolia `84532`, Hedera testnet `296` (JSON-RPC relay `https://testnet.hashio.io/api`) — never mainnet |
 | Asset token (SOLAR01) amounts | 18 decimals |
 | mUSD amounts, NAV, token prices, redemption price, spot, TWAP | 6 decimals (mUSD base units per **whole** token) |
 | Basis points | `10_000 = 100%` |

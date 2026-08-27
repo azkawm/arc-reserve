@@ -10,6 +10,12 @@ revenue distribution, and reserve-limited redemption. The demonstration asset is
 ArcReserve never treats NAV, market price, and redemption value as interchangeable. It does not by
 itself promise legally enforceable ownership, returns, a price peg, or 1:1 redemption.
 
+> **Hackathon project.** ArcReserve is built for a hackathon and is intended to be deployed only to
+> **Base Sepolia** and **Hedera testnet** (plus local Anvil). It uses a mock stablecoin, test keys,
+> and unaudited contracts. Nothing here is a regulated financial product, an offer of securities, or
+> ready for real funds. The compliance, verification, and reserve mechanics are design
+> demonstrations.
+
 ## Architecture
 
 ```text

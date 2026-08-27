@@ -25,6 +25,24 @@ Programmable liquidity.**
 This is infrastructure and product-prototype software. It does not itself establish legal title,
 equity, a guaranteed return, a price peg, or guaranteed 1:1 redemption.
 
+## Scope: hackathon only
+
+**ArcReserve is a hackathon submission, not a production system.** Every agent must keep this
+framing (D-027):
+
+- Deployment targets are **Anvil (31337)** for local work, **Base Sepolia (84532)** and
+  **Hedera testnet (296)** for the demo. No mainnet, no real funds, no real investors. Stablecoin is
+  `MockUSD` on every target.
+- "Institution-grade" flows (KYC, maker–checker, term-sheet binding, reserve schedule) are
+  **design demonstrations**, not certified compliance. Copy must say "demo" / "testnet" wherever a
+  real product would say "regulated".
+- No audit has been performed. Coverage is not an audit. A single admin key per chain is
+  acceptable for the demo; the multisig/timelock story is documented, not deployed.
+- Anvil private keys are never used on Base Sepolia or Hedera; funded testnet keys live only in
+  untracked `.env` files.
+- Anything that would require a legal entity, licence, custodian, or audited financials is out of
+  scope and must be labelled as such in the UI and docs.
+
 ## Non-negotiable product rules
 
 Do not weaken these rules without an explicit product decision and corresponding test changes:

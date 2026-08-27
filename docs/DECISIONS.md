@@ -336,6 +336,32 @@ the same hash. Amending terms after approval requires `reapproveTerms(assetId, n
 verifier (and, in the institutional flow, restarts the approval time-lock). Closes the
 "approved X, deployed Y" hole at near-zero cost.
 
+## D-027: Hackathon scope and testnet-only deployment targets
+
+Status: accepted 2026-08-27; governs every other decision.
+
+ArcReserve is a **hackathon submission**. Deployment targets are local Anvil (31337),
+**Base Sepolia (84532)**, and **Hedera testnet (296)**. There is no mainnet target, no real
+stablecoin (`MockUSD` everywhere), no real investors, and no audit. Institution-grade mechanisms
+(D-021 compliance, D-023 schedule, D-026 term-sheet binding, the user flows) are demonstrated on
+testnet as design proof, not offered as regulated services.
+
+Consequences for each stack:
+
+- **Contracts**: `deployments/<chainId>.json` per target (`31337`, `84532`, `296`); a deploy
+  script that takes the chain from `block.chainid`; on Base Sepolia the canonical Uniswap V3
+  factory may be used (address must be verified from Uniswap's deployment list before use), on
+  Hedera testnet the mock pool is used unless a V3-compatible DEX factory is verified; pin
+  `evm_version` to one both chains support (verify Hedera's current EVM version before choosing
+  Shanghai/Cancun); Hedera calls go through the JSON-RPC relay (`https://testnet.hashio.io/api`).
+- **Backend**: `CHAIN_ID` per deployment; three registry addresses in config; Hedera history may
+  also be read from the mirror node but the viem indexer remains the source of truth for parity.
+- **Frontend**: wagmi `chains: [anvil, baseSepolia, hederaTestnet]`, chain-switch prompt, a
+  visible **"Testnet demo — no real funds"** banner on every route, and no copy that implies a
+  live offering.
+- **Keys**: Anvil keys never leave Anvil; testnet deployer keys in untracked `.env` only; one
+  admin key per chain is acceptable for the demo.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:

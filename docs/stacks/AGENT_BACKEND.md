@@ -12,6 +12,12 @@ in full, then `docs/stacks/CONTRACTS_TO_BACKEND.md` (your input) and
 - `contracts/**`. If an event lacks a field you need, request it in `CONTRACTS_TO_BACKEND.md`.
 - `frontend/**`. Shape changes go into `BACKEND_TO_FRONTEND.md` first.
 
+## Scope (D-027)
+Hackathon only. Serve three chains by configuration — Anvil `31337`, Base Sepolia `84532`, Hedera
+testnet `296` (RPC via `https://testnet.hashio.io/api`) — one indexer process per chain, one DB
+with `chain_id` on every row. No mainnet. Hedera's mirror node may be used for cross-checks, but
+the viem indexer stays the source of truth so Base and Hedera behave identically to the frontend.
+
 ## Fixed decisions
 - Stack: TypeScript, viem, Fastify, PostgreSQL 16, Zod (or TypeBox) validation. Pick **one**
   migration tool and record it in `docs/DECISIONS.md` (open item 9).

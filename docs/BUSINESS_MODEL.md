@@ -1,8 +1,12 @@
 # ArcReserve Business Model and Offering Flow
 
-> Target v0.3 (2026-08-27). Supersedes v0.2. Aligned with decisions D-021 to D-025 in
+> Target v0.3 (2026-08-27). Supersedes v0.2. Aligned with decisions D-021 to D-026 in
 > `DECISIONS.md`. "Implemented" below means it exists in `contracts/`; everything else is target
 > policy that the contracts agent builds from `docs/stacks/AGENT_CONTRACTS.md`.
+>
+> **Hackathon scope (D-027).** This model describes how the product *would* work. The deliverable is
+> a testnet demonstration on Base Sepolia and Hedera testnet with a mock stablecoin and no real
+> investors. Legal, custody, licensing, and audit items are documented as requirements, not done.
 
 ## Product position
 

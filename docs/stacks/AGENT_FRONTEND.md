@@ -11,6 +11,12 @@ You own `frontend/`. Read `CLAUDE.md`, then `docs/FRONTEND.md`,
 ## You do not touch
 - `contracts/**`, `backend/**`. Missing view/field → request in the boundary doc.
 
+## Scope (D-027)
+Hackathon only. wagmi `chains: [anvil, baseSepolia, hederaTestnet]` with per-chain address maps
+(from `contracts/deployments/<chainId>.json`), a chain-switch prompt, and a persistent
+**"Testnet demo — no real funds"** banner on every route. No copy may imply a live or regulated
+offering; "verified", "compliant", and "protected" always carry the demo qualifier.
+
 ## Hard rules
 - Never show a fixture number where a live value was expected (D-019). No silent fallbacks.
 - Every panel carries a `DataSourceBadge`: Live / Derived / Mock / Stale.

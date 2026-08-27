@@ -38,6 +38,14 @@ Baseline: 56 passed / 0 failed / 0 skipped; 5 invariants.
 - Keep 6d/18d conventions; never introduce an 8d or 1e18-priced value.
 - `deployments/<chainId>.json` key names are an interface; adding keys is fine, renaming is not.
 
+## Scope (D-027)
+Hackathon only. Targets: Anvil, **Base Sepolia (84532)**, **Hedera testnet (296)**. `MockUSD` on
+all three; no mainnet, no audit claims. Deliverables include `deployments/84532.json` and
+`deployments/296.json`, a chain-aware deploy script (`block.chainid`), a verified Uniswap V3
+factory address on Base Sepolia (or the mock pool), the mock pool on Hedera unless a V3-compatible
+factory is verified, and an `evm_version` both chains support (verify Hedera's EVM version first).
+Testnet keys only via untracked `.env`.
+
 ## Baseline (2026-08-27)
 The compliance layer (D-021) is merged: 75 tests, `src/compliance/`, permissioned `AssetToken`.
 `deployments/31337.json` is regenerated. Read D-021 before touching the token.
