@@ -2,6 +2,8 @@
 
 > **Hackathon scope (D-027).** Testnet-only: Anvil `31337`, Base Sepolia `84532`, Hedera testnet
 > `296`. Mock stablecoin, unaudited, no real funds. Every agent keeps that framing in code and copy.
+> **Scope is limited; quality is not** — see the quality bar in `CLAUDE.md`. Shortcuts are
+> labelled `// DEMO:` in code, in the UI, and in `DECISIONS.md`, never taken silently.
 
 This folder is the **integration layer** of the documentation. The existing files in `docs/` describe
 each subsystem from the inside. The files here describe what each stack *promises to the others*, so

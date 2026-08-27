@@ -43,6 +43,24 @@ framing (D-027):
 - Anything that would require a legal entity, licence, custodian, or audited financials is out of
   scope and must be labelled as such in the UI and docs.
 
+**Scope is limited; quality is not.** "Hackathon" bounds *what* we build (testnets, mock
+stablecoin, no legal wrapper), never *how well*. The bar for every stack:
+
+- Contracts: every financial rule tested (unit + invariant), `forge fmt` clean, no untested
+  branches in money-moving paths, explicit errors, events for every state change, NatSpec on every
+  external function.
+- Backend: typed end-to-end, exact decimal arithmetic, idempotent and reorg-safe by test, health
+  and provenance on every response, replayable from a fresh DB.
+- Frontend: typecheck/lint/build clean, no hardcoded financial literals, every number traceable
+  to a read or a labelled fixture, real loading/error/stale states, wallet flows that confirm on
+  receipt, accessible and responsive, copy that reads like a product — not a prototype.
+- Docs: updated in the same change; a stranger can run the demo on all three chains from the
+  runbook alone.
+
+If a shortcut is unavoidable, it is labelled in code (`// DEMO:`), in the UI, and in
+`docs/DECISIONS.md` — never silent. Judges should see a small system built to a production
+standard, not a large one built to a demo standard.
+
 ## Non-negotiable product rules
 
 Do not weaken these rules without an explicit product decision and corresponding test changes:
