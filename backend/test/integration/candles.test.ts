@@ -286,7 +286,7 @@ describe('canonical Swap ingestion', () => {
   }
 
   function swapLog(sqrtPriceX96: bigint, logIndex: number) {
-    const abi = loadAbi('UniswapV3PoolEvents');
+    const abi = loadAbi('IUniswapV3Pool');
     const topics = encodeEventTopics({
       abi,
       eventName: 'Swap',

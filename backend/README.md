@@ -65,10 +65,13 @@ comparing the contributing log's `(block, transactionIndex, logIndex)`, not by t
 to feed them in order — so a rebuild after a reorg converges on the same candle. Volume records
 each leg's absolute size once; the two legs of a swap are one trade.
 
-The pool ABI for this path is **hand-written** (`abis/UniswapV3PoolEvents.json`), not synced from
-`contracts/out`: the local `IUniswapV3Pool.sol` is a functions-only stub with no events, so without
-it the canonical path would decode nothing at all. Its `Swap` topic0 is asserted against Uniswap's
-published `0xc42079f9…` in the tests.
+The pool ABI is synced from `contracts/out` like every other. It was hand-written here for a
+while, because `IUniswapV3Pool.sol` was a functions-only stub with no events and the canonical path
+would otherwise have decoded nothing at all; contracts task 10 added both events, so the synced
+artifact is authoritative again and the local copy was dropped rather than left to shadow it. The
+`Swap` topic0 is still asserted against Uniswap's published `0xc42079f9…` in the tests — a wrong
+argument order on the contracts side fails that assertion instead of quietly producing candles from
+misread amounts.
 
 `AssetMarketManager.SwapExecuted` is deliberately *not* a source. It carries amounts but no
 post-swap price, so aggregating it would produce candles whose prices came from somewhere other

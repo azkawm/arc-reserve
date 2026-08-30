@@ -115,3 +115,29 @@ describe('bytes32ToString', () => {
     expect(bytes32ToString(`0x${'53'}${'00'.repeat(31)}`)).toBe('S');
   });
 });
+
+describe('canonical pool events', () => {
+  it('decodes a Swap whose selector matches the published Uniswap V3 topic0', () => {
+    // The guard that matters: the ABI is synced from contracts/out, so a wrong argument order
+    // on the contracts side would change this selector and fail here rather than quietly
+    // producing candles from misread amounts.
+    const swap = loadAbi('IUniswapV3Pool').find(
+      (item) => item.type === 'event' && item.name === 'Swap',
+    );
+    expect(swap).toBeDefined();
+    expect(toEventSelector(swap as never)).toBe(
+      '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67',
+    );
+    expect(knownTopics('pool')).toContain(
+      '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67',
+    );
+  });
+
+  it('decodes Initialize, which seeds the first price but is never a candle', () => {
+    const initialize = loadAbi('IUniswapV3Pool').find(
+      (item) => item.type === 'event' && item.name === 'Initialize',
+    );
+    expect(initialize).toBeDefined();
+    expect(knownTopics('pool')).toContain(toEventSelector(initialize as never));
+  });
+});
