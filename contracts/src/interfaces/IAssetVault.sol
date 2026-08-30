@@ -19,6 +19,8 @@ interface IAssetVault {
     function isSolvent() external view returns (bool);
     /// @notice True when liquid backing per investor token is below the D-023 schedule right now.
     function isBehindSchedule() external view returns (bool);
+    /// @notice Liquid reserve per investor-held token, 6-decimal mUSD (D-023).
+    function currentBacking() external view returns (uint256);
     /// @notice Par cap for maturity redemption, or 0 when no schedule is configured (D-023).
     function maturityParValue() external view returns (uint256);
     /// @notice When maturity redemption closes, or 0 when no window is configured.

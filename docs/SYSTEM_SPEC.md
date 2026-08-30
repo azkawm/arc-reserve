@@ -538,6 +538,44 @@ the active external pool call. A callback succeeds only when:
 
 The active hash is cleared after the pool call. Reentrancy guards protect the entry functions.
 
+## 10.6 Published protected floor (D-025)
+
+`FloorController` publishes the protected-floor reference as a **pool tick** that ratchets upward.
+
+```text
+backing    = vault.currentBacking()                    (6d mUSD per investor token)
+ceiling    = min(NAV, backing)
+nextTick   = assetIsToken0 ? floorTick + tickSpacing : floorTick - tickSpacing   (price-up)
+levelUp()  = permissionless; advances one tickSpacing iff
+             price(nextTick) <= ceiling and the cooldown has elapsed
+```
+
+One step per call, so a large reserve inflow becomes a paced climb rather than a gap. Demo spacing is
+60 ticks, about +0.6% a step, with a 30-minute cooldown shared with the rebalance cooldown.
+
+`priceAtTick` applies the same conversion the market manager applies to `slot0`, so the published
+floor and the market price are directly comparable 6-decimal values.
+
+**It is a reference, not a bid** (D-010). `redeem()` is unchanged: it keeps paying the continuous
+`min(NAV, backing)`, which is always at or above the published level.
+
+**Why the ratchet is safe.** Backing is non-decreasing while an asset is Active - a redemption pays
+at most `currentBacking` per token, so it can only raise backing for the holders who stay. That is
+asserted in the invariant suite, as is `floorPrice <= backing`.
+
+**The one asymmetry, stated honestly.** `floorPrice <= backing` holds permanently. `floorPrice <=
+NAV` is only guaranteed *at the moment of each level-up*: a NAV markdown can leave a previously valid
+level above the new NAV. D-025 answers that by pausing the ratchet rather than lowering the published
+floor - a floor that can retreat is not a floor. The contract therefore exposes `isFloorCovered()`,
+which goes false in exactly that situation, and a UI must stop presenting the level as backed when it
+does. There is deliberately no setter for `floorTick`.
+
+`AssetMarketManager.rebalanceToFloor(lower, upper)` repositions the market-floor **range** at or below
+the published level: the highest price the range can reach must be at or below `floorPrice`. The check
+is direction-aware, because with the asset as token1 a higher price is a lower tick. The range is
+market inventory, not protected reserve (D-014), and the move still passes every normal safety gate
+and the remove -> update -> remint lifecycle.
+
 ## 11. Pause and emergency matrix
 
 | Component/action | While paused |
@@ -573,6 +611,7 @@ revenue.totalClaimed <= revenue.totalHolderRevenue
 redemptionReserve >= minimumRequiredReserve
 redemption.outstandingTokenObligations = token.investorSupply
 backing never falls through a redemption (D-023/D-025 ratchet precondition)
+floorController.floorPrice <= vault.currentBacking (while investorSupply > 0)
 ```
 
 Additional unit/integration properties include unauthorized role rejection, transfer-aware revenue,

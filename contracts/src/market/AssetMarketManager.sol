@@ -16,6 +16,7 @@ import {
 } from "../interfaces/IUniswapV3Pool.sol";
 import { DecimalMath } from "../libraries/DecimalMath.sol";
 import { TickPriceMath } from "../libraries/TickPriceMath.sol";
+import { IFloorController } from "../interfaces/IFloorController.sol";
 
 /// @notice ARC Liquidity Engine for one canonical Uniswap V3 asset/mUSD pool.
 /// @dev Rebalances remove active liquidity before changing ranges; a keeper then remints explicitly.
@@ -101,6 +102,10 @@ contract AssetMarketManager is
     uint16 public maxSpotTwapDeviationBps = 300;
     uint16 public maxMarketNAVDeviationBps = 2_000;
     int24 public maxTickShift = 1_200;
+
+    /// @notice Published protected-floor level (D-025). Bound after deployment because the floor
+    ///         controller is deployed once the market manager's pool ordering is known.
+    IFloorController public floorController;
     uint64 public lastRebalanceAt;
     uint64 private _callbackNonce;
     bytes32 private _activeMintCallback;
@@ -109,6 +114,7 @@ contract AssetMarketManager is
     mapping(PositionKind => Position) public positions;
 
     event PositionConfigured(PositionKind indexed kind, int24 tickLower, int24 tickUpper);
+    event FloorControllerSet(address indexed controller);
     event PositionLiquidityAdded(
         PositionKind indexed kind, uint128 liquidity, uint256 amount0, uint256 amount1
     );
@@ -138,6 +144,8 @@ contract AssetMarketManager is
     );
 
     error InvalidAddress();
+    error FloorControllerNotSet();
+    error RangeAboveFloor();
     error InvalidPoolTokens();
     error InvalidRange();
     error PositionNotConfigured();
@@ -355,6 +363,33 @@ contract AssetMarketManager is
     function refreshDiscovery(int24 newLower, int24 newUpper) external onlyRole(KEEPER_ROLE) {
         (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
         _rebalance("REFRESH_DISCOVERY", PositionKind.Discovery, newLower, newUpper, spot, twap, nav);
+    }
+
+    /// @notice Reposition the market-floor range so it sits at or below the published floor level.
+    /// @dev    The market-floor position is market inventory, not protected reserve (D-014). This
+    ///         only constrains where it may sit: the highest price the range can reach must be at
+    ///         or below the published floor, so the engine never bids above the level it publishes.
+    ///         Direction-aware, because with the asset as token1 a higher price is a *lower* tick.
+    function rebalanceToFloor(int24 newLower, int24 newUpper) external onlyRole(KEEPER_ROLE) {
+        IFloorController controller = floorController;
+        if (address(controller) == address(0)) revert FloorControllerNotSet();
+        int24 floorTick = controller.floorTick();
+        // The tick at which this range reaches its highest price.
+        int24 priceCeilingTick = assetIsToken0 ? newUpper : newLower;
+        bool withinFloor =
+            assetIsToken0 ? priceCeilingTick <= floorTick : priceCeilingTick >= floorTick;
+        if (!withinFloor) revert RangeAboveFloor();
+
+        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
+        _rebalance(
+            "REBALANCE_TO_FLOOR", PositionKind.ReserveFloor, newLower, newUpper, spot, twap, nav
+        );
+    }
+
+    function setFloorController(address controller) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (controller == address(0)) revert InvalidAddress();
+        floorController = IFloorController(controller);
+        emit FloorControllerSet(controller);
     }
 
     function rebalanceToNAV(int24 newAnchorLower, int24 newAnchorUpper)

@@ -333,7 +333,22 @@ path where the issuer's own tokens drain the investors' reserve.
 
 ## D-025: Stepped, ratchet-only published floor ("level up")
 
-Status: accepted 2026-08-27; target contract change. Resolves the "no equivalent to Hikari bump"
+Status: accepted 2026-08-27; **implemented 2026-08-30** (contracts task 7:
+`src/market/FloorController.sol`, `AssetMarketManager.rebalanceToFloor`,
+`test/unit/FloorController.t.sol`, plus a seventh invariant).
+
+**Implementation note.** The ceiling is re-derived on every `levelUp()` rather than trusting the
+stored level, so the ratchet is correct by construction. One asymmetry had to be resolved and is
+worth knowing: `floorPrice <= backing` holds permanently (backing never falls while Active), but
+`floorPrice <= NAV` is only guaranteed at the moment of each level-up - a NAV markdown can leave a
+valid level above the new NAV. Lowering the floor would defeat the ratchet, so the contract keeps the
+level and exposes `isFloorCovered()`, which goes false in exactly that case. Publishing an uncovered
+floor silently would be the D-010 failure this decision exists to avoid; reporting it is the honest
+handling. There is deliberately no setter for `floorTick`.
+
+The optional best-effort `levelUp` attempts from reserve-crediting paths were **not** implemented:
+they would couple money-moving vault functions to a non-essential contract, and a permissionless
+`levelUp` plus a keeper achieves the same pacing with strictly less risk. Resolves the "no equivalent to Hikari bump"
 gap in `MARKET_MAKING.md` without minting or reserve borrowing.
 
 **Invariant relied on.** While an asset is Active, `redemptionReserve / investorSupply` is

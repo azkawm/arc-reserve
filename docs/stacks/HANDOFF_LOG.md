@@ -334,3 +334,42 @@ Also `BACKEND_INDEXER.md` §17 and the header.
 Needs: nothing blocking. Frontend can start migrating panels off fixtures — `backend/README.md` has
 the route table, and every money field is a decimal string with the raw base units alongside it
 wherever the UI might transact.
+
+## 2026-08-30 — contracts — D-025 published protected floor (task 7)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: new `src/market/FloorController.sol`. The protected-floor reference is a pool tick that
+ratchets upward one `tickSpacing` per permissionless `levelUp()`, only while
+`price(nextTick) <= min(NAV, backing)` and the cooldown has elapsed. `priceAtTick` uses the same
+conversion the market manager applies to `slot0`, so the published floor and the market price are
+directly comparable 6-decimal values. `AssetMarketManager` gains `rebalanceToFloor(lower, upper)`,
+which requires the highest price the range can reach to be at or below the published level -
+direction-aware, because with the asset as token1 a higher price is a *lower* tick.
+
+The ceiling is re-derived on every call rather than trusting the stored level, so the ratchet is
+correct by construction rather than by assumption.
+
+**One asymmetry, resolved deliberately.** `floorPrice <= backing` holds permanently, because backing
+never falls while Active. `floorPrice <= NAV` is only guaranteed at the moment of each level-up: a NAV
+markdown can leave a previously valid level above the new NAV. Lowering the floor would defeat the
+ratchet, so the level stays and `isFloorCovered()` goes false instead. **This can flip with no event
+and no state change** — derive coverage from a live call, not from `FloorLevelUp` history. Publishing
+an uncovered floor silently would be exactly the D-010 failure this decision exists to prevent.
+There is deliberately no setter for `floorTick`.
+
+Scope call: the optional best-effort `levelUp` attempts from reserve-crediting paths were **not**
+implemented. They would couple money-moving vault functions to a non-essential contract, and a
+permissionless `levelUp` plus a keeper achieves the same pacing with strictly less risk.
+
+Verified on a fresh Anvil: floor deploys at 0.298335 with `canLevelUp` false (no investors yet);
+after a 50,000 raise the ceiling is `min(1.000000, 0.700000)` and it becomes true; one `levelUp` moves
+0.298335 -> 0.300130 (exactly one spacing, +0.6%); an immediate second call reverts `0xaa9a98df`
+(= `CooldownActive()`); 40 paced steps reach 0.381536, still covered.
+
+Tests 176 -> 200 (`test/unit/FloorController.t.sol`, 23 cases). Invariants 6 -> 7: the published floor
+never exceeds backing while investors hold tokens. `forge fmt --check` clean. Coverage:
+`FloorController` 96.43% lines, `AssetMarketManager` 98.28%; overall 84.89% lines.
+Note: `via_ir` stays **false**. The deploy script hit stack-too-deep and was fixed by extracting a
+`_configureFloor` helper, not by enabling the IR pipeline.
+Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
+New `deployments/<chainId>.json` key `floorController` (added, nothing renamed).
+Needs: nothing blocking. Next is task 8 (D-026 term-sheet hash binding).

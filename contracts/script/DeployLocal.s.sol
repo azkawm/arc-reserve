@@ -10,6 +10,7 @@ import { AssetVault } from "../src/vault/AssetVault.sol";
 import { AssetToken } from "../src/token/AssetToken.sol";
 import { RevenueDistributor } from "../src/revenue/RevenueDistributor.sol";
 import { MockYieldSource } from "../src/mocks/MockYieldSource.sol";
+import { FloorController } from "../src/market/FloorController.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
@@ -35,6 +36,7 @@ contract DeployLocal is Script {
 
     address private musdAddress;
     address private mockYieldSourceAddress;
+    address private floorControllerAddress;
     address private registryAddress;
     address private factoryAddress;
     IdentityRegistry private identityRegistry;
@@ -141,6 +143,8 @@ contract DeployLocal is Script {
         AssetVault(deployment.vault)
             .grantRole(AssetVault(deployment.vault).YIELD_SOURCE_ROLE(), mockYieldSourceAddress);
         musd.faucet(mockYieldSourceAddress, 5_000e6);
+
+        _configureFloor(deployer, deployment, assetId);
         vm.stopBroadcast();
 
         _writeDeployment(assetId, deployment);
@@ -195,6 +199,30 @@ contract DeployLocal is Script {
     // Of the 100,000 authorized supply, 80,000 is offering inventory and 20,000 stays unminted
     // headroom (D-002, D-004).
 
+    /// @notice D-025 published protected floor. Starts at ~0.2983 mUSD per token, just under the
+    ///         0.30 schedule start, and ratchets up one tick spacing (~0.6%) per call as backing
+    ///         grows. The cooldown matches the market rebalance cooldown so the two move in step.
+    function _configureFloor(
+        address deployer,
+        AssetFactory.Deployment memory deployment,
+        bytes32 assetId
+    ) private {
+        AssetMarketManager manager = AssetMarketManager(deployment.marketManager);
+        bool assetIsToken0 = manager.assetIsToken0();
+        FloorController floorController = new FloorController(
+            deployment.vault,
+            registryAddress,
+            assetId,
+            assetIsToken0,
+            manager.tickSpacing(),
+            assetIsToken0 ? int24(-288_420) : int24(288_420),
+            30 minutes,
+            deployer
+        );
+        floorControllerAddress = address(floorController);
+        manager.setFloorController(floorControllerAddress);
+    }
+
     function _writeDeployment(bytes32 assetId, AssetFactory.Deployment memory deployment) private {
         string memory root = "arcReserve";
         vm.serializeBytes32(root, "assetId", assetId);
@@ -202,6 +230,7 @@ contract DeployLocal is Script {
         vm.serializeAddress(root, "registry", registryAddress);
         vm.serializeAddress(root, "factory", factoryAddress);
         vm.serializeAddress(root, "mockYieldSource", mockYieldSourceAddress);
+        vm.serializeAddress(root, "floorController", floorControllerAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));

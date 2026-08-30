@@ -28,8 +28,9 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 176 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
-(2026-08-30, after task 5).
+Baseline: 200 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
+(2026-08-30, after task 7). Note `via_ir = false` and it stays that way — fix stack-too-deep by
+extracting a helper, not by turning on the IR pipeline.
 
 ## Interface stability rules
 - Do not rename or re-order enum members (`AssetStatus`, `RedemptionMode`, `PositionKind`,
@@ -83,7 +84,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    redemption controller.
 6. ~~**Settlement split 65/30/5 (D-023).**~~ **DONE 2026-08-30 — D-023 complete.** Change `PrimaryOffering` bps constants; update tests and
    docs. Escrow/threshold settlement (D-007) remains the next milestone after 1–7.
-7. **Floor level-up (D-025).** A small `FloorController` (reads vault, registry NAV, pool
+7. ~~**Floor level-up (D-025).**~~ **DONE 2026-08-30.** A small `FloorController` (reads vault, registry NAV, pool
    `tickSpacing`, manager `assetIsToken0`): `floorTick`, `floorPrice()` via `TickPriceMath`,
    `floorLevelCooldown`, permissionless `levelUp()` advancing **one `tickSpacing`** per call in the
    price-up direction iff `price(next) ≤ min(NAV, backing)`; event `FloorLevelUp`. Optional best-
