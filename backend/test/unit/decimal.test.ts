@@ -80,12 +80,17 @@ describe('mulDiv', () => {
 });
 
 describe('applyBps', () => {
-  it('reproduces the offering split on a whole mUSD amount', () => {
-    // PrimaryOffering: 70 / 20 / 10 today (65 / 30 / 5 is D-023 target, not yet in src/).
+  it('reproduces the settlement split on a whole mUSD amount', () => {
+    // PrimaryOffering under D-023: 65 issuer / 30 reserve / 5 market. These bps are the
+    // contract's today and have already changed once; the projections store the *emitted*
+    // share values, so this test covers the arithmetic, not the policy.
     const stablecoin = 1_000_000_000n; // 1,000 mUSD
-    expect(applyBps(stablecoin, 7_000)).toBe(700_000_000n);
-    expect(applyBps(stablecoin, 2_000)).toBe(200_000_000n);
-    expect(applyBps(stablecoin, 1_000)).toBe(100_000_000n);
+    expect(applyBps(stablecoin, 6_500)).toBe(650_000_000n);
+    expect(applyBps(stablecoin, 3_000)).toBe(300_000_000n);
+    expect(applyBps(stablecoin, 500)).toBe(50_000_000n);
+    expect(
+      applyBps(stablecoin, 6_500) + applyBps(stablecoin, 3_000) + applyBps(stablecoin, 500),
+    ).toBe(stablecoin);
   });
 
   it('reproduces the revenue split and shows the rounding dust the contract leaves', () => {

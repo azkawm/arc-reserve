@@ -16,12 +16,52 @@ Output contract (`/v1` shapes): [`../docs/stacks/BACKEND_TO_FRONTEND.md`](../doc
 | --- | --- |
 | A — workspace, config validation, migrations, chain identity check, `/v1/health` | **Done** |
 | B — ArcReserve event ingestion, restart-safe cursor, reorg rollback | **Done** |
-| C — read API with the provenance envelope | Not started |
+| C — read API with the provenance envelope | **Done** |
 | D — OHLC (synthetic on Anvil, canonical `Swap` where a real pool exists) | Not started |
 | E — frontend migration off fixtures | Not started |
 
-`/v1/health` is still the only route. The indexer runs in the same process and fills the read
-model; the data routes that expose it are Milestone C.
+## Routes
+
+| Route | Notes |
+| --- | --- |
+| `GET /v1/health` | Status, chain, cursors, lag. Always the data envelope; 503 once unhealthy |
+| `GET /v1/assets` | `?status=Active&limit=&cursor=` — status by name, not integer |
+| `GET /v1/assets/:assetId` | Identity, metadata commitment, component addresses |
+| `GET /v1/assets/:assetId/metrics` | NAV, spot, TWAP, floor, redemption prices, the five vault categories, reserve schedule, three supply denominators, offering, safety |
+| `GET /v1/assets/:assetId/nav-history` | `?from=&to=&limit=` |
+| `GET /v1/assets/:assetId/positions` | Four positions, ticks converted to prices, liquidity raw |
+| `GET /v1/assets/:assetId/activity` | `?type=&limit=` — unified timeline |
+| `GET /v1/assets/:assetId/revenue` | Deposit history and split totals |
+| `GET /v1/assets/:assetId/redemptions` | Period state and history |
+| `GET /v1/accounts/:address/assets/:assetId` | Holdings, verification, claim and redemption context |
+
+`/candles` is **not** implemented — it is Milestone D, and the route 404s rather than returning
+empty candles that a chart would happily draw as a flat line.
+
+Every response is validated against its Zod schema before it is sent, so a shape the frontend was
+promised cannot drift without a test going red.
+
+### Reading at the indexed block
+
+Events cannot supply the offering's price, cap, window or wallet limit, the supply cap, the reserve
+ratio policy, tick spacing or token ordering: that is contract **state**, never emitted.
+`src/chain/snapshot.ts` reads it — at the **indexed block**, not at `latest`, so one response cannot
+mix a projection from block N with a view from block N+3 and call the pair coherent.
+
+### Market price provenance
+
+`marketPrices()` is a real contract read, but on `MockUniswapV3Pool` it returns a number from a
+harness whose price does not move with trading. The pool's own bytecode decides the label: the mock
+carries test-only setters a canonical V3 pool does not, so `spot` and `twap` come back with `mock`
+provenance on Anvil and `onchain` only against a real pool. Serving the harness value as `onchain`
+is exactly the substitution D-019 forbids.
+
+### Ticks are converted with integer math
+
+`priceLower` / `priceUpper` come from a port of Uniswap's `TickMath.getSqrtRatioAtTick`
+(`src/lib/tick.ts`), validated against the canonical `MIN_SQRT_RATIO` / `MAX_SQRT_RATIO`.
+`Math.pow(1.0001, tick)` would be a float, and a float feeding a chart's band edges is precisely the
+kind of "close enough" number this service does not publish.
 
 ## Quick start
 
@@ -209,10 +249,10 @@ cd ../contracts; forge script script/DeployLocal.s.sol:DeployLocal --rpc-url htt
 cd ../backend; npm run test
 ```
 
-105 tests: exact-decimal arithmetic, configuration validation, envelope and provenance rules, log
-decoding, schema integrity against a real PostgreSQL (domains, idempotent ingestion, cascade
-rollback, atomic cursor advancement, multi-chain isolation), the startup guards, the health route,
-and two suites against a live chain.
+140 tests: exact-decimal arithmetic, tick math, configuration validation, envelope and provenance
+rules, log decoding, schema integrity against a real PostgreSQL (domains, idempotent ingestion,
+cascade rollback, atomic cursor advancement, multi-chain isolation), the startup guards, the health
+route, and three suites against a live chain.
 
 The chain suites are deliberately not mocked:
 
@@ -221,6 +261,9 @@ The chain suites are deliberately not mocked:
   denominators, all five vault categories, the reserve schedule, positions, identities. Not against
   constants copied from a document: `§7` of `CONTRACTS_TO_BACKEND.md` still describes the
   pre-D-031 seed, and a hardcoded expectation would have gone stale twice in one week.
+- **`api.test.ts`** exercises every `/v1` route against the indexed chain and checks each number
+  against the contract view behind it — supply denominators, vault categories, offering config,
+  redemption price, position ticks, holder balance and claimable revenue.
 - **`reorg.test.ts`** makes a real purchase, rewinds the chain with `evm_revert`, and asserts the
   *projected* purchase is gone — supply, vault reserve and history all back to their prior values,
   then re-converging on a replacement branch that carries the same purchase.

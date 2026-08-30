@@ -1,9 +1,9 @@
 # Backend, Indexer, and OHLC Specification
 
-Status: approved implementation direction. **Milestone A is implemented** in `backend/`
-(workspace, validated configuration, migrations, chain-identity guards, `/v1/health`); milestones
-B–E are still specification. Stack choices are fixed by D-030. See `backend/README.md` for how to
-run it and what currently exists.
+Status: **milestones A, B and C are implemented** in `backend/` — workspace and guards, event
+ingestion with reorg recovery, and the `/v1` read API. Milestone D (OHLC) and E (frontend
+migration) are still specification. Stack choices are fixed by D-030. See `backend/README.md` for
+how to run it and what currently exists.
 
 This specification is intentionally detailed enough for another agent to scaffold the service. It
 must not be used to imply that current frontend metrics are indexed or live.
@@ -684,11 +684,26 @@ surviving logs (see §8.4). Acceptance is `backend/test/integration/replay.test.
 shortfall are functions of `now()` and are computed at query time; under D-023 a shortfall can begin
 with no transaction at all. Position token amounts are not derived from `uint128 liquidity`.
 
-### Milestone C: read API
+### Milestone C: read API — **done (2026-08-30)**
 
 - asset list/detail/metrics/activity/positions endpoints;
 - exact decimal-string serialization; and
 - provenance and freshness metadata.
+
+Delivered: every route in `BACKEND_TO_FRONTEND.md` §2 except `/candles`, each validating its
+payload against a Zod schema before sending. Two design points worth carrying forward:
+
+- **A contract-view snapshot at the indexed block.** Events cannot supply the offering price, cap,
+  window or wallet limit, the supply cap, the reserve ratio policy, tick spacing or token ordering —
+  that is state, never emitted. `src/chain/snapshot.ts` reads it at the *indexed* block so a
+  response never mixes a projection from block N with a view from block N+3.
+- **Market price provenance is decided by the pool bytecode.** `MockUniswapV3Pool` carries test-only
+  setters a canonical V3 pool does not, so `spot` and `twap` are labelled `mock` on Anvil and
+  `onchain` only against a real pool. The number is a genuine contract read either way; what differs
+  is whether it means anything, and D-019 is about the label, not the call.
+
+Tick to price uses a port of Uniswap's `TickMath.getSqrtRatioAtTick` validated against the canonical
+boundary ratios, not `Math.pow`.
 
 ### Milestone D: OHLC
 

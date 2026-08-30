@@ -7,6 +7,8 @@ import type { Database } from './db/client.js';
 import type { ArcPublicClient } from './chain/client.js';
 import { ApiError } from './lib/errors.js';
 import { registerHealthRoute } from './api/routes/health.js';
+import { registerAssetRoutes } from './api/routes/assets.js';
+import { registerAccountRoutes } from './api/routes/accounts.js';
 
 export interface ServerDeps {
   config: Config;
@@ -81,6 +83,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     startedAt: deps.startedAt ?? Math.floor(Date.now() / 1000),
     version: deps.version,
   });
+
+  const apiDeps = { config, db: deps.db, client: deps.client, logger };
+  await registerAssetRoutes(app, apiDeps);
+  await registerAccountRoutes(app, apiDeps);
 
   return app;
 }
