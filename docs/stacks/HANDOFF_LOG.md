@@ -207,3 +207,34 @@ Tests 144 -> 157 (`test/unit/ReserveYield.t.sol`, 13 cases). `forge fmt --check`
 `AssetVault` 85.96 -> 86.77% lines, `MockYieldSource` 100%.
 Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
 Needs: nothing blocking. Next is task 5 (residual return at `Closed` after the maturity window).
+
+## 2026-08-30 — contracts — D-023 residual return and maturity window (task 5)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: maturity redemption is now capped at **par** (`vault.maturityParValue()`, the schedule's end
+target) and closes at `assetMaturity + maturityWindowSeconds`, reverting `MaturityWindowClosed()`.
+After the window, at `Closed`, the issuer calls `releaseResidualReserve()` and receives
+`reserve - investorSupply * min(NAV, par)`. New vault views `maturityParValue`,
+`maturityWindowEndsAt`, `outstandingObligationsAtPar`, `residualReserve`; admin
+`setMaturityWindow(uint64)`; events `MaturityWindowSet`, `ResidualReserveReleased`.
+`DeployLocal` sets a 90-day window.
+
+Two design points worth knowing. First, the par cap is what makes residual return meaningful — with
+maturity redemption paying full backing the residual would always be zero, and a note holder is not
+entitled to upside above par anyway. Normal and emergency modes are deliberately left uncapped.
+Second, only the **excess** is released: `outstandingObligationsAtPar` is retained, so a holder who
+never redeemed keeps full par cover and an underfunded asset has no residual at all. A zero window
+disables both the deadline and the release, which is the safe default for an unconfigured asset.
+
+Verified on a fresh Anvil across the whole lifecycle: reserve overfunded to 60,000 against 50,000
+tokens (backing 1.20); at maturity `redemptionPrice(Maturity)` returned 1.000000 not 1.200000; past
+the 90-day window a holder redeem reverted `0x4ddea01e` (= `MaturityWindowClosed()`); at `Closed` the
+issuer received exactly 10,000 mUSD and the reserve settled at 50,000 = obligations.
+
+Tests 157 -> 176 (`test/unit/ResidualReserve.t.sol`, 19 cases). `forge fmt --check` clean. Coverage:
+`AssetVault` 86.77 -> 88.64% lines, `RedemptionController` 88.06 -> 90.28%; overall 84.03 -> 84.75%.
+`deployments/31337.json`: only `mockYieldSource` moved (the new `setMaturityWindow` call shifted the
+deployer nonce); every other address is unchanged.
+Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
+Note for backend: `ResidualReserveReleased` debits the reserve **without** a redemption, so a
+projection driven only by redemption events will drift.
+Needs: nothing blocking. Next is task 6 (settlement split 65/30/5), which is the last D-023 item.

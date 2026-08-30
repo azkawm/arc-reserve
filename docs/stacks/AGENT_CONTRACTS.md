@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 157 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
-(2026-08-30, after task 4).
+Baseline: 176 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
+(2026-08-30, after task 5).
 
 ## Interface stability rules
 - Do not rename or re-order enum members (`AssetStatus`, `RedemptionMode`, `PositionKind`,
@@ -75,7 +75,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    periodId, reportHash)` emits the period; missing period past grace is reported via a view.
 4. ~~**Reserve yield hook (D-023).**~~ **DONE 2026-08-30.** `accrueReserveYield(amount)` (yield-source role) credits the
    reserve while behind schedule, else `issuerProceeds`. Mock yield source in `DeployLocal`.
-5. **Residual return (D-023).** `releaseResidualReserve()` callable at `Closed` after the maturity
+5. ~~**Residual return (D-023).**~~ **DONE 2026-08-30.** `releaseResidualReserve()` callable at `Closed` after the maturity
    window; pays `reserve − outstandingObligations` to the issuer. Add the maturity window to the
    redemption controller.
 6. **Settlement split 65/30/5 (D-023).** Change `PrimaryOffering` bps constants; update tests and

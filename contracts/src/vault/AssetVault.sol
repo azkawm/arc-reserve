@@ -54,6 +54,11 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     ///         enforcement never reads it.
     uint64 public shortfallSince;
 
+    /// @notice How long after the asset's maturity timestamp holders may still redeem at par
+    ///         (D-023). Zero leaves maturity redemption open indefinitely and disables residual
+    ///         release, which is the safe default for an unconfigured asset.
+    uint64 public maturityWindowSeconds;
+
     event AllocationChanged(
         bytes32 indexed category, int256 delta, uint256 newCategoryBalance, uint256 totalAccounted
     );
@@ -75,6 +80,10 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     );
     event ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking);
     event ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking);
+    event MaturityWindowSet(uint64 windowSeconds);
+    event ResidualReserveReleased(
+        address indexed issuer, uint256 amount, uint256 obligationsRetained
+    );
     event ReserveYieldAccrued(
         address indexed source, uint256 amount, bool creditedToReserve, uint256 newCategoryBalance
     );
@@ -88,6 +97,9 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     error AccountingInsolvent();
     error InvalidSchedule();
     error ReserveShortfallActive();
+    error AssetNotClosed();
+    error MaturityWindowOpen();
+    error NothingToRelease();
 
     constructor(
         address stablecoin_,
@@ -147,6 +159,66 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         });
         emit ReserveScheduleSet(startBacking, targetBacking, startTime, maturity, graceSeconds);
         _syncShortfall();
+    }
+
+    /// @notice Set the maturity redemption window (D-023). Zero disables both the window and
+    ///         residual release.
+    function setMaturityWindow(uint64 windowSeconds) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        maturityWindowSeconds = windowSeconds;
+        emit MaturityWindowSet(windowSeconds);
+    }
+
+    /// @notice Par value per token for maturity redemption: the schedule's end target, normally
+    ///         1.000000 mUSD. Zero when no schedule is configured, meaning no par cap.
+    /// @dev    SOLAR01 is a note, so a holder's maturity claim is capped at par - upside above it
+    ///         is not theirs, and that excess is exactly what residual release returns.
+    function maturityParValue() public view returns (uint256) {
+        return reserveSchedule.configured ? reserveSchedule.targetBacking : 0;
+    }
+
+    /// @notice When the maturity redemption window closes, or 0 when none is configured.
+    function maturityWindowEndsAt() public view returns (uint64) {
+        if (maturityWindowSeconds == 0) return 0;
+        return registry.maturityOf(assetId) + maturityWindowSeconds;
+    }
+
+    /// @notice mUSD that must stay in the reserve to redeem every remaining investor token at the
+    ///         maturity price, `min(NAV, par)`.
+    function outstandingObligationsAtPar() public view returns (uint256) {
+        uint256 supply = assetToken.investorSupply();
+        if (supply == 0) return 0;
+        (uint256 nav,) = registry.navOf(assetId);
+        uint256 par = maturityParValue();
+        uint256 price = (par != 0 && par < nav) ? par : nav;
+        return DecimalMath.assetToStable(supply, price);
+    }
+
+    /// @notice Reserve above what remaining holders can still claim. Zero while the asset is
+    ///         underfunded, so residual release can never strand a holder.
+    function residualReserve() public view returns (uint256) {
+        uint256 obligations = outstandingObligationsAtPar();
+        return redemptionReserve > obligations ? redemptionReserve - obligations : 0;
+    }
+
+    /// @notice Return the reserve left over once the asset is closed and the maturity window has
+    ///         passed (D-023). Holders who never redeemed keep full par cover - only the excess
+    ///         above `outstandingObligationsAtPar` is released.
+    function releaseResidualReserve() external nonReentrant whenNotPaused returns (uint256 amount) {
+        if (msg.sender != issuer) revert UnauthorizedIssuer();
+        if (registry.statusOf(assetId) != IAssetRegistry.AssetStatus.Closed) {
+            revert AssetNotClosed();
+        }
+        uint64 endsAt = maturityWindowEndsAt();
+        if (endsAt == 0 || block.timestamp <= endsAt) revert MaturityWindowOpen();
+
+        amount = residualReserve();
+        if (amount == 0) revert NothingToRelease();
+
+        redemptionReserve -= amount;
+        stablecoin.safeTransfer(issuer, amount);
+        _emitAllocation("REDEMPTION_RESERVE", -int256(amount), redemptionReserve);
+        emit ResidualReserveReleased(issuer, amount, redemptionReserve);
+        _assertAccounting();
     }
 
     /// @notice Credit yield earned on the protected reserve (D-023).

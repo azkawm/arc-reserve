@@ -51,6 +51,7 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
     error InsufficientReserveLiquidity();
     error ZeroRedemptionValue();
     error IssuerAllocationCannotRedeem();
+    error MaturityWindowClosed();
 
     constructor(
         address assetToken_,
@@ -123,6 +124,12 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
         uint256 referencePrice = mode == RedemptionMode.Emergency && emergencySettlementPrice != 0
             ? emergencySettlementPrice
             : nav;
+        // A note pays at most par at maturity (D-023). Backing above par is the issuer's residual,
+        // not holder upside, and is returned via `releaseResidualReserve` once the window closes.
+        if (mode == RedemptionMode.Maturity) {
+            uint256 par = vault.maturityParValue();
+            if (par != 0 && par < referencePrice) referencePrice = par;
+        }
         return Math.min(referencePrice, liquidBackingPerToken);
     }
 
@@ -154,8 +161,12 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
         if (mode == RedemptionMode.Normal && status != IAssetRegistry.AssetStatus.Active) {
             revert InvalidMode();
         }
-        if (mode == RedemptionMode.Maturity && status != IAssetRegistry.AssetStatus.Matured) {
-            revert InvalidMode();
+        if (mode == RedemptionMode.Maturity) {
+            if (status != IAssetRegistry.AssetStatus.Matured) revert InvalidMode();
+            // Redemption at par is open for a bounded window, after which the leftover reserve is
+            // returned to the issuer. Zero means no window was configured, so it stays open.
+            uint64 endsAt = vault.maturityWindowEndsAt();
+            if (endsAt != 0 && block.timestamp > endsAt) revert MaturityWindowClosed();
         }
         if (
             mode == RedemptionMode.Emergency && status != IAssetRegistry.AssetStatus.Defaulted

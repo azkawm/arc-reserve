@@ -293,6 +293,21 @@ keep their exit. Headroom issuance will join the gate when it exists.
 `depositReserve(amount, periodId)` is the issuer's scheduled contribution, tagged with the reporting
 period it settles, and emits `ReserveContribution`.
 
+### 6.6 Residual return (D-023)
+
+Once an asset is `Closed` **and** the maturity window has passed, the issuer may call
+`releaseResidualReserve()`:
+
+```text
+obligationsAtPar = investorSupply * min(NAV, par) / 1e18
+residual         = redemptionReserve > obligationsAtPar ? redemptionReserve - obligationsAtPar : 0
+```
+
+Only the excess is released. Every remaining holder keeps full par cover, so a holder who never
+redeemed is never stranded by the release - an underfunded asset simply has no residual, and the
+call reverts `NothingToRelease()`. Guarded by `AssetNotClosed()`, `MaturityWindowOpen()` and issuer
+identity; emits `ResidualReserveReleased`.
+
 ### 6.5 Reserve yield (D-023)
 
 `accrueReserveYield(amount)` is callable only by `YIELD_SOURCE_ROLE` and routes yield earned on the
@@ -417,11 +432,20 @@ backing)` on every call rather than trusting a cached level (D-025).
 
 ### 9.1 Modes
 
-| Mode | Required asset status | Reference |
-| --- | --- | --- |
-| Normal | Active | NAV |
-| Maturity | Matured | NAV |
-| Emergency | Suspended or Defaulted | Emergency price when nonzero; otherwise NAV |
+| Mode | Required asset status | Reference | Extra condition |
+| --- | --- | --- | --- |
+| Normal | Active | NAV | - |
+| Maturity | Matured | `min(NAV, par)` | Only until `vault.maturityWindowEndsAt()` |
+| Emergency | Suspended or Defaulted | Emergency price when nonzero; otherwise NAV | - |
+
+Maturity is the only mode capped at **par** (`vault.maturityParValue()`, the schedule's end target,
+normally 1.000000). SOLAR01 is a note: a holder's maturity claim is capped at par, and backing above
+par is the issuer's residual rather than holder upside. Normal and emergency modes are uncapped and
+keep paying `min(reference, backing)`.
+
+Maturity redemption closes at `assetMaturity + maturityWindowSeconds`, reverting
+`MaturityWindowClosed()`. A zero window disables both the deadline and residual release - the safe
+default for an unconfigured asset.
 
 ### 9.2 Price and limits
 

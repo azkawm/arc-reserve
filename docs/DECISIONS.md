@@ -255,8 +255,15 @@ reserve shortfall (D-023) is what actually freezes issuer capital.
 Status: accepted 2026-08-27. **Schedule and enforcement implemented 2026-08-30** (contracts task 2:
 `AssetVault.ReserveSchedule`, `targetBackingAt`, `currentBacking`, `isBehindSchedule`,
 `shortfallStartedAt`, `isInEnforcedShortfall`, `depositReserve`, the `withdrawIssuerProceeds` gate,
-`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: residual return (task 5)
-and the 65/30/5 settlement split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: the 65/30/5 settlement
+split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+
+**Residual return implemented 2026-08-30** (contracts task 5). Maturity redemption is capped at par
+(`vault.maturityParValue()`) and closes at `assetMaturity + maturityWindowSeconds`; afterwards, at
+`Closed`, the issuer may call `releaseResidualReserve()` for `reserve - investorSupply*min(NAV, par)`.
+Only the excess moves, so remaining holders keep full par cover and an underfunded asset has no
+residual at all. The par cap is what makes residual return meaningful - without it a holder would
+redeem at full backing and the residual would always be zero.
 
 **Reserve yield implemented 2026-08-30** (contracts task 4). `AssetVault.accrueReserveYield` under
 `YIELD_SOURCE_ROLE` credits `redemptionReserve` while behind schedule and `issuerProceeds` once on

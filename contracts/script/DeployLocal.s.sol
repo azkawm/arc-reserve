@@ -128,6 +128,10 @@ contract DeployLocal is Script {
         // before `isReportingOverdue()` flags the issuer to the verifier and the UI.
         RevenueDistributor(deployment.revenueDistributor).setReportingPolicy(30 days, 30 days);
 
+        // D-023 maturity window: 90 days after the asset's maturity date for holders to redeem at
+        // par, after which the issuer may reclaim the leftover reserve.
+        AssetVault(deployment.vault).setMaturityWindow(90 days);
+
         // D-023 reserve yield. DEMO: a stand-in for holding the reserve in a yield-bearing stable.
         // Yield lands in the reserve while backing is behind schedule and with the issuer once it
         // is on or ahead. Seeded with 5,000 mUSD so the demo can show both branches.
