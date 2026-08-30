@@ -50,6 +50,7 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
     error PeriodLimitExceeded();
     error InsufficientReserveLiquidity();
     error ZeroRedemptionValue();
+    error IssuerAllocationCannotRedeem();
 
     constructor(
         address assetToken_,
@@ -83,6 +84,9 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
         returns (uint256 stablecoinAmount)
     {
         if (tokenAmount == 0) revert InvalidAmount();
+        // The disclosed issuer allocation exits through the market after vesting, never through the
+        // investors' reserve (D-024). Checked in every mode, including maturity and emergency.
+        if (assetToken.isIssuerAllocation(msg.sender)) revert IssuerAllocationCannotRedeem();
         _validateMode(mode);
         _rollPeriod();
         if (redeemedThisPeriod + tokenAmount > periodLimitTokens) revert PeriodLimitExceeded();
@@ -110,7 +114,9 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
     /// @notice NAV is a reference; the redemption price is capped by liquid reserve backing.
     function redemptionPrice(RedemptionMode mode) public view returns (uint256) {
         (uint256 nav,) = registry.navOf(assetId);
-        uint256 supply = assetToken.totalSupply();
+        // Backing is measured per investor-held token: the issuer allocation cannot redeem, so
+        // counting it would understate what each investor token is actually backed by (D-024).
+        uint256 supply = assetToken.investorSupply();
         if (supply == 0) return 0;
         uint256 liquidBackingPerToken =
             Math.mulDiv(vault.availableRedemptionLiquidity(), 1e18, supply);
@@ -128,8 +134,11 @@ contract RedemptionController is AccessControl, Pausable, ReentrancyGuard {
         emit EmergencySettlementPriceSet(previous, newPrice);
     }
 
+    /// @notice Tokens that can still be presented for redemption. Excludes the issuer allocation
+    ///         (D-024), which is why this is not `totalSupply`. Consumed by the residual-return
+    ///         calculation at close.
     function outstandingTokenObligations() external view returns (uint256) {
-        return assetToken.totalSupply();
+        return assetToken.investorSupply();
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {

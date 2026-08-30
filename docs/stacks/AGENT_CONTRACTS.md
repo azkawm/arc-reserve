@@ -28,7 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 56 passed / 0 failed / 0 skipped; 5 invariants.
+Baseline: 97 passed / 0 failed / 0 skipped; 5 invariants; `forge fmt --check` clean
+(2026-08-27, after D-024).
 
 ## Interface stability rules
 - Do not rename or re-order enum members (`AssetStatus`, `RedemptionMode`, `PositionKind`,
@@ -50,8 +51,16 @@ Testnet keys only via untracked `.env`.
 The compliance layer (D-021) is merged: 75 tests, `src/compliance/`, permissioned `AssetToken`.
 `deployments/31337.json` is regenerated. Read D-021 before touching the token.
 
+Task 1 (D-024, company-token treatment) is merged: 97 tests, `test/unit/IssuerAllocation.t.sol`,
+`AssetToken.setIssuerAllocation` / `investorSupply()`, and the vault / redemption denominators.
+
+**D-031 (2026-08-30) then removed the issuer token allocation entirely.** Nothing sets the
+`issuerAllocation` flag in the demo, so `investorSupply == totalSupply`; the machinery is retained
+as a guard. This resolved the D-024/D-025 conflict — task 7 is unblocked, but `levelUp()` must
+still re-check `price(level) <= min(NAV, backing)` on every call rather than trusting a cached level.
+
 ## First tasks (in order) — business-model alignment, D-022 / D-023 / D-024
-1. **Company-token treatment (D-024).** `issuerAllocation` flag on `RevenueDistributor` or token;
+1. ~~**Company-token treatment (D-024).**~~ **DONE 2026-08-27.** `issuerAllocation` flag on the token;
    `RedemptionController.redeem` reverts for flagged holders; `investorSupply()` view; switch
    `redemptionPrice`, `minimumRequiredReserve`, `reserveRatioBps` to the investor-supply
    denominator. Tests: flagged holder cannot redeem in any mode; denominators exclude it.

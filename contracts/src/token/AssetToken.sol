@@ -28,7 +28,13 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
 
     IIdentityRegistry public identityRegistry;
     ICompliance public compliance;
+    /// @notice Running total of balances held by `_issuerAllocation` addresses. Maintained in
+    ///         `_update` so `investorSupply()` never has to iterate holders.
+    uint256 public issuerAllocationSupply;
     mapping(address => bool) private _complianceExempt;
+    /// @notice Addresses holding the disclosed issuer/company allocation (D-024). Their balances
+    ///         are excluded from `investorSupply` and they may never redeem against the reserve.
+    mapping(address => bool) private _issuerAllocation;
     mapping(address => bool) private _frozen;
     mapping(address => uint256) private _frozenTokens;
     bool private _forcedTransferInProgress;
@@ -37,6 +43,7 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
     event IdentityRegistryAdded(address indexed identityRegistry);
     event ComplianceAdded(address indexed compliance);
     event ComplianceExemptionChanged(address indexed account, bool exempt);
+    event IssuerAllocationChanged(address indexed account, bool flagged, uint256 accountBalance);
     event AddressFrozen(address indexed userAddress, bool indexed isFrozen, address indexed owner);
     event TokensFrozen(address indexed userAddress, uint256 amount);
     event TokensUnfrozen(address indexed userAddress, uint256 amount);
@@ -113,6 +120,26 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
         if (account == address(0)) revert InvalidAddress();
         _complianceExempt[account] = exempt;
         emit ComplianceExemptionChanged(account, exempt);
+    }
+
+    /// @notice Flag or unflag an address as holding the disclosed issuer allocation (D-024).
+    /// @dev    Adjusts `issuerAllocationSupply` by the account's current balance so the running
+    ///         total stays correct when the flag is set on an address that already holds tokens.
+    ///         This is a capital-structure designation, not a compliance control: flagged tokens
+    ///         stay transferable to verified buyers, they simply cannot redeem and do not count
+    ///         toward the backing denominator.
+    function setIssuerAllocation(address account, bool flagged)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (account == address(0)) revert InvalidAddress();
+        uint256 balance = balanceOf(account);
+        if (_issuerAllocation[account] != flagged) {
+            _issuerAllocation[account] = flagged;
+            if (flagged) issuerAllocationSupply += balance;
+            else issuerAllocationSupply -= balance;
+        }
+        emit IssuerAllocationChanged(account, flagged, balance);
     }
 
     // ---------------------------------------------------------------------
@@ -202,6 +229,17 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
         return _complianceExempt[account];
     }
 
+    function isIssuerAllocation(address account) external view returns (bool) {
+        return _issuerAllocation[account];
+    }
+
+    /// @notice Supply held by investors: total supply minus the disclosed issuer allocation.
+    ///         This is the denominator for backing, the reserve requirement and the redemption
+    ///         price (D-024) - the issuer's own tokens must not draw on the investors' reserve.
+    function investorSupply() public view returns (uint256) {
+        return totalSupply() - issuerAllocationSupply;
+    }
+
     function isFrozen(address userAddress) external view returns (bool) {
         return _frozen[userAddress];
     }
@@ -223,7 +261,11 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
         view
         returns (bytes4)
     {
-        if (paused()) return Pausable.EnforcedPause.selector;
+        // `burnForRedemption` is the only burn path and it is exempt from the protocol pause so
+        // an authorized settlement cannot trap holders (see `_update`). Previewing a paused
+        // redemption as blocked would contradict the contract, so only non-burn legs report the
+        // pause here.
+        if (paused() && to != address(0)) return Pausable.EnforcedPause.selector;
         return _transferRestriction(from, to, value);
     }
 
@@ -299,6 +341,17 @@ contract AssetToken is ERC20, ERC20Permit, ERC20Pausable, AccessControl {
             ERC20._update(from, to, value);
         } else {
             super._update(from, to, value);
+        }
+
+        // Keep the issuer-allocation running total in step with the balance change (D-024).
+        // A mint into a flagged address adds, a burn out of one subtracts, and a transfer only
+        // moves the total when it crosses the flagged/unflagged boundary.
+        bool fromIssuerAllocation = from != address(0) && _issuerAllocation[from];
+        bool toIssuerAllocation = to != address(0) && _issuerAllocation[to];
+        if (fromIssuerAllocation && !toIssuerAllocation) {
+            issuerAllocationSupply -= value;
+        } else if (!fromIssuerAllocation && toIssuerAllocation) {
+            issuerAllocationSupply += value;
         }
 
         ICompliance compliance_ = compliance;

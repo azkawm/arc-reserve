@@ -24,7 +24,9 @@ market manager, and pool.
 | Protected floor reference | `min(NAV, liquid reserve backing per issued token)` under normal mode |
 | Market floor range | A concentrated-liquidity position funded from market inventory; not protected reserve |
 | Issued supply | Current ERC-20 `totalSupply`, including vesting balances |
-| Yield-eligible circulating supply | `totalSupply - excludedSupply` |
+| Investor supply | `totalSupply - issuerAllocationSupply` (D-024); the denominator for backing, the reserve requirement and the redemption price |
+| Issuer allocation | Balances of addresses flagged `setIssuerAllocation`; non-redeemable in every mode, outside the backing denominator |
+| Yield-eligible supply | `totalSupply - excludedSupply`; `RevenueDistributor.yieldEligibleSupply()`. Distinct from investor supply - a released company token can be investor supply while still yield-excluded |
 | Authorized supply | Immutable token `maximumSupply` |
 | Issuance headroom | Authorized supply that has not been minted; policy concept, not a dedicated controller today |
 
@@ -231,7 +233,7 @@ totalAccounted = redemptionReserve
                + issuerProceeds
                + protocolFees
 
-obligationsAtNAV = totalSupply * NAV / 1e18
+obligationsAtNAV = investorSupply * NAV / 1e18
 minimumRequiredReserve = obligationsAtNAV * minimumReserveRatioBps / 10_000
 
 isSolvent = vault mUSD balance >= totalAccounted
@@ -311,8 +313,17 @@ Yield exclusion rules:
 - transfers into/out of excluded accounts update `excludedSupply`; and
 - removing exclusion sets debt to the current accumulator, preventing retroactive yield.
 
-Vesting tokens remain part of `totalSupply`, reserve obligations, and redemption-price denominator.
-They are excluded only from holder-revenue eligibility.
+Under **D-031 there is no company token allocation**, so in the demo nothing is flagged and
+`investorSupply == totalSupply` at all times. Yield exclusion (D-006) remains available for any
+address the protocol needs to exclude.
+
+The D-024 machinery is retained as a general-purpose guard: an address flagged
+`setIssuerAllocation` is subtracted from `investorSupply` and cannot redeem in any mode. Yield
+exclusion (D-006) and issuer-allocation flagging (D-024) are separate switches; setting one does not
+set the other. If an allocation is ever reintroduced, note that the flag follows the **address**,
+not the tokens - releasing or selling flagged tokens to an investor moves them into `investorSupply`
+and lowers backing per token, which is why `levelUp()` must re-check `price(level) <= min(NAV,
+backing)` on every call rather than trusting a cached level (D-025).
 
 ## 9. Redemption
 
@@ -327,7 +338,7 @@ They are excluded only from holder-revenue eligibility.
 ### 9.2 Price and limits
 
 ```text
-liquidBackingPerToken = redemptionReserve * 1e18 / totalSupply
+liquidBackingPerToken = redemptionReserve * 1e18 / investorSupply
 redemptionPrice = min(referencePrice, liquidBackingPerToken)
 payout = tokenAmount * redemptionPrice / 1e18
 ```
@@ -438,12 +449,13 @@ Stateful tests assert:
 ```text
 token.totalSupply <= token.maximumSupply
 revenue.excludedSupply <= token.totalSupply
-revenue.circulatingSupply = totalSupply - excludedSupply
+revenue.yieldEligibleSupply = totalSupply - excludedSupply
+token.investorSupply = totalSupply - token.issuerAllocationSupply
 vault stablecoin balance >= vault.totalAccounted
 vault.isSolvent = true across handler actions
 revenue.totalClaimed <= revenue.totalHolderRevenue
 redemptionReserve >= minimumRequiredReserve
-redemption.outstandingTokenObligations = token.totalSupply
+redemption.outstandingTokenObligations = token.investorSupply
 ```
 
 Additional unit/integration properties include unauthorized role rejection, transfer-aware revenue,

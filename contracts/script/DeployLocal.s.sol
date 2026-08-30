@@ -9,8 +9,6 @@ import { AssetRegistry } from "../src/registry/AssetRegistry.sol";
 import { AssetVault } from "../src/vault/AssetVault.sol";
 import { AssetToken } from "../src/token/AssetToken.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
-import { RevenueDistributor } from "../src/revenue/RevenueDistributor.sol";
-import { CompanyVestingWallet } from "../src/vesting/CompanyVestingWallet.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
 import { CountryAllowModule } from "../src/compliance/modules/CountryAllowModule.sol";
@@ -33,7 +31,6 @@ contract DeployLocal is Script {
     uint16 private constant COUNTRY_INDONESIA = 360;
     uint8 private constant CLASS_RETAIL = 1;
 
-    address private companyVestingAddress;
     address private musdAddress;
     address private registryAddress;
     address private factoryAddress;
@@ -108,7 +105,6 @@ contract DeployLocal is Script {
         );
 
         _configureCompliance(deployer, deployment);
-        _configureCompanyVesting(deployer, deployment);
         _configureMarket(deployment);
 
         musd.faucet(deployer, 100_000e6);
@@ -124,7 +120,6 @@ contract DeployLocal is Script {
         console2.log("SOLAR01", deployment.token);
         console2.log("Vault", deployment.vault);
         console2.log("Offering", deployment.offering);
-        console2.log("Company vesting", companyVestingAddress);
         console2.log("ARC Engine", deployment.marketManager);
         console2.log("Identity registry", address(identityRegistry));
         console2.log("Compliance", address(compliance));
@@ -163,22 +158,11 @@ contract DeployLocal is Script {
         AssetToken(deployment.token).setCompliance(address(compliance));
     }
 
-    function _configureCompanyVesting(address deployer, AssetFactory.Deployment memory deployment)
-        private
-    {
-        CompanyVestingWallet companyVesting =
-            new CompanyVestingWallet(deployer, uint64(block.timestamp), uint64(365 days));
-        companyVestingAddress = address(companyVesting);
-
-        RevenueDistributor revenue = RevenueDistributor(deployment.revenueDistributor);
-        AssetToken assetToken = AssetToken(deployment.token);
-        revenue.setYieldExcluded(companyVestingAddress, true);
-        // The vesting wallet is issuer infrastructure, not an investor; its beneficiary is KYC'd.
-        assetToken.setComplianceExempt(companyVestingAddress, true);
-        assetToken.grantRole(assetToken.ISSUANCE_CONTROLLER_ROLE(), deployer);
-        assetToken.mint(companyVestingAddress, 20_000e18);
-        assetToken.revokeRole(assetToken.ISSUANCE_CONTROLLER_ROLE(), deployer);
-    }
+    // D-031: there is no company/issuer token allocation. The issuer is paid in cash (settlement
+    // proceeds, operator revenue share, residual reserve at close), so nothing is minted here and
+    // the offering is the only holder of ISSUANCE_CONTROLLER_ROLE for the life of the asset.
+    // Of the 100,000 authorized supply, 80,000 is offering inventory and 20,000 stays unminted
+    // headroom (D-002, D-004).
 
     function _writeDeployment(bytes32 assetId, AssetFactory.Deployment memory deployment) private {
         string memory root = "arcReserve";
@@ -186,7 +170,6 @@ contract DeployLocal is Script {
         vm.serializeAddress(root, "mockUSD", musdAddress);
         vm.serializeAddress(root, "registry", registryAddress);
         vm.serializeAddress(root, "factory", factoryAddress);
-        vm.serializeAddress(root, "companyVesting", companyVestingAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));

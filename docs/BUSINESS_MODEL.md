@@ -25,7 +25,7 @@ security documents establish it (D-001).
 | --- | --- |
 | Authorized supply | Hard maximum tokens for one series (`maximumSupply`, immutable) |
 | Investor supply | Issued tokens not flagged as issuer allocation; the denominator for backing, redemption, and reserve ratio (D-024) |
-| Issuer allocation | The company's disclosed vested tokens: yield-excluded while locked, **never redeemable** against the reserve, sellable to verified buyers after vesting |
+| Issuer allocation | **None (D-031).** The issuer holds no tokens; its consideration is cash - 65% of settlement proceeds, the operator revenue share, and residual reserve at close. `AssetToken.setIssuerAllocation` is retained as a guard but nothing sets it |
 | Issuance headroom | Authorized but unminted tokens, issuable later under governed rules |
 | Backing | `protected reserve / investor supply`, in mUSD per token; non-decreasing while Active |
 | Target backing | The scheduled backing at time *t*, linear from settlement backing to 1.00 at maturity |
@@ -77,7 +77,7 @@ pending).
 
 | Outcome | Raise | Effect |
 | --- | --- | --- |
-| Full | ≥ 100% | Mint investor tokens; mint and lock issuer allocation; split proceeds; start the reserve schedule; `Active` |
+| Full | ≥ 100% | Mint investor tokens only (D-031); split proceeds; start the reserve schedule; `Active` |
 | Partial | > 50% and < 100% | Same, with issuer acceptance step; unsold investor allocation stays unminted headroom (D-008) |
 | Failed | ≤ 50% | Refund subscriptions 1:1; return issuer deposit; nothing minted |
 

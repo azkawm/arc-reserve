@@ -87,5 +87,28 @@ vesting sale moves tokens into `investorSupply` and *lowers* backing per token, 
 "backing is non-decreasing while Active" assumption the D-025 floor ratchet is built on. Three
 options and a recommendation are in `docs/DECISIONS.md` open item 0. Task 7 (floor level-up) is
 blocked on this; tasks 2-6 are not, so I can continue with the reserve schedule meanwhile.
-Note for other stacks: `forge fmt --check` is already failing on `main` (two pre-existing ternary
-wraps in `RevenueDistributor`), and `backend/` work was in the tree while I ran — I did not touch it.
+Note for other stacks: `forge fmt --check` was already failing on `main` before this change (two
+ternary wraps in `RevenueDistributor`); since I touched that file I ran `forge fmt` on it, so the
+repo is now clean. `backend/` work was in the tree while I ran — I did not touch it.
+
+## 2026-08-30 — contracts — D-031: the issuer receives no token allocation
+Branch: main   Commit: (uncommitted working tree)
+What: owner decision — SOLAR01 is a revenue-participation note, so the issuer holds no tokens and is
+paid in cash (65% settlement proceeds, operator revenue share, residual reserve at close).
+`DeployLocal` no longer deploys or funds a `CompanyVestingWallet` and no longer mints at deploy.
+Supply at deploy is now 0; 100,000 authorized = 80,000 offering inventory + 20,000 unminted headroom.
+`PrimaryOffering` is the only holder of `ISSUANCE_CONTROLLER_ROLE` for the life of the asset — the
+deployer's temporary self-grant is gone. D-024's `issuerAllocation` / `investorSupply` machinery is
+retained as a guard and stays tested, but nothing sets the flag, so `investorSupply == totalSupply`.
+Verified on a fresh Anvil: `totalSupply` 0, `issuerAllocationSupply` 0, offering inventory 80,000e18,
+offering has mint role, deployer does not. 97 tests green, `forge fmt --check` clean.
+Interface changes: `CONTRACTS_TO_FRONTEND.md` row 2026-08-30 (**frontend copy must change** — the
+"20,000 company vesting / 20% company vesting" figures on the asset page, issuer workspace,
+action deck and `lib/data.ts` are now wrong); `CONTRACTS_TO_BACKEND.md` row 2026-08-30
+(`companyVesting` key removed from `deployments/<chainId>.json`; it is already optional in
+`backend/src/config.ts` so nothing breaks, but drop it from `.env.example` when convenient).
+Docs: D-031 added; D-005 superseded; D-008 amended; open decision 0 (D-024 vs D-025) resolved —
+task 7 is unblocked.
+Needs: nothing blocking. One open sub-question in D-031: whether to delete
+`src/vesting/CompanyVestingWallet.sol` outright — it is now unused by the demo but still referenced
+by a yield-exclusion test. Left in place pending owner confirmation.

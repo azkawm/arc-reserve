@@ -85,7 +85,7 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
         nonReentrant
         whenNotPaused
     {
-        uint256 supply = circulatingSupply();
+        uint256 supply = yieldEligibleSupply();
         if (supply == 0) revert NoYieldEligibleSupply();
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -116,16 +116,14 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
         if (from != address(0)) {
             uint256 fromBalance = assetToken.balanceOf(from);
             _accrue(from, fromBalance);
-            _rewardDebt[from] = fromExcluded
-                ? 0
-                : (fromBalance - amount) * cumulativeRevenuePerToken / ACCURACY;
+            _rewardDebt[from] =
+                fromExcluded ? 0 : (fromBalance - amount) * cumulativeRevenuePerToken / ACCURACY;
         }
         if (to != address(0)) {
             uint256 toBalance = assetToken.balanceOf(to);
             _accrue(to, toBalance);
-            _rewardDebt[to] = toExcluded
-                ? 0
-                : (toBalance + amount) * cumulativeRevenuePerToken / ACCURACY;
+            _rewardDebt[to] =
+                toExcluded ? 0 : (toBalance + amount) * cumulativeRevenuePerToken / ACCURACY;
         }
 
         if (fromExcluded && !toExcluded) {
@@ -157,8 +155,18 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
         emit YieldExclusionChanged(account, excluded, balance);
     }
 
-    function circulatingSupply() public view returns (uint256) {
+    /// @notice Supply that earns revenue: total supply minus yield-excluded balances (D-006).
+    /// @dev    Named for what it is. This is NOT circulating supply and NOT `investorSupply`
+    ///         (D-024) - a released company token can be investor supply while still excluded
+    ///         from yield, and the three denominators must not be used interchangeably.
+    function yieldEligibleSupply() public view returns (uint256) {
         return assetToken.totalSupply() - excludedSupply;
+    }
+
+    /// @notice Deprecated alias for `yieldEligibleSupply`. Kept so existing consumers keep
+    ///         building; prefer the explicit name.
+    function circulatingSupply() external view returns (uint256) {
+        return yieldEligibleSupply();
     }
 
     function yieldEligibleBalanceOf(address holder) public view returns (uint256) {
@@ -166,8 +174,7 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
     }
 
     function claimableRevenue(address holder) public view returns (uint256) {
-        uint256 accumulated =
-            yieldEligibleBalanceOf(holder) * cumulativeRevenuePerToken / ACCURACY;
+        uint256 accumulated = yieldEligibleBalanceOf(holder) * cumulativeRevenuePerToken / ACCURACY;
         uint256 pending = accumulated > _rewardDebt[holder] ? accumulated - _rewardDebt[holder] : 0;
         return _accrued[holder] + pending;
     }

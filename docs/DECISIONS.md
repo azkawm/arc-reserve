@@ -46,7 +46,9 @@ controller for step 3 or a tranche factory policy for step 4.
 
 ## D-005: Company allocation is vested and excluded from holder yield
 
-Status: partially implemented.
+Status: **superseded by D-031 (2026-08-30).** There is no company token allocation. The primitives
+below (`CompanyVestingWallet`, `setYieldExcluded`) still exist and yield exclusion is still used,
+but nothing mints a company allocation. Kept for history and in case an allocation is reintroduced.
 
 The company allocation must go to a vesting contract and must not dilute the yield denominator while
 locked. Released tokens become eligible only for future deposits.
@@ -83,9 +85,10 @@ implemented. Partial settlement should include an explicit issuer acceptance ste
 
 Status: accepted target policy.
 
-On partial success, investors receive purchased tokens and the company receives only its previously
-disclosed vested allocation. Unsold investor allocation remains unminted headroom. The protected
-issuer reserve remains protected rather than being partially refunded during successful settlement.
+On partial success, investors receive purchased tokens. Under D-031 the company receives no tokens
+at all - its consideration is cash (65% settlement proceeds) plus residual reserve at close. Unsold
+investor allocation remains unminted headroom. The protected issuer reserve remains protected rather
+than being partially refunded during successful settlement.
 
 ## D-009: Separate five value concepts in product and code
 
@@ -278,7 +281,8 @@ the ARC engine, whose ranges follow the floor.
 
 ## D-024: Company tokens are non-redeemable and excluded from the backing target
 
-Status: accepted 2026-08-27; target contract change.
+Status: accepted 2026-08-27; **implemented 2026-08-27** (`AssetToken.setIssuerAllocation` /
+`investorSupply()`, vault and redemption denominators, `test/unit/IssuerAllocation.t.sol`).
 
 Tokens minted to the company vesting wallet (and any address flagged `issuerAllocation`) cannot
 call `redeem()` in any mode. They remain transferable to verified buyers after vesting and earn
@@ -385,9 +389,78 @@ surface is labelled "demo verifier". The documented production path is an indepe
 (ideally a third-party verification firm) because ArcReserve verifying assets it also markets is a
 conflict of interest. `docs/USER_FLOWS.md` §1 and `docs/SECURITY.md` carry both.
 
+## D-030: Backend persistence, migrations, and multi-chain topology
+
+Status: accepted 2026-08-27 (owner delegated to the default). Closes open item 9.
+
+PostgreSQL 16 with **plain-SQL migrations run by `node-pg-migrate`**. No ORM: the read model is
+built from exact `NUMERIC` base units and hand-written SQL, and an ORM between the projector and
+the ledger would obscure the rounding and constraint behaviour that has to match Solidity exactly.
+Validation is Zod, at both the configuration boundary and the response boundary. A bundled
+`docker-compose.yml` provides the database on `127.0.0.1:5450`; no managed provider is used for a
+hackathon that must run on a laptop.
+
+**Topology.** One database serves all three chains, with `chain_id` on every row and in every
+primary key. One indexer **process** per chain, configured by the documented single-chain
+environment block; the API process serves every chain present in the database. This keeps a slow
+or failing Hedera relay from stalling Anvil and Base Sepolia, while a single database keeps
+cross-chain queries and one migration history.
+
+**Storage guarantees.** Financial columns use `uint256` / `int256` domains defined as unconstrained
+`NUMERIC` with `SCALE(VALUE) = 0` and explicit range checks — deliberately *not* `NUMERIC(78,0)`,
+whose typmod is applied before the domain check and would silently round `1.5` to `2` instead of
+rejecting it. A `chains_testnet_only` CHECK constraint refuses a mainnet chain id at the storage
+layer as well as in configuration (D-027).
+
+## D-031: The issuer receives no token allocation
+
+Status: accepted 2026-08-30 (owner). Supersedes D-005 and amends D-008.
+
+**Decision.** No company/issuer token allocation exists. The issuer's consideration is cash only:
+65% of settlement proceeds (D-023), the operator share of revenue, and the residual reserve released
+at `Closed`. All minted tokens are investor tokens.
+
+**Why.** SOLAR01 is a secured revenue-participation note, not equity (D-001, D-023). Three concrete
+problems with an issuer allocation:
+
+1. *Circular economics.* The issuer deposits a contracted share of gross revenue (D-022) and would
+   then receive part of it back as a holder. At the previous 20,000/100,000 demo split the issuer
+   collected 20% of the holder pool, diluting real investors' revenue share by the same 20%.
+2. *It required defensive machinery.* D-024 (non-redeemable, excluded from the backing denominator)
+   exists only to stop the issuer's own tokens draining the investors' reserve.
+3. *It broke the floor ratchet.* Moving tokens between `issuerAllocationSupply` and `investorSupply`
+   makes backing per token fall, contradicting the non-decreasing-backing assumption D-025 relies on.
+
+Issuer alignment is provided instead by the D-023 first-loss reserve deposit and the enforced
+sinking-fund schedule, which are the right instruments for a debt-shaped claim.
+
+**Consequences.**
+
+- `DeployLocal` no longer creates or funds a `CompanyVestingWallet`; the `companyVesting` key is
+  removed from `deployments/<chainId>.json`.
+- Supply story: 100,000 authorized, 80,000 offering inventory, **20,000 unminted headroom** (D-002,
+  D-004). The cap is unchanged; the 20,000 is simply never minted.
+- D-024's `issuerAllocation` flag, `investorSupply()` and the redemption block are **retained** as a
+  general-purpose guard and stay tested, but nothing sets the flag in the demo, so
+  `investorSupply == totalSupply` throughout.
+- D-006 yield exclusion is unaffected and still used for any excluded address.
+- Frontend copy claiming a 20% company vesting allocation must be removed (announced in
+  `CONTRACTS_TO_FRONTEND.md`).
+
+**Open sub-question:** whether to delete `src/vesting/CompanyVestingWallet.sol` outright. It is
+currently unused by the demo but still referenced by a yield-exclusion test. Left in place pending
+owner confirmation.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:
+
+0. ~~**D-024 vs D-025: a vesting sale lowers backing per token.**~~ **Resolved 2026-08-30 by D-031.**
+   With no issuer allocation, nothing is ever flagged, `investorSupply == totalSupply`, and backing
+   is non-decreasing while Active as D-025 assumes. The hazard would return if an allocation were
+   reintroduced, so `levelUp()` should still re-check `price(level) <= min(NAV, backing)` on every
+   call rather than trusting a cached level - cheap, and it makes the ratchet correct by
+   construction instead of by assumption. Task 7 is unblocked.
 
 1. Final authorized-supply allocation among offering, company vesting, market inventory, and headroom.
 2. Whether the issuer can reject an eligible partial settlement.
@@ -397,6 +470,7 @@ The following require explicit owner input before implementation:
 6. Lock duration, minimum free float, early exit, and redemption treatment.
 7. Stablecoin, fee schedule, refund deadline, early close, and oversubscription policy.
 8. Legal rights, jurisdiction, custody, KYC/AML, sanctions, tax, and investor eligibility.
-9. Backend database/deployment provider and target testnet.
+9. ~~Backend database/deployment provider and target testnet.~~ Settled by D-030 (PostgreSQL 16 +
+   `node-pg-migrate`, one database, one indexer process per chain) and D-027 (all three testnets).
 10. Whether the production chart will use TradingView Lightweight Charts or retain another library.
 

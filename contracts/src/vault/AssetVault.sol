@@ -209,15 +209,20 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
                 + protocolFees;
     }
 
+    /// @notice Reserve the vault must hold, valued at NAV over investor-held supply.
+    /// @dev    Denominated in `investorSupply` rather than `totalSupply` (D-024): the issuer's own
+    ///         allocation cannot redeem, so requiring reserve against it would overstate the
+    ///         obligation and lock up capital no investor can ever claim.
     function minimumRequiredReserve() public view returns (uint256) {
         (uint256 nav,) = registry.navOf(assetId);
-        uint256 obligationsAtNAV = DecimalMath.assetToStable(assetToken.totalSupply(), nav);
+        uint256 obligationsAtNAV = DecimalMath.assetToStable(assetToken.investorSupply(), nav);
         return DecimalMath.applyBps(obligationsAtNAV, minimumReserveRatioBps);
     }
 
+    /// @notice Reserve coverage of investor obligations at NAV, in basis points (D-024).
     function reserveRatioBps() public view returns (uint256) {
         (uint256 nav,) = registry.navOf(assetId);
-        uint256 obligationsAtNAV = DecimalMath.assetToStable(assetToken.totalSupply(), nav);
+        uint256 obligationsAtNAV = DecimalMath.assetToStable(assetToken.investorSupply(), nav);
         if (obligationsAtNAV == 0) return type(uint256).max;
         return Math.mulDiv(redemptionReserve, 10_000, obligationsAtNAV);
     }
