@@ -344,6 +344,21 @@ the local demo can show both branches without an external protocol.
 
 ## 7. Current primary offering
 
+**Class-based subscription caps (D-028).** `investorClass` in the protocol identity registry is the
+source of truth: 1 retail, 2 accredited, 3 institutional. `setClassLimit(class, walletLimit,
+aggregateCap)` configures a class; an unconfigured class falls back to the global
+`walletPurchaseLimit`, so the mechanism changes nothing until deliberately used.
+
+A configured class limit **replaces** the global limit rather than stacking with it. Stacking would
+cap an institution at the retail-era global figure, which is the opposite of the intent;
+`type(uint256).max` therefore means "uncapped within the fundraising cap", which still bounds
+everyone. `aggregateCap` optionally limits the share of the whole raise one class may take, tracked
+in `raisedByClass`.
+
+`remainingAllowance(buyer)` is the number a UI should display: the minimum of the effective wallet
+cap, the class aggregate cap, and what is left of the raise. `walletPurchaseLimit` alone is wrong
+once any class is configured.
+
 Proceeds are split 65% issuer / 30% protected reserve / 5% market allocation (D-023). The 30%
 holdback is the reserve's opening balance and the first point on the sinking-fund schedule; the
 issuer's fresh working capital is the 65%.

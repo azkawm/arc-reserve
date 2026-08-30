@@ -10,6 +10,7 @@ import { IAssetRegistry } from "../interfaces/IAssetRegistry.sol";
 import { IAssetToken } from "../interfaces/IAssetToken.sol";
 import { IAssetVault } from "../interfaces/IAssetVault.sol";
 import { DecimalMath } from "../libraries/DecimalMath.sol";
+import { IIdentityRegistry } from "../compliance/IIdentityRegistry.sol";
 
 contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -57,6 +58,23 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
     uint256 public tokensSold;
     mapping(address => uint256) public purchasedByWallet;
 
+    /// @notice Per-investor-class subscription limits (D-028). `investorClass` comes from the
+    ///         protocol identity registry: 1 retail, 2 accredited, 3 institutional.
+    /// @dev    `configured == false` falls back to the global `walletPurchaseLimit`, so adding the
+    ///         mechanism changes nothing until a class is deliberately configured.
+    struct ClassLimit {
+        /// @dev Per-wallet subscription cap for this class. `type(uint256).max` expresses
+        ///      "uncapped within the fundraising cap", which is what D-028 grants institutions.
+        uint256 walletLimit;
+        /// @dev Maximum share of the whole raise this class may take. Zero means no aggregate cap.
+        uint256 aggregateCap;
+        bool configured;
+    }
+
+    mapping(uint8 => ClassLimit) public classLimits;
+    mapping(uint8 => uint256) public raisedByClass;
+
+    event ClassLimitSet(uint8 indexed investorClass, uint256 walletLimit, uint256 aggregateCap);
     event TokensPurchased(
         address indexed buyer,
         uint256 stablecoinAmount,
@@ -74,6 +92,8 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
     error WalletLimitExceeded();
     error InventoryExceeded();
     error ZeroTokenOutput();
+    error ClassWalletLimitExceeded();
+    error ClassAggregateCapExceeded();
 
     constructor(OfferingConfig memory config) {
         if (
@@ -112,9 +132,7 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
         if (!registry.canIssue(assetId)) revert AssetNotActive();
         if (stablecoinAmount < minimumPurchase) revert PurchaseTooSmall();
         if (stablecoinRaised + stablecoinAmount > fundraisingCap) revert FundraisingCapExceeded();
-        if (purchasedByWallet[msg.sender] + stablecoinAmount > walletPurchaseLimit) {
-            revert WalletLimitExceeded();
-        }
+        _enforceWalletLimits(msg.sender, stablecoinAmount);
 
         tokenAmount = DecimalMath.stableToAsset(stablecoinAmount, tokenPrice);
         if (tokenAmount == 0 || tokenAmount < minimumTokensOut) revert ZeroTokenOutput();
@@ -123,6 +141,7 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
         stablecoinRaised += stablecoinAmount;
         tokensSold += tokenAmount;
         purchasedByWallet[msg.sender] += stablecoinAmount;
+        raisedByClass[investorClassOf(msg.sender)] += stablecoinAmount;
 
         uint256 issuerShare = DecimalMath.applyBps(stablecoinAmount, ISSUER_BPS);
         uint256 reserveShare = DecimalMath.applyBps(stablecoinAmount, RESERVE_BPS);
@@ -135,6 +154,77 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
         emit TokensPurchased(
             msg.sender, stablecoinAmount, tokenAmount, issuerShare, reserveShare, marketShare
         );
+    }
+
+    /// @notice Set the subscription limits for one investor class (D-028).
+    /// @param  walletLimit Per-wallet cap; `type(uint256).max` for uncapped within the raise.
+    /// @param  aggregateCap Maximum share of the whole raise from this class; 0 for none.
+    function setClassLimit(uint8 investorClass, uint256 walletLimit, uint256 aggregateCap)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        classLimits[investorClass] = ClassLimit({
+            walletLimit: walletLimit, aggregateCap: aggregateCap, configured: true
+        });
+        emit ClassLimitSet(investorClass, walletLimit, aggregateCap);
+    }
+
+    /// @notice The buyer's class as recorded in the protocol identity registry, or 0 when the token
+    ///         has no registry bound. An unregistered wallet reads 0 and falls back to the global
+    ///         limit - it cannot receive tokens anyway, because the mint leg checks verification.
+    function investorClassOf(address buyer) public view returns (uint8) {
+        address identityRegistry = assetToken.identityRegistry();
+        if (identityRegistry == address(0)) return 0;
+        return IIdentityRegistry(identityRegistry).investorClass(buyer);
+    }
+
+    /// @notice The per-wallet cap that applies to `buyer`, after class fallback.
+    function effectiveWalletLimit(address buyer) public view returns (uint256) {
+        ClassLimit memory limit = classLimits[investorClassOf(buyer)];
+        return limit.configured ? limit.walletLimit : walletPurchaseLimit;
+    }
+
+    /// @notice How much `buyer` may still subscribe, accounting for every cap that applies to them:
+    ///         their effective per-wallet limit, their class's aggregate cap, and what is left of
+    ///         the raise. This is the number a UI should show, not `walletPurchaseLimit`.
+    function remainingAllowance(address buyer) external view returns (uint256) {
+        uint8 investorClass = investorClassOf(buyer);
+        ClassLimit memory limit = classLimits[investorClass];
+        uint256 spent = purchasedByWallet[buyer];
+
+        uint256 walletCap = limit.configured ? limit.walletLimit : walletPurchaseLimit;
+        uint256 remaining = walletCap > spent ? walletCap - spent : 0;
+
+        if (limit.configured && limit.aggregateCap != 0) {
+            uint256 classRaised = raisedByClass[investorClass];
+            uint256 classRemaining =
+                limit.aggregateCap > classRaised ? limit.aggregateCap - classRaised : 0;
+            if (classRemaining < remaining) remaining = classRemaining;
+        }
+
+        uint256 raiseRemaining =
+            fundraisingCap > stablecoinRaised ? fundraisingCap - stablecoinRaised : 0;
+        return raiseRemaining < remaining ? raiseRemaining : remaining;
+    }
+
+    /// @dev A configured class limit **replaces** the global `walletPurchaseLimit` rather than
+    ///      stacking with it (D-028: "falling back to `walletPurchaseLimit`"). Stacking would cap
+    ///      an institution at the retail-era global limit, which is the opposite of the intent.
+    ///      The fundraising cap still bounds everyone, so "uncapped" means uncapped within the raise.
+    function _enforceWalletLimits(address buyer, uint256 stablecoinAmount) private view {
+        uint8 investorClass = investorClassOf(buyer);
+        ClassLimit memory limit = classLimits[investorClass];
+        uint256 spent = purchasedByWallet[buyer];
+
+        if (limit.configured) {
+            if (spent + stablecoinAmount > limit.walletLimit) revert ClassWalletLimitExceeded();
+            if (
+                limit.aggregateCap != 0
+                    && raisedByClass[investorClass] + stablecoinAmount > limit.aggregateCap
+            ) revert ClassAggregateCapExceeded();
+        } else if (spent + stablecoinAmount > walletPurchaseLimit) {
+            revert WalletLimitExceeded();
+        }
     }
 
     function availableTokenInventory() external view returns (uint256) {

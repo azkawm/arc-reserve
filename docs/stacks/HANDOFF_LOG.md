@@ -471,3 +471,38 @@ Interface changes: two `CHANGED` rows in `BACKEND_TO_FRONTEND.md` §6 — the nu
 on `/metrics` with coverage attached, and `termsHash` + `contracts.floorController` on the asset
 detail route.
 Needs: nothing.
+
+## 2026-08-30 — contracts — D-028 class-based subscription caps (task 9)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `PrimaryOffering` gains per-investor-class caps driven by `IdentityRegistry.investorClass`.
+`setClassLimit(class, walletLimit, aggregateCap)` (admin); an unconfigured class falls back to the
+global `walletPurchaseLimit`, so nothing changes until a class is deliberately configured. Optional
+per-class aggregate cap tracked in `raisedByClass`. New views `investorClassOf`,
+`effectiveWalletLimit`, `remainingAllowance`; event `ClassLimitSet`; errors
+`ClassWalletLimitExceeded` / `ClassAggregateCapExceeded`.
+
+Design point: a configured class limit **replaces** the global `walletPurchaseLimit` rather than
+stacking with it. D-028 says "falling back to `walletPurchaseLimit`", and stacking would have capped
+an institution at the retail-era global figure — the opposite of the intent. `type(uint256).max`
+expresses "uncapped within the fundraising cap", which still bounds everyone. My first cut stacked
+them and the institutional test caught it.
+
+`remainingAllowance(buyer)` is the number a UI should display: min(effective wallet cap, class
+aggregate remaining, raise remaining). `walletPurchaseLimit` alone is wrong once any class is set.
+
+**Demo identities changed — this affects fixtures.** So both ends of the range are demonstrable:
+the deployer is now institutional (3), Anvil #1 (the main demo investor) is **accredited** (2) rather
+than retail so its 50,000 headroom is unchanged, and **Anvil #2 is a newly registered retail wallet**
+(1) that exists purely to show the 5,000 cap bite. Demo limits: retail 5,000 / accredited 50,000 /
+institutional uncapped.
+
+Verified on a fresh Anvil: classes resolve 2 and 1; allowances read 50,000 and 5,000; the retail
+wallet buys exactly 5,000, its allowance drops to 0, and one more mUSD reverts `0x06e6436e`
+(= `ClassWalletLimitExceeded()`); the accredited wallet still takes 50,000; `raisedByClass` reads
+5,000 retail / 50,000 accredited.
+
+Tests 214 -> 232 (`test/unit/ClassPurchaseCaps.t.sol`, 18 cases). `forge fmt --check` clean.
+Interface changes: both boundary docs, rows dated 2026-08-30. `PrimaryOffering`'s new views are added
+to the §9 pinned surface.
+Needs: nothing blocking. Task 10 is the last one — mock pool emits canonical `Swap` + `Initialize`,
+`DEMO_SEED_LIQUIDITY`, factory role-renounce decision.

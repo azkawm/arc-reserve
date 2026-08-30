@@ -9,6 +9,7 @@ import { AssetRegistry } from "../src/registry/AssetRegistry.sol";
 import { AssetVault } from "../src/vault/AssetVault.sol";
 import { AssetToken } from "../src/token/AssetToken.sol";
 import { RevenueDistributor } from "../src/revenue/RevenueDistributor.sol";
+import { PrimaryOffering } from "../src/offering/PrimaryOffering.sol";
 import { MockYieldSource } from "../src/mocks/MockYieldSource.sol";
 import { FloorController } from "../src/market/FloorController.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
@@ -33,6 +34,11 @@ contract DeployLocal is Script {
     address private constant DEFAULT_ANVIL_INVESTOR = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     uint16 private constant COUNTRY_INDONESIA = 360;
     uint8 private constant CLASS_RETAIL = 1;
+    uint8 private constant CLASS_ACCREDITED = 2;
+    uint8 private constant CLASS_INSTITUTIONAL = 3;
+    /// @dev Anvil account #2, the demo *retail* wallet. Exists so the D-028 5,000 mUSD retail cap
+    ///      is demonstrable without capping the main demo investor's raise.
+    address private constant DEFAULT_ANVIL_RETAIL = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
 
     address private musdAddress;
     address private mockYieldSourceAddress;
@@ -71,9 +77,18 @@ contract DeployLocal is Script {
         // Protocol-wide KYC registry. The deployer (issuer/verifier/keeper) and the demo investor
         // are the only verified wallets; every other address is blocked from holding SOLAR01.
         identityRegistry = new IdentityRegistry(deployer);
-        identityRegistry.registerIdentity(deployer, deployer, COUNTRY_INDONESIA, CLASS_RETAIL, 0);
+        identityRegistry.registerIdentity(
+            deployer, deployer, COUNTRY_INDONESIA, CLASS_INSTITUTIONAL, 0
+        );
+        // D-028: the main demo investor is accredited, so its 50,000 mUSD headroom is unchanged by
+        // the class caps. Anvil #2 is registered as retail purely so the 5,000 cap can be shown.
         address investor = vm.envOr("DEMO_INVESTOR", DEFAULT_ANVIL_INVESTOR);
-        identityRegistry.registerIdentity(investor, investor, COUNTRY_INDONESIA, CLASS_RETAIL, 0);
+        identityRegistry.registerIdentity(
+            investor, investor, COUNTRY_INDONESIA, CLASS_ACCREDITED, 0
+        );
+        identityRegistry.registerIdentity(
+            DEFAULT_ANVIL_RETAIL, DEFAULT_ANVIL_RETAIL, COUNTRY_INDONESIA, CLASS_RETAIL, 0
+        );
 
         uint64 maturity = uint64(block.timestamp + 3 * 365 days);
         bytes32 assetId = registry.submitAsset(
@@ -129,6 +144,13 @@ contract DeployLocal is Script {
         // D-022 reporting cadence: a revenue report every 30 days, with a 30-day grace window
         // before `isReportingOverdue()` flags the issuer to the verifier and the UI.
         RevenueDistributor(deployment.revenueDistributor).setReportingPolicy(30 days, 30 days);
+
+        // D-028 class-based subscription caps: retail 5,000, accredited 50,000, institutional
+        // uncapped within the 80,000 fundraising cap.
+        PrimaryOffering primaryOffering = PrimaryOffering(deployment.offering);
+        primaryOffering.setClassLimit(CLASS_RETAIL, 5_000e6, 0);
+        primaryOffering.setClassLimit(CLASS_ACCREDITED, 50_000e6, 0);
+        primaryOffering.setClassLimit(CLASS_INSTITUTIONAL, type(uint256).max, 0);
 
         // D-023 maturity window: 90 days after the asset's maturity date for holders to redeem at
         // par, after which the issuer may reclaim the leftover reserve.

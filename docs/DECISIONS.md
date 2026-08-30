@@ -434,7 +434,18 @@ Consequences for each stack:
 
 ## D-028: Investor classes — retail allowed, class-based purchase caps
 
-Status: accepted 2026-08-27; target contract change (small).
+Status: accepted 2026-08-27; **implemented 2026-08-30** (contracts task 9:
+`PrimaryOffering.setClassLimit` / `classLimits` / `raisedByClass` / `investorClassOf` /
+`effectiveWalletLimit` / `remainingAllowance`, `test/unit/ClassPurchaseCaps.t.sol`).
+
+**Implementation note.** A configured class limit *replaces* the global `walletPurchaseLimit` rather
+than stacking with it — the decision says "falling back to `walletPurchaseLimit`", and stacking would
+cap an institution at the retail-era global figure. `type(uint256).max` expresses "uncapped within the
+fundraising cap", which still bounds everyone.
+
+Demo wiring changed the seeded identities so both ends of the range are demonstrable: the deployer is
+institutional, Anvil #1 (the main demo investor) is **accredited** so its 50,000 headroom is
+unchanged, and Anvil #2 is registered as **retail** purely to show the 5,000 cap bite.
 
 The demo admits retail investors. `IdentityRegistry.investorClass` is the source of truth:
 `1 retail`, `2 accredited`, `3 institutional`. `PrimaryOffering` gains per-class wallet purchase

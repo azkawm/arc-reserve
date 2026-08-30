@@ -8,6 +8,8 @@ interface IAssetToken {
     function investorSupply() external view returns (uint256);
     function issuerAllocationSupply() external view returns (uint256);
     function isIssuerAllocation(address account) external view returns (bool);
+    /// @notice The protocol identity registry bound to this token (D-021).
+    function identityRegistry() external view returns (address);
     function balanceOf(address account) external view returns (uint256);
     function maximumSupply() external view returns (uint256);
     function mint(address to, uint256 amount) external;

@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 214 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
-(2026-08-30, after task 8). Note `via_ir = false` and it stays that way — fix stack-too-deep by
+Baseline: 232 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
+(2026-08-30, after task 9). Note `via_ir = false` and it stays that way — fix stack-too-deep by
 extracting a helper, not by turning on the IR pipeline.
 
 ## Interface stability rules
@@ -97,7 +97,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    `keccak256(abi.encode(params))` and reverts `TermsMismatch()`. Emit `TermsApproved(assetId,
    termsHash)`. Update `DeployLocal`, `ArcReserveTestBase`, and the `CHANGED` rows (frontend
    `approveAsset`/verifier UI and backend event catalog both change).
-9. **Class-based purchase caps (D-028).** `PrimaryOffering.walletPurchaseLimitByClass(uint8)`
+9. ~~**Class-based purchase caps (D-028).**~~ **DONE 2026-08-30.** `PrimaryOffering.walletPurchaseLimitByClass(uint8)`
    (admin-settable, default = `walletPurchaseLimit`), read `investorClass` from the token's
    registry on `buy`; optional per-class aggregate cap; event `ClassLimitSet`. Demo: retail
    5,000 / accredited 50,000 / institutional uncapped. Tests per class + fallback.
