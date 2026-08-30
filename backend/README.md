@@ -18,7 +18,7 @@ Output contract (`/v1` shapes): [`../docs/stacks/BACKEND_TO_FRONTEND.md`](../doc
 | B — ArcReserve event ingestion, restart-safe cursor, reorg rollback | **Done** |
 | C — read API with the provenance envelope | **Done** |
 | D — OHLC (synthetic on Anvil, canonical `Swap` where a real pool exists) | **Done** |
-| E — frontend migration off fixtures | Not started |
+| E — frontend migration off fixtures | **Done** — marketplace and asset page; see `../docs/FRONTEND.md` §3 |
 
 ## Routes
 
