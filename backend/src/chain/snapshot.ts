@@ -35,6 +35,7 @@ export interface AssetComponents {
   revenueDistributor: `0x${string}`;
   redemptionController: `0x${string}`;
   pool: `0x${string}` | null;
+  floorController?: `0x${string}` | null;
 }
 
 export interface TokenSnapshot {
@@ -151,6 +152,23 @@ export interface RegistrySnapshot {
   isNAVStale: boolean;
 }
 
+export interface FloorSnapshot {
+  controller: string;
+  floorTick: number;
+  floorPrice: bigint;
+  /**
+   * MUST be a live read. It can flip to false with no event and no state change: a NAV
+   * markdown can leave a previously valid level above the new NAV, and D-025 pauses the
+   * ratchet rather than lowering the floor. Publishing the floor without this flag beside it
+   * asserts something the contract does not.
+   */
+  covered: boolean;
+  canLevelUp: boolean;
+  nextTick: number | null;
+  cooldownSeconds: number;
+  lastLevelUpAt: bigint;
+}
+
 export interface AssetSnapshot {
   blockNumber: bigint;
   token: TokenSnapshot;
@@ -159,6 +177,7 @@ export interface AssetSnapshot {
   revenue: RevenueSnapshot;
   redemption: RedemptionSnapshot;
   market: MarketSnapshot | null;
+  floor: FloorSnapshot | null;
   registry: RegistrySnapshot;
 }
 
@@ -239,6 +258,11 @@ export async function readAssetSnapshot(
       : readMarket(client, read, at(components.marketManager, 'AssetMarketManager'), components.pool),
   ]);
 
+  const floor =
+    components.floorController == null
+      ? null
+      : await readFloor(read, at(components.floorController, 'FloorController'), components.floorController);
+
   return {
     blockNumber,
     token: tokenSnapshot,
@@ -247,6 +271,7 @@ export async function readAssetSnapshot(
     revenue: revenueSnapshot,
     redemption: redemptionSnapshot,
     market,
+    floor,
     registry: registrySnapshot,
   };
 }
@@ -534,5 +559,40 @@ async function readRegistry(read: Read, at: ReadOptions, assetId: string): Promi
     maturity,
     issuer,
     isNAVStale,
+  };
+}
+
+/**
+ * D-025 floor state. Every field is a live read at the indexed block, including `covered` —
+ * see the note on `FloorSnapshot.covered` for why it can never be projected from events.
+ */
+async function readFloor(
+  read: Read,
+  at: ReadOptions,
+  controller: string,
+): Promise<FloorSnapshot | null> {
+  const floorTick = await safeRead(() => read<number>(at, 'floorTick'));
+  if (floorTick === null) return null;
+
+  const [floorPrice, covered, canLevelUp, nextTick, cooldownSeconds, lastLevelUpAt] =
+    await Promise.all([
+      safeRead(() => read<bigint>(at, 'floorPrice')),
+      safeRead(() => read<boolean>(at, 'isFloorCovered')),
+      safeRead(() => read<boolean>(at, 'canLevelUp')),
+      safeRead(() => read<number>(at, 'nextTick')),
+      safeRead(() => read<number>(at, 'floorLevelCooldown')),
+      safeRead(() => read<bigint>(at, 'lastLevelUpAt')),
+    ]);
+
+  return {
+    controller,
+    floorTick: Number(floorTick),
+    floorPrice: floorPrice ?? 0n,
+    // Absent rather than assumed: a null read must not become a confident `true`.
+    covered: covered ?? false,
+    canLevelUp: canLevelUp ?? false,
+    nextTick: nextTick === null ? null : Number(nextTick),
+    cooldownSeconds: Number(cooldownSeconds ?? 0),
+    lastLevelUpAt: lastLevelUpAt ?? 0n,
   };
 }

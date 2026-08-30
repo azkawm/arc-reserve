@@ -45,6 +45,7 @@ const PROJECTION_TABLES = [
   'reserve_contributions',
   'reserve_shortfall_events',
   'pool_swaps',
+  'floor_level_ups',
   // Candles have no block key at all — a bucket spans blocks — so they are rebuilt, never
   // cascaded away.
   'candles',

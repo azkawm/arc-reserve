@@ -719,6 +719,11 @@
   },
   {
     "type": "error",
+    "name": "TermsMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UnapprovedPoolFactory",
     "inputs": []
   },

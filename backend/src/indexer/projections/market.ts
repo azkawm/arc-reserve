@@ -1,3 +1,4 @@
+import { floorControllerSet } from './floor.js';
 import { big, bool, bytes32ToString, hex32, num, type Projector } from './types.js';
 
 /**
@@ -173,4 +174,6 @@ export const marketProjectors: Record<string, Projector> = {
   FeesCollected: feesCollected,
   Rebalanced: rebalanced,
   SwapExecuted: swapExecuted,
+  // The floor controller is not in AssetSystemDeployed; this is how it is discovered.
+  FloorControllerSet: floorControllerSet,
 };

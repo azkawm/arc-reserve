@@ -142,6 +142,15 @@ const MAPPINGS: Record<string, EventMapping> = {
     type: 'ReserveShortfallCleared',
     fields: { backing: 'stable', targetBacking: 'stable' },
   },
+  /** D-025. previousTick/newTick are ticks, not prices; floorPrice is the 6d mUSD level. */
+  FloorLevelUp: {
+    type: 'FloorLevelUp',
+    fields: { floorPrice: 'stable', backing: 'stable', nav: 'stable' },
+  },
+  FloorLevelCooldownSet: { type: 'FloorCooldownSet', fields: {} },
+  FloorControllerSet: { type: 'FloorControllerSet', fields: {} },
+  /** D-026. The hash binds the deployment to the verifier-approved term sheet. */
+  TermsApproved: { type: 'TermsApproved', fields: {} },
   Transfer: { type: 'Transfer', actorArg: 'from', fields: { value: 'token' } },
 };
 
@@ -154,6 +163,7 @@ const TIMELINE_CONTRACTS = new Set([
   'RedemptionController',
   'AssetMarketManager',
   'AssetToken',
+  'FloorController',
 ]);
 
 export function toActivityItem(row: RawLogRow): ActivityItem | null {

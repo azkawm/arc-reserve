@@ -13,6 +13,7 @@ import {
 } from './projections/lifecycle.js';
 import { marketProjectors } from './projections/market.js';
 import { poolProjectors } from './projections/pool.js';
+import { floorProjectors } from './projections/floor.js';
 import {
   complianceModuleProjectors,
   complianceProjectors,
@@ -44,6 +45,7 @@ const PROJECTORS: Partial<Record<AddressKind, Record<string, Projector>>> = {
   compliance: complianceProjectors,
   complianceModule: complianceModuleProjectors,
   pool: poolProjectors,
+  floorController: floorProjectors,
 };
 
 export interface ChainLog {

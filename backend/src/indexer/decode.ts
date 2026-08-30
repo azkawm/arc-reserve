@@ -27,6 +27,7 @@ export type AddressKind =
   | 'pool'
   | 'compliance'
   | 'complianceModule'
+  | 'floorController'
   | 'companyVesting';
 
 const CONTRACT_BY_KIND: Record<AddressKind, ContractName> = {
@@ -44,6 +45,7 @@ const CONTRACT_BY_KIND: Record<AddressKind, ContractName> = {
   compliance: 'ModularCompliance',
   complianceModule: 'CountryAllowModule',
   companyVesting: 'CompanyVestingWallet',
+  floorController: 'FloorController',
 };
 
 /**

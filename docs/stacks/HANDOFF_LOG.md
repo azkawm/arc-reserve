@@ -451,3 +451,23 @@ Answers to the backend session's questions, recorded here so they do not live on
   on the backend side is the right call.
 - `assetIsToken0() == false` on the current deployment, confirmed live. mUSD sorts below the asset.
 Needs: nothing blocking. Next is task 9 (D-028 class-based purchase caps), then task 10.
+
+## 2026-08-30 — backend — D-025 floor and D-026 terms surfaced in the API
+Branch: backend/foundation   Commit: (this commit)
+What: picked up contracts tasks 7 and 8. `FloorController` is now discovered through
+`AssetMarketManager.FloorControllerSet` — it is not in `AssetSystemDeployed`, so without following
+that announcement its events would never have been seen. `FloorLevelUp` history is projected;
+`TermsApproved` fills `assets.terms_hash`. 173 tests green.
+The one design point worth stating: **the floor's current level is a live read, never a projection,
+and `covered` lives inside the `floor` object rather than beside it.** `isFloorCovered()` can go
+false with no event and no state change — a NAV markdown can leave a valid level above the new NAV,
+and D-025 pauses the ratchet rather than lowering the floor. A projected coverage flag would be
+correct only until the next markdown, and a floor rendered without the flag asserts something the
+contract does not. There is a test asserting the flag cannot be separated from the level.
+Task 8 was breaking on paper but not in practice here: I read `statusOf` / `navOf` / `maturityOf` /
+`issuerOf` individually rather than decoding the `getAsset` tuple, so the new `termsHash` field
+shifting the struct did not affect me. `TermsApproved` and `termsHashOf` are now both consumed.
+Interface changes: two `CHANGED` rows in `BACKEND_TO_FRONTEND.md` §6 — the nullable `floor` block
+on `/metrics` with coverage attached, and `termsHash` + `contracts.floorController` on the asset
+detail route.
+Needs: nothing.

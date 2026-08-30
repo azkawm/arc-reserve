@@ -22,6 +22,7 @@ export const contractsSchema = z.object({
   revenueDistributor: addressSchema,
   redemptionController: addressSchema,
   pool: addressSchema.nullable(),
+  floorController: addressSchema.nullable(),
 });
 
 // --- §3.1 GET /v1/assets ---------------------------------------------------
@@ -57,6 +58,8 @@ export const assetDetailSchema = z.object({
   metadataHash: hash32Schema,
   maturity: z.number().int(),
   submittedAt: z.number().int(),
+  /** D-026: keccak of the approved DeploymentParams, frozen at approval. */
+  termsHash: hash32Schema.nullable(),
   contracts: contractsSchema.nullable(),
 });
 
@@ -148,6 +151,22 @@ export const metricsSchema = z.object({
     totalRedeemedTokens: decimalString,
     totalStablecoinPaid: decimalString,
   }),
+  /**
+   * D-025 published floor. `covered` sits inside this object on purpose: it can go false with
+   * no event and no state change, so the level must never be rendered without it.
+   */
+  floor: z
+    .object({
+      controller: addressSchema,
+      tick: z.number().int(),
+      price: decimalString,
+      covered: z.boolean(),
+      canLevelUp: z.boolean(),
+      nextTick: z.number().int().nullable(),
+      cooldownSeconds: z.number().int(),
+      lastLevelUpAt: z.number().int(),
+    })
+    .nullable(),
   maturity: z.number().int(),
   safety: z
     .object({

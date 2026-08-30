@@ -382,3 +382,30 @@ async function snapshotCounts(): Promise<Record<string, number>> {
   }
   return counts;
 }
+
+describe('components discovered outside AssetSystemDeployed', () => {
+  it('finds the floor controller through FloorControllerSet', async () => {
+    // The controller is not part of the factory's deployment tuple, so without following the
+    // manager's own announcement its FloorLevelUp events would never be seen at all.
+    const row = await db.maybe<{ address: string }>(
+      "SELECT address FROM watched_addresses WHERE kind = 'floorController'",
+    );
+    expect(row?.address).toBe(deployment.floorController?.toLowerCase());
+
+    const link = await db.one<{ floor_controller: string | null }>(
+      'SELECT floor_controller FROM asset_deployments',
+    );
+    expect(link.floor_controller).toBe(deployment.floorController?.toLowerCase());
+  });
+
+  it('records the term-sheet hash from TermsApproved', async () => {
+    const row = await db.one<{ terms_hash: string | null }>('SELECT terms_hash FROM assets');
+    const onChain = await readView<string>(
+      deployment.registry,
+      'AssetRegistry',
+      'termsHashOf',
+      [deployment.assetId],
+    );
+    expect(row.terms_hash).toBe(onChain.toLowerCase());
+  });
+});

@@ -113,6 +113,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         revenueDistributor: deployment.revenue_distributor as `0x${string}`,
         redemptionController: deployment.redemption_controller as `0x${string}`,
         pool: deployment.pool as `0x${string}` | null,
+        floorController: deployment.floor_controller as `0x${string}` | null,
       },
       blockNumber,
     );
@@ -213,6 +214,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         metadataHash: asset.metadata_hash,
         maturity: Number(asset.maturity_timestamp),
         submittedAt: Number(asset.submitted_at),
+        termsHash: asset.terms_hash,
         contracts: deployment === null ? null : contractsOf(deployment),
       },
       meta(inputs, 'onchain'),
@@ -328,6 +330,20 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         totalRedeemedTokens: token(snapshot.redemption.totalRedeemedTokens),
         totalStablecoinPaid: stable(snapshot.redemption.totalStablecoinPaid),
       },
+      floor:
+        snapshot.floor === null
+          ? null
+          : {
+              controller: displayAddress(snapshot.floor.controller),
+              tick: snapshot.floor.floorTick,
+              price: stable(snapshot.floor.floorPrice),
+              // Read live at the indexed block, never derived from FloorLevelUp history.
+              covered: snapshot.floor.covered,
+              canLevelUp: snapshot.floor.canLevelUp,
+              nextTick: snapshot.floor.nextTick,
+              cooldownSeconds: snapshot.floor.cooldownSeconds,
+              lastLevelUpAt: Number(snapshot.floor.lastLevelUpAt),
+            },
       maturity: Number(snapshot.registry.maturity),
       safety:
         snapshot.market === null || snapshot.market.safety === null
@@ -597,6 +613,8 @@ function contractsOf(deployment: repo.DeploymentRow) {
     revenueDistributor: displayAddress(deployment.revenue_distributor),
     redemptionController: displayAddress(deployment.redemption_controller),
     pool: deployment.pool === null ? null : displayAddress(deployment.pool),
+    floorController:
+      deployment.floor_controller === null ? null : displayAddress(deployment.floor_controller),
   };
 }
 

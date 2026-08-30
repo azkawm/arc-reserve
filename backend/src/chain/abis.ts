@@ -21,6 +21,7 @@ export type ContractName =
   | 'RevenueDistributor'
   | 'RedemptionController'
   | 'AssetMarketManager'
+  | 'FloorController'
   | 'CompanyVestingWallet'
   | 'IdentityRegistry'
   | 'ModularCompliance'

@@ -198,7 +198,20 @@ async function upsertDeployment(
   }
 }
 
+/**
+ * D-026. The hash is frozen at approval, so for an Active asset it describes the parameters
+ * actually deployed — which is what makes it worth publishing next to the asset identity.
+ */
+const termsApproved: Projector = async (ctx, args, { tx }) => {
+  await tx.query(
+    `UPDATE assets SET terms_hash = $3, updated_block = $4
+      WHERE chain_id = $1 AND asset_id = $2`,
+    [ctx.chainId, hex32(args, 'assetId'), hex32(args, 'termsHash'), ctx.blockNumber.toString()],
+  );
+};
+
 export const registryProjectors: Record<string, Projector> = {
+  TermsApproved: termsApproved,
   AssetSubmitted: assetSubmitted,
   AssetStatusChanged: assetStatusChanged,
   NAVUpdated: navUpdated,

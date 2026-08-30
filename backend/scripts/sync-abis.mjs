@@ -26,6 +26,7 @@ const CONTRACTS = [
   'RevenueDistributor',
   'RedemptionController',
   'AssetMarketManager',
+  'FloorController',
   'CompanyVestingWallet',
   'IdentityRegistry',
   'ModularCompliance',

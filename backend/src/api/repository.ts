@@ -15,6 +15,7 @@ export interface AssetRow {
   metadata_uri: string;
   metadata_hash: string;
   maturity_timestamp: bigint;
+  terms_hash: string | null;
   status: number;
   current_nav: string | null;
   nav_updated_at: bigint | null;
@@ -30,6 +31,7 @@ export interface DeploymentRow {
   revenue_distributor: string;
   redemption_controller: string;
   pool: string | null;
+  floor_controller: string | null;
 }
 
 export async function loadCursor(db: Database, chainId: number): Promise<CursorPosition | null> {
@@ -70,7 +72,7 @@ export async function listAssetRows(
 
   const { rows } = await db.query<AssetRow>(
     `SELECT a.asset_id, a.issuer, a.name, a.symbol, a.category, a.metadata_uri, a.metadata_hash,
-            a.maturity_timestamp, a.status, a.current_nav::text, a.nav_updated_at, a.submitted_at
+            a.maturity_timestamp, a.terms_hash, a.status, a.current_nav::text, a.nav_updated_at, a.submitted_at
        FROM assets a
       WHERE ${where}
       ORDER BY a.asset_id
@@ -87,7 +89,7 @@ export async function getAssetRow(
 ): Promise<AssetRow | null> {
   return db.maybe<AssetRow>(
     `SELECT asset_id, issuer, name, symbol, category, metadata_uri, metadata_hash,
-            maturity_timestamp, status, current_nav::text, nav_updated_at, submitted_at
+            maturity_timestamp, terms_hash, status, current_nav::text, nav_updated_at, submitted_at
        FROM assets WHERE chain_id = $1 AND asset_id = $2`,
     [chainId, assetId],
   );
@@ -100,7 +102,7 @@ export async function getDeployment(
 ): Promise<DeploymentRow | null> {
   return db.maybe<DeploymentRow>(
     `SELECT asset_id, token, vault, offering, market_manager, revenue_distributor,
-            redemption_controller, pool
+            redemption_controller, pool, floor_controller
        FROM asset_deployments WHERE chain_id = $1 AND asset_id = $2`,
     [chainId, assetId],
   );
@@ -114,7 +116,7 @@ export async function getDeployments(
   if (assetIds.length === 0) return new Map();
   const { rows } = await db.query<DeploymentRow>(
     `SELECT asset_id, token, vault, offering, market_manager, revenue_distributor,
-            redemption_controller, pool
+            redemption_controller, pool, floor_controller
        FROM asset_deployments WHERE chain_id = $1 AND asset_id = ANY($2)`,
     [chainId, assetIds],
   );

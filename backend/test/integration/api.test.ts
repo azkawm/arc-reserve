@@ -495,3 +495,50 @@ describe('GET /v1/assets/:assetId/candles', () => {
     }
   });
 });
+
+describe('D-025 floor and D-026 term-sheet binding', () => {
+  it('publishes the floor level with its coverage flag attached', async () => {
+    const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+    const floor = body.data.floor;
+    expect(floor, 'floor block should be present once a FloorController is deployed').not.toBeNull();
+    if (floor === null) return;
+
+    const controller = deployment.floorController!;
+    const [tick, price, covered, canLevelUp] = await Promise.all([
+      view<number>(controller, 'FloorController', 'floorTick'),
+      view<bigint>(controller, 'FloorController', 'floorPrice'),
+      view<boolean>(controller, 'FloorController', 'isFloorCovered'),
+      view<boolean>(controller, 'FloorController', 'canLevelUp'),
+    ]);
+
+    expect(floor.tick).toBe(Number(tick));
+    expect(floor.price).toBe(format(price, 6));
+    expect(floor.covered).toBe(covered);
+    expect(floor.canLevelUp).toBe(canLevelUp);
+    expect(floor.controller).toBe(getAddress(controller));
+  });
+
+  it('keeps coverage inside the floor object so it cannot be rendered without it', async () => {
+    // isFloorCovered() can go false with no event and no state change — a NAV markdown can
+    // leave a valid level above the new NAV. A floor shown without this flag asserts
+    // something the contract does not.
+    const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+    if (body.data.floor === null) return;
+    expect(Object.keys(body.data.floor)).toContain('covered');
+    expect(body.data).not.toHaveProperty('floorCovered');
+  });
+
+  it('publishes the term-sheet hash the deployment was bound to', async () => {
+    const body = await get(`/v1/assets/${deployment.assetId}`, assetDetailSchema);
+    const onChain = await view<string>(deployment.registry, 'AssetRegistry', 'termsHashOf', [
+      deployment.assetId,
+    ]);
+    expect(body.data.termsHash).toBe(onChain.toLowerCase());
+    expect(body.data.termsHash).not.toBe(`0x${'00'.repeat(32)}`);
+  });
+
+  it('exposes the floor controller among the contract addresses', async () => {
+    const body = await get(`/v1/assets/${deployment.assetId}`, assetDetailSchema);
+    expect(body.data.contracts?.floorController).toBe(getAddress(deployment.floorController!));
+  });
+});
