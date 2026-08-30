@@ -17,7 +17,7 @@ contract ReserveYieldTest is ArcReserveTestBase {
 
     function setUp() public override {
         super.setUp();
-        _buy(alice, 50_000e6); // backing 0.60
+        _buy(alice, 50_000e6); // backing 0.70
         scheduleStart = uint64(block.timestamp);
         scheduleMaturity = registry.maturityOf(assetId);
 
@@ -27,7 +27,7 @@ contract ReserveYieldTest is ArcReserveTestBase {
     }
 
     function _goBehindSchedule() internal {
-        vault.setReserveSchedule(600_000, 1_000_000, scheduleStart, scheduleMaturity, 30 days);
+        vault.setReserveSchedule(700_000, 1_000_000, scheduleStart, scheduleMaturity, 30 days);
         vm.warp(block.timestamp + 365 days);
         assertTrue(vault.isBehindSchedule());
     }

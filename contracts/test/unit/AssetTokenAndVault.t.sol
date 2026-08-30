@@ -32,11 +32,12 @@ contract AssetTokenAndVaultTest is ArcReserveTestBase {
         token.transfer(bob, 1e18);
     }
 
-    function testPrimarySaleAccountingUsesExactSeventyTwentyTenSplit() public {
+    /// @notice D-023 capitalisation at settlement: 65% issuer / 30% reserve / 5% market.
+    function testPrimarySaleAccountingUsesExactSixtyFiveThirtyFiveSplit() public {
         _buy(alice, 10_000e6);
-        assertEq(vault.issuerProceeds(), 7_000e6);
-        assertEq(vault.redemptionReserve(), 22_000e6);
-        assertEq(vault.marketMakingAllocation(), 1_000e6);
+        assertEq(vault.issuerProceeds(), 6_500e6);
+        assertEq(vault.redemptionReserve(), 23_000e6); // 20,000 seed + 3,000 holdback
+        assertEq(vault.marketMakingAllocation(), 500e6);
         assertEq(vault.totalAccounted(), vault.totalStablecoinBalance());
         assertEq(token.balanceOf(alice), 10_000e18);
     }

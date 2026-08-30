@@ -255,8 +255,11 @@ reserve shortfall (D-023) is what actually freezes issuer capital.
 Status: accepted 2026-08-27. **Schedule and enforcement implemented 2026-08-30** (contracts task 2:
 `AssetVault.ReserveSchedule`, `targetBackingAt`, `currentBacking`, `isBehindSchedule`,
 `shortfallStartedAt`, `isInEnforcedShortfall`, `depositReserve`, the `withdrawIssuerProceeds` gate,
-`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: the 65/30/5 settlement
-split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+`test/unit/ReserveSchedule.t.sol`). **D-023 is now fully implemented** (contracts tasks 2-6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+
+**Settlement split implemented 2026-08-30** (contracts task 6). `PrimaryOffering` splits 65/30/5;
+with no seed capital a raise lands at exactly 0.30 backing, matching the schedule's start point.
+Escrowed threshold settlement (D-007) remains the separate, later milestone.
 
 **Residual return implemented 2026-08-30** (contracts task 5). Maturity redemption is capped at par
 (`vault.maturityParValue()`) and closes at `assetMaturity + maturityWindowSeconds`; afterwards, at

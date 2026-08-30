@@ -11,7 +11,8 @@ signatures are verbatim from `contracts/src/` as of 2026-08-27. Design of the ba
 | Chain id | `31337` (Anvil) — verify against `eth_chainId` at startup |
 | Root addresses | `contracts/deployments/<chainId>.json` → `arcReserve.registry`, `arcReserve.factory`, `arcReserve.mockUSD` |
 | Per-asset component addresses | **Do not read from the JSON.** Derive from `AssetFactory.AssetSystemDeployed` (or `AssetRegistry.AssetContractsSet`) so multi-asset works |
-| Company vesting address | Not emitted by any event (created outside the factory in `DeployLocal`). Read `deployments.json → companyVesting`, and treat any address with `RevenueDistributor.YieldExclusionChanged(excluded=true)` as yield-excluded |
+| Yield-excluded addresses | Treat any address with `RevenueDistributor.YieldExclusionChanged(excluded=true)` as yield-excluded. **The `companyVesting` key no longer exists** — D-031 removed the issuer token allocation, so `DeployLocal` deploys no `CompanyVestingWallet`. Nothing is yield-excluded in the current demo seed |
+| Mock yield source | `deployments.json → mockYieldSource` (demo only). Not emitted by any event; it holds `YIELD_SOURCE_ROLE` on the vault |
 | ABIs | `contracts/out/<Name>.sol/<Name>.json` (`.abi`) after `forge build`; commit a copied `backend/abis/` snapshot so the backend does not depend on the Foundry cache |
 | Start block | `0` on Anvil; on public chains the factory deployment block |
 
@@ -46,11 +47,15 @@ event AssetSystemDeployed(bytes32 indexed assetId, address indexed issuer, (addr
 event Transfer(address indexed from, address indexed to, uint256 value);   // from==0 mint, to==0 burn
 event Approval(address indexed owner, address indexed spender, uint256 value);
 event RevenueDistributorSet(address indexed distributor);
+event IssuerAllocationChanged(address indexed account, bool flagged, uint256 accountBalance);   // D-024
 event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender);
 event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender);
 event Paused(address account); event Unpaused(address account);
 ```
 `totalSupply` projection = Σ mints − Σ burns; must equal `AssetToken.totalSupply()` at the block.
+`investorSupply` = `totalSupply` − Σ balances of `IssuerAllocationChanged`-flagged addresses. Note a
+flag change moves `investorSupply` with **no** `Transfer` — reproject on `IssuerAllocationChanged`
+too. Under D-031 nothing is flagged in the demo, so `investorSupply == totalSupply`.
 
 ### AssetVault
 ```solidity
@@ -61,7 +66,26 @@ event ProtocolFeesWithdrawn(address indexed recipient, uint256 amount);
 event RedemptionReleased(address indexed recipient, uint256 amount);
 event MarketFundsReleased(address indexed marketManager, uint256 amount);
 event MarketFundsReturned(address indexed marketManager, uint256 amount);
+
+// D-023 sinking-fund reserve (added 2026-08-30)
+event ReserveScheduleSet(uint256 startBacking, uint256 targetBacking, uint64 startTime, uint64 maturity, uint64 graceSeconds);
+event ReserveContribution(address indexed issuer, uint256 indexed periodId, uint256 amount, uint256 newReserve);
+event ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking);
+event ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking);
+event ReserveYieldAccrued(address indexed source, uint256 amount, bool creditedToReserve, uint256 newCategoryBalance);
+event MaturityWindowSet(uint64 windowSeconds);
+event ResidualReserveReleased(address indexed issuer, uint256 amount, uint256 obligationsRetained);
 ```
+Backing values in these events are **6-decimal mUSD per investor token**, not totals.
+
+Two of these move the reserve without a redemption, so a projection driven only by `Redeemed` will
+drift: `ReserveYieldAccrued` (when `creditedToReserve`) credits it and `ResidualReserveReleased`
+debits it. `AllocationChanged` remains the single reliable source for category balances.
+
+`ReserveShortfallEntered` / `Cleared` are **published**, not authoritative: a shortfall can begin
+with no transaction at all because the target rises with time. `shortfallSince` is only as fresh as
+the last `syncShortfall`; `shortfallStartedAt()` is derived and always correct. Enforcement reads the
+derived value, so absence of an `Entered` event does not mean the issuer gate is open.
 `category` is a left-aligned bytes32 string literal: `"REDEMPTION_RESERVE"`, `"MARKET_ALLOCATION"`,
 `"ASSET_REVENUE"`, `"ISSUER_PROCEEDS"`, `"PROTOCOL_FEES"`. **Projection rule:** apply `delta` to the
 running category balance and assert it equals `newCategoryBalance`; on mismatch flag the row, never
@@ -76,10 +100,14 @@ Same tx also emits three `AllocationChanged` (issuer, reserve, market) and one t
 
 ### RevenueDistributor
 ```solidity
-event RevenueDeposited(address indexed depositor, uint256 grossAmount, uint256 holderAmount, uint256 reserveAmount, uint256 operatorAmount, uint256 protocolAmount);
+// CHANGED 2026-08-30 (D-022/D-023): periodId, reportHash and behindSchedule were inserted BEFORE
+// the amount fields. Regenerate the ABI rather than hand-patching a decoder.
+event RevenueDeposited(address indexed depositor, uint256 indexed periodId, bytes32 reportHash, bool behindSchedule, uint256 grossAmount, uint256 holderAmount, uint256 reserveAmount, uint256 operatorAmount, uint256 protocolAmount);
 event RevenueClaimed(address indexed holder, uint256 amount);
 event OperatorRevenueClaimed(address indexed operator, uint256 amount);
 event YieldExclusionChanged(address indexed account, bool excluded, uint256 accountBalance);
+event RevenueSplitsSet((uint16 holderBps,uint16 reserveBps,uint16 operatorBps,uint16 protocolBps) onSchedule, (uint16,uint16,uint16,uint16) behindSchedule);
+event ReportingPolicySet(uint64 periodSeconds, uint64 graceSeconds);
 ```
 Holder + operator shares stay in the distributor; reserve + protocol move to the vault in the same
 tx (two `AllocationChanged`). `excludedSupply` projection = Σ balances of excluded accounts,
@@ -229,11 +257,17 @@ not treat those grants as anomalies unless the contracts agent changes the hando
 ## 7. Test fixtures the backend can reuse
 
 - `forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast`
-  produces a deterministic seed: 1 asset, 20,000 SOLAR01 minted to vesting (excluded), 20,000 mUSD
-  reserve, three configured positions with zero liquidity, no purchases.
-- Replay acceptance: a fresh DB replaying that chain must yield `totalSupply = 20_000e18`,
-  `excludedSupply = 20_000e18`, `circulating = 0`, `redemptionReserve = 20_000e6`, all other
-  buckets `0`, status `Active`, NAV `1_000_000`.
+  produces a deterministic seed: 1 asset, **nothing minted** (D-031), 20,000 mUSD reserve, a D-023
+  schedule (0.30 -> 1.00 over three years, 30-day grace), a 90-day maturity window, a 30/30-day
+  reporting cadence, a `MockYieldSource` holding 5,000 mUSD, three configured positions with zero
+  liquidity, no purchases.
+- Replay acceptance (updated 2026-08-30): a fresh DB replaying that chain must yield
+  `totalSupply = 0`, `investorSupply = 0`, `excludedSupply = 0`, `redemptionReserve = 20_000e6`, all
+  other buckets `0`, status `Active`, NAV `1_000_000`. Prefer asserting against the contracts' view
+  functions at the indexed block rather than hardcoded constants — these seed numbers have moved
+  three times in one day.
+- A 50,000 mUSD purchase then splits **65/30/5** (D-023): `issuerProceeds = 32_500e6`,
+  `redemptionReserve = 35_000e6`, `marketMakingAllocation = 2_500e6`, backing `700_000`.
 - Anvil accounts: #0 = issuer/verifier/admin/keeper/depositor; #1 = investor.
 
 ## 8. Change log
@@ -244,8 +278,32 @@ not treat those grants as anomalies unless the contracts agent changes the hando
 | 2026-08-27 | **CHANGED** — compliance layer (D-021): new event sections for `AssetToken` compliance, `IdentityRegistry`, `ModularCompliance` + modules; three new read models; watched-address set gains `identityRegistry`, `compliance`, modules. | Add the new addresses to discovery; `isVerified` is time-dependent. |
 | 2026-08-27 | **CHANGED** — company-token treatment (D-024). New `AssetToken` event `IssuerAllocationChanged(address indexed account, bool flagged, uint256 accountBalance)`. New views `investorSupply()`, `issuerAllocationSupply()`, `isIssuerAllocation(address)`. Backing, reserve ratio and redemption price are now denominated in investor supply. | Indexer: track flagged addresses from `IssuerAllocationChanged` and maintain `issuerAllocationSupply` from `Transfer` legs crossing the flag boundary; derive backing as `redemptionReserve / investorSupply`. A flag change moves backing with **no** `Transfer` event — reindex the derived view on `IssuerAllocationChanged` too. |
 | 2026-08-27 | **CHANGED** — `RevenueDistributor.circulatingSupply()` renamed to `yieldEligibleSupply()`; the old name is kept as a deprecated alias returning the same value. | Backend: prefer `yieldEligibleSupply()`. Note it is a third distinct denominator: `totalSupply` ≠ `investorSupply` ≠ `yieldEligibleSupply`. |
+| 2026-08-30 | **CHANGED** — D-023 settlement split. `PrimaryOffering` now splits **65/30/5** (was 70/20/10): `ISSUER_BPS` 6,500, `RESERVE_BPS` 3,000, `MARKET_BPS` 500. No signature or event change; the amounts in `TokensPurchased` and `AllocationChanged` simply move. | Indexer: nothing to change structurally, but any fixture asserting 70/20/10 will fail. A 50,000 mUSD purchase is now 32,500 / 15,000 / 2,500. |
+| 2026-08-30 | **FIXED** — §2 event catalog was missing every event added by contracts tasks 1-6 (`IssuerAllocationChanged`, `ReserveScheduleSet`, `ReserveContribution`, `ReserveShortfallEntered`, `ReserveShortfallCleared`, `ReserveYieldAccrued`, `MaturityWindowSet`, `ResidualReserveReleased`, `RevenueSplitsSet`, `ReportingPolicySet`) and still showed the pre-D-022 `RevenueDeposited` signature. §1 still pointed at the removed `companyVesting` key and §7's replay fixture still described the D-031-removed vesting mint. All corrected. Reported by the backend agent, whose undecoded-log test caught `MaturityWindowSet`. | Indexer: re-read §1, §2 and §7. The catalog is the contract; if an event is missing from it, that is my bug — keep the undecoded-log assertion. |
 | 2026-08-30 | **CHANGED** — D-023 residual return. New `AssetVault` views `maturityParValue()`, `maturityWindowEndsAt()`, `maturityWindowSeconds()`, `outstandingObligationsAtPar()`, `residualReserve()`; new write `releaseResidualReserve()` (issuer, at `Closed` after the window) and `setMaturityWindow(uint64)` (admin). New events `MaturityWindowSet(uint64)`, `ResidualReserveReleased(address indexed issuer, uint256 amount, uint256 obligationsRetained)`. New `RedemptionController` error `MaturityWindowClosed()`. | Indexer: maturity-mode redemptions are capped at par, so the paid price can be **below** `min(NAV, backing)` — do not reconstruct it from backing alone; read `redemptionPrice(1)`. `ResidualReserveReleased` debits `redemptionReserve` without a redemption, so a reserve projection driven only by redemption events will drift. |
 | 2026-08-30 | **CHANGED** — D-023 reserve yield. New `AssetVault.accrueReserveYield(uint256)` under a new `YIELD_SOURCE_ROLE`, new event `ReserveYieldAccrued(address indexed source, uint256 amount, bool creditedToReserve, uint256 newCategoryBalance)`. New `deployments/<chainId>.json` key `mockYieldSource` (added, nothing renamed). | Indexer: `creditedToReserve` says which bucket grew — do not assume the reserve. Add `mockYieldSource` to the watched-address set for the demo. The routing depends on schedule state at accrual time, so it can differ between two identical-looking accruals. |
 | 2026-08-30 | **BREAKING** — D-022/D-023 dynamic revenue split. `RevenueDistributor.depositRevenue(uint256)` is now `depositRevenue(uint256 amount, uint256 periodId, bytes32 reportHash)`. The `RevenueDeposited` event gained `periodId` (indexed), `reportHash` and `behindSchedule` **before** the existing amount fields — re-generate the ABI, do not hand-patch the decoder. The `HOLDER_BPS`/`RESERVE_BPS`/`OPERATOR_BPS`/`PROTOCOL_BPS` constants are **removed**; splits are now the `onScheduleSplit()` / `behindScheduleSplit()` structs. New events `RevenueSplitsSet`, `ReportingPolicySet`. New views `activeSplit()`, `reportingDueAt()`, `isReportingOverdue()`, `lastPeriodId()`, `lastRevenueDepositAt()`, `revenueByPeriod(uint256)`. | Indexer: the applied split varies per deposit — read it from the event, never recompute from constants. `behindSchedule` on the event tells you which variant ran. Period totals are `revenueByPeriod`; a period can receive multiple deposits. `isReportingOverdue` is time-derived like the shortfall, so it can become true with no transaction. |
 | 2026-08-30 | **CHANGED** — D-023 reserve schedule on `AssetVault`. New events: `ReserveScheduleSet(startBacking, targetBacking, startTime, maturity, graceSeconds)`, `ReserveContribution(address indexed issuer, uint256 indexed periodId, uint256 amount, uint256 newReserve)`, `ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking)`, `ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking)`. New views: `reserveSchedule()`, `targetBackingAt(uint64)`, `targetBackingNow()`, `currentBacking()`, `isBehindSchedule()`, `shortfallStartedAt()`, `isInEnforcedShortfall()`, `shortfallSince()`. | Indexer: all backing values are **6-decimal mUSD per investor token**. Do not derive shortfall state from the events alone — a shortfall can begin with no transaction at all, because the target rises with time. Compute `isBehindSchedule` from indexed reserve + investorSupply against the stored schedule, or read `shortfallStartedAt()` (derived, always correct). `shortfallSince` is only as fresh as the last sync. A backend heartbeat calling the permissionless `syncShortfall()` keeps the event stream timely but is **not** required for enforcement. |
 | 2026-08-30 | **CHANGED** — D-031: no issuer token allocation. `deployments/<chainId>.json` no longer contains the `companyVesting` key and no `CompanyVestingWallet` is deployed. Total supply is 0 at deploy; only `PrimaryOffering` ever mints. | Backend: `COMPANY_VESTING_ADDRESS` is already optional in `config.ts` and degrades gracefully — drop it from `.env`/`.env.example` and from the `watchedContracts` count when convenient. No `IssuerAllocationChanged` events will be emitted in the demo, so `investorSupply == totalSupply`. |
+
+## 9. View surface the read API depends on (added 2026-08-30)
+
+The backend serves live contract calls at the indexed block, so **a view rename is as breaking as an
+event change**. Everything below is under the same `CHANGED`-row discipline as the event catalog.
+Adding views is always safe; renaming, removing or changing a return shape is not.
+
+| Contract | Views |
+| --- | --- |
+| `AssetRegistry` | `navOf`, `statusOf`, `maturityOf`, `issuerOf`, `isNAVStale` |
+| `AssetVault` — categories | `redemptionReserve`, `marketMakingAllocation`, `assetRevenue`, `issuerProceeds`, `protocolFees`, `totalAccounted`, `totalStablecoinBalance` |
+| `AssetVault` — solvency | `minimumRequiredReserve`, `minimumReserveRatioBps`, `reserveRatioBps`, `isSolvent`, `availableRedemptionLiquidity` |
+| `AssetVault` — D-023 schedule | `currentBacking`, `targetBackingNow`, `isBehindSchedule`, `isInEnforcedShortfall`, `shortfallStartedAt`, `reserveSchedule` |
+| `PrimaryOffering` | the config getters (`tokenPrice`, `fundraisingCap`, `walletPurchaseLimit`, `inventoryCap`, `minimumPurchase`, `startsAt`, `endsAt`, `stablecoinRaised`, `tokensSold`, `availableTokenInventory`) |
+| `RedemptionController` | `redemptionPrice(mode)`, `outstandingTokenObligations`, and the period getters |
+| `AssetMarketManager` | `marketPrices`, `positions`, `assetIsToken0`, `tickSpacing`, `safetyState` |
+| `AssetToken` | `maximumSupply`, `investorSupply`, `issuerAllocationSupply` |
+| `RevenueDistributor` | `yieldEligibleSupply`, `excludedSupply`, `claimableRevenue` |
+
+Two time-dependent values in that list must **not** be cached beyond the API's staleness window:
+`targetBackingNow` rises continuously, and `isBehindSchedule` / `isInEnforcedShortfall` /
+`shortfallStartedAt` derive from it. They can change with no transaction and therefore no event.

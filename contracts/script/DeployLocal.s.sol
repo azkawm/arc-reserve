@@ -118,9 +118,10 @@ contract DeployLocal is Script {
         // D-023 sinking-fund schedule: backing climbs linearly from 0.30 to 1.00 mUSD per investor
         // token over the three-year term, with a 30-day grace window before a shortfall freezes
         // issuer proceeds.
-        // DEMO: in the target model this is set once at settlement from the backing the raise
-        // actually produced. The current offering splits 70/20/10 (task 6 moves it to 65/30/5), so
-        // with the 20,000 seed a full raise lands near 0.45 - comfortably ahead of the 0.30 start.
+        // The 0.30 start matches the D-023 settlement holdback exactly: a raise with no seed
+        // capital lands at 0.30 backing. DEMO: in the target model this is set once at settlement
+        // from the backing the raise actually produced. Here the 20,000 seed puts a full 80,000
+        // raise near 0.55, comfortably ahead of the schedule at day zero.
         AssetVault(deployment.vault)
             .setReserveSchedule(300_000, 1_000_000, uint64(block.timestamp), maturity, 30 days);
 

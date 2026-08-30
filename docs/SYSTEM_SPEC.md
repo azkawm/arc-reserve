@@ -331,6 +331,10 @@ the local demo can show both branches without an external protocol.
 
 ## 7. Current primary offering
 
+Proceeds are split 65% issuer / 30% protected reserve / 5% market allocation (D-023). The 30%
+holdback is the reserve's opening balance and the first point on the sinking-fund schedule; the
+issuer's fresh working capital is the 65%.
+
 The current offering is direct mint-on-purchase:
 
 ```text

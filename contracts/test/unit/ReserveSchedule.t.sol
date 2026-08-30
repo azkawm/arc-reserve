@@ -7,11 +7,11 @@ import { RedemptionController } from "../../src/redemption/RedemptionController.
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 /// @notice D-023: the sinking-fund reserve schedule, shortfall detection, and the issuer-proceeds
-///         gate. The demo shape used here is a 50,000 mUSD raise, which leaves backing at 0.60,
+///         gate. The demo shape used here is a 50,000 mUSD raise, which leaves backing at 0.70,
 ///         climbing on a three-year line to 1.00.
 contract ReserveScheduleTest is ArcReserveTestBase {
     uint64 internal constant GRACE = 30 days;
-    uint256 internal constant START_BACKING = 600_000; // 0.60 mUSD per token
+    uint256 internal constant START_BACKING = 700_000; // 0.70 mUSD per token
     uint256 internal constant TARGET_BACKING = 1_000_000; // 1.00 mUSD per token
 
     uint64 internal scheduleStart;
@@ -19,8 +19,8 @@ contract ReserveScheduleTest is ArcReserveTestBase {
 
     function setUp() public override {
         super.setUp();
-        // 50,000 mUSD raise: reserve becomes 20,000 seed + 20% of 50,000 = 30,000 against
-        // 50,000 investor tokens, i.e. backing of exactly 0.60.
+        // 50,000 mUSD raise: reserve becomes 20,000 seed + 30% of 50,000 = 35,000 against
+        // 50,000 investor tokens, i.e. backing of exactly 0.70 (D-023 settlement split).
         _buy(alice, 50_000e6);
         scheduleStart = uint64(block.timestamp);
         scheduleMaturity = registry.maturityOf(assetId);
@@ -37,7 +37,7 @@ contract ReserveScheduleTest is ArcReserveTestBase {
     // -----------------------------------------------------------------
 
     function test_backingIsSixDecimalsPerInvestorToken() public view {
-        assertEq(vault.currentBacking(), 600_000);
+        assertEq(vault.currentBacking(), 700_000);
         assertEq(token.investorSupply(), 50_000e18);
     }
 
@@ -124,9 +124,9 @@ contract ReserveScheduleTest is ArcReserveTestBase {
     function test_targetIsLinearAcrossTheTerm() public {
         _setSchedule();
         uint64 span = scheduleMaturity - scheduleStart;
-        // Halfway through the term the target sits halfway between 0.60 and 1.00.
-        assertEq(vault.targetBackingAt(scheduleStart + span / 2), 800_000);
-        // A third of the way: 0.60 + 0.40/3.
+        // Halfway through the term the target sits halfway between 0.70 and 1.00.
+        assertEq(vault.targetBackingAt(scheduleStart + span / 2), 850_000);
+        // A third of the way: 0.70 + 0.30/3.
         assertEq(
             vault.targetBackingAt(scheduleStart + span / 3),
             START_BACKING + (TARGET_BACKING - START_BACKING) / 3
@@ -146,9 +146,9 @@ contract ReserveScheduleTest is ArcReserveTestBase {
     function test_driftsBehindAsTheTargetRises() public {
         _setSchedule();
         vm.warp(block.timestamp + 365 days);
-        // Backing is still 0.60; the target has climbed past it.
-        assertEq(vault.currentBacking(), 600_000);
-        assertGt(vault.targetBackingNow(), 600_000);
+        // Backing is still 0.70; the target has climbed past it.
+        assertEq(vault.currentBacking(), 700_000);
+        assertGt(vault.targetBackingNow(), 700_000);
         assertTrue(vault.isBehindSchedule());
     }
 

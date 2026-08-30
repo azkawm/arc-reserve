@@ -13,7 +13,8 @@ contract ArcReserveLifecycleIntegrationTest is ArcReserveTestBase {
 
         _buy(alice, 25_000e6);
         assertEq(token.balanceOf(alice), 25_000e18);
-        assertEq(vault.redemptionReserve(), 25_000e6);
+        // 20,000 seed + 30% of the 25,000 raise (D-023).
+        assertEq(vault.redemptionReserve(), 27_500e6);
 
         _configurePositions();
         market.fundFromVault(1_000e6);

@@ -17,10 +17,10 @@ contract ResidualReserveTest is ArcReserveTestBase {
 
     function setUp() public override {
         super.setUp();
-        _buy(alice, 50_000e6); // 50,000 tokens, reserve 30,000 => backing 0.60
+        _buy(alice, 50_000e6); // 50,000 tokens, reserve 35,000 => backing 0.70
         scheduleStart = uint64(block.timestamp);
         assetMaturity = registry.maturityOf(assetId);
-        vault.setReserveSchedule(600_000, 1_000_000, scheduleStart, assetMaturity, 30 days);
+        vault.setReserveSchedule(700_000, 1_000_000, scheduleStart, assetMaturity, 30 days);
         vault.setMaturityWindow(WINDOW);
     }
 
@@ -63,8 +63,8 @@ contract ResidualReserveTest is ArcReserveTestBase {
 
     function test_underfundedMaturityStillPaysBackingNotPar() public {
         _mature();
-        // Backing 0.60 is below par, so backing binds.
-        assertEq(redemption.redemptionPrice(RedemptionController.RedemptionMode.Maturity), 600_000);
+        // Backing 0.70 is below par, so backing binds.
+        assertEq(redemption.redemptionPrice(RedemptionController.RedemptionMode.Maturity), 700_000);
     }
 
     // -----------------------------------------------------------------
@@ -119,7 +119,7 @@ contract ResidualReserveTest is ArcReserveTestBase {
     }
 
     function test_underfundedAssetHasNoResidual() public view {
-        // Reserve 30,000 against 50,000 tokens at par => obligations exceed reserve.
+        // Reserve 35,000 against 50,000 tokens at par => obligations exceed reserve.
         assertEq(vault.residualReserve(), 0);
     }
 

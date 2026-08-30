@@ -38,6 +38,9 @@ Baseline: 176 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` c
 - Do not change function signatures listed in `CONTRACTS_TO_FRONTEND.md` §3 without a `CHANGED` row.
 - Keep 6d/18d conventions; never introduce an 8d or 1e18-priced value.
 - `deployments/<chainId>.json` key names are an interface; adding keys is fine, renaming is not.
+- **Public view names are an interface too.** Since the backend's read API serves live calls at the
+  indexed block, renaming a view breaks it exactly as hard as changing an event. The surface it
+  depends on is listed in `CONTRACTS_TO_BACKEND.md` §9 — a `CHANGED` row before any rename.
 
 ## Scope (D-027)
 Hackathon only. Targets: Anvil, **Base Sepolia (84532)**, **Hedera testnet (296)**. `MockUSD` on
@@ -78,7 +81,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
 5. ~~**Residual return (D-023).**~~ **DONE 2026-08-30.** `releaseResidualReserve()` callable at `Closed` after the maturity
    window; pays `reserve − outstandingObligations` to the issuer. Add the maturity window to the
    redemption controller.
-6. **Settlement split 65/30/5 (D-023).** Change `PrimaryOffering` bps constants; update tests and
+6. ~~**Settlement split 65/30/5 (D-023).**~~ **DONE 2026-08-30 — D-023 complete.** Change `PrimaryOffering` bps constants; update tests and
    docs. Escrow/threshold settlement (D-007) remains the next milestone after 1–7.
 7. **Floor level-up (D-025).** A small `FloorController` (reads vault, registry NAV, pool
    `tickSpacing`, manager `assetIsToken0`): `floorTick`, `floorPrice()` via `TickPriceMath`,
@@ -97,8 +100,15 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    (admin-settable, default = `walletPurchaseLimit`), read `investorClass` from the token's
    registry on `buy`; optional per-class aggregate cap; event `ClassLimitSet`. Demo: retail
    5,000 / accredited 50,000 / institutional uncapped. Tests per class + fallback.
-10. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; synthetic OHLC hook decision
-   (`MockUniswapV3Pool` emitting `Swap` vs backend-synthetic); factory role-renounce decision.
+10. Then: `DEMO_SEED_LIQUIDITY` option for non-zero positions; **synthetic OHLC — decided
+   2026-08-30: `MockUniswapV3Pool` moves `sqrtPriceX96` and emits a canonical `Swap`**, so the
+   canonical ingestion path is exercised on Anvil rather than first meeting reality on Base
+   Sepolia (backend agent's argument; the alternative leaves that path untested until testnet).
+   Two requirements from the consumer: emit `Initialize` at pool setup so the first price can be
+   seeded, and keep `Swap` args in canonical order `(amount0, amount1, sqrtPriceX96, liquidity,
+   tick)`. The mock still models no price impact, tick crossing, fee growth or liquidity
+   exhaustion, so candles are "derived from a labelled demo AMM", never price discovery, and stay
+   mock-badged in the UI. Then: factory role-renounce decision.
 
 Every step: update `docs/SYSTEM_SPEC.md`, `docs/BUSINESS_MODEL.md` "current vs target" table, and
 the `CHANGED` rows in `CONTRACTS_TO_FRONTEND.md` / `CONTRACTS_TO_BACKEND.md`.

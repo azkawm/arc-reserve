@@ -180,9 +180,9 @@ contract IssuerAllocationTest is ArcReserveTestBase {
 
     function test_reserveRatioBpsExcludesIssuerAllocation() public {
         _buy(alice, 10_000e6);
-        // Reserve is 20,000 initial + 20% of the 10,000 mUSD raise = 22,000 against 10,000
-        // investor tokens at NAV 1.0 => 220%.
-        assertEq(vault.reserveRatioBps(), 22_000);
+        // Reserve is 20,000 initial + 30% of the 10,000 mUSD raise = 23,000 against 10,000
+        // investor tokens at NAV 1.0 => 230%.
+        assertEq(vault.reserveRatioBps(), 23_000);
     }
 
     function test_outstandingObligationsExcludeIssuerAllocation() public {
@@ -193,15 +193,15 @@ contract IssuerAllocationTest is ArcReserveTestBase {
 
     function test_redemptionPriceUsesInvestorSupply() public {
         _buy(alice, 10_000e6);
-        // Backing per investor token is 22,000 / 10,000 = 2.20, above NAV, so NAV caps the price.
+        // Backing per investor token is 23,000 / 10,000 = 2.30, above NAV, so NAV caps the price.
         assertEq(redemption.redemptionPrice(RedemptionController.RedemptionMode.Normal), 1e6);
 
-        // Unflagging the company spreads the same reserve over 30,000 tokens (0.733), which now
+        // Unflagging the company spreads the same reserve over 30,000 tokens (0.766), which now
         // sits below NAV and becomes the binding constraint. Same reserve, different denominator.
         token.setIssuerAllocation(company, false);
         uint256 spread = redemption.redemptionPrice(RedemptionController.RedemptionMode.Normal);
         assertLt(spread, 1e6);
-        uint256 expected = uint256(22_000e6) * 1e18 / uint256(30_000e18);
+        uint256 expected = uint256(23_000e6) * 1e18 / uint256(30_000e18);
         assertEq(spread, expected);
     }
 

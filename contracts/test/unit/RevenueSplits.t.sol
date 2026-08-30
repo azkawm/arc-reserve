@@ -15,7 +15,7 @@ contract RevenueSplitsTest is ArcReserveTestBase {
 
     function setUp() public override {
         super.setUp();
-        // 50,000 mUSD raise leaves backing at exactly 0.60.
+        // 50,000 mUSD raise leaves backing at exactly 0.70 (D-023 30% holdback).
         _buy(alice, 50_000e6);
         scheduleStart = uint64(block.timestamp);
         scheduleMaturity = registry.maturityOf(assetId);
@@ -25,7 +25,7 @@ contract RevenueSplitsTest is ArcReserveTestBase {
     ///      of drift opens a gap of roughly 6,700 mUSD - wide enough that a single revenue deposit
     ///      cannot accidentally cure it.
     function _goBehindSchedule() internal {
-        vault.setReserveSchedule(600_000, 1_000_000, scheduleStart, scheduleMaturity, 30 days);
+        vault.setReserveSchedule(700_000, 1_000_000, scheduleStart, scheduleMaturity, 30 days);
         vm.warp(block.timestamp + 365 days);
         assertTrue(vault.isBehindSchedule());
     }

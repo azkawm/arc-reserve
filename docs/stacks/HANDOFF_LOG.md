@@ -275,3 +275,62 @@ Needs — two for the contracts agent, neither blocking:
 Still open from Milestone A, needed before C: the config-snapshot reader (no event carries the
 offering config, `supply.maximum`, `minimumReserveRatioBps`, `tickSpacing` or `assetIsToken0`), and
 who owns synthetic OHLC.
+
+## 2026-08-30 — contracts — D-023 settlement split 65/30/5 (task 6); D-023 complete
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `PrimaryOffering` splits 65% issuer / 30% reserve / 5% market (was 70/20/10). Constants only —
+no signature or event change. The 30% holdback is now exactly the schedule's 0.30 start point, so a
+raise with no seed capital lands on schedule at day zero.
+
+Knock-on: every backing figure in the demo moves. A 50,000 mUSD raise now leaves 35,000 reserve
+against 50,000 tokens (backing 0.70, was 0.60), and 12 tests asserting the old arithmetic were
+updated to the new expected values rather than loosened. Demo market depth halves (10% -> 5%).
+
+**D-023 is now fully implemented** across tasks 2-6: schedule, shortfall enforcement, dynamic split,
+reserve yield, par-capped maturity, residual return, settlement split.
+
+Verified on a fresh Anvil: a 50,000 mUSD purchase produced issuerProceeds 32,500, reserve 35,000
+(20,000 seed + 15,000), marketAlloc 2,500, backing 0.700000, on schedule.
+
+Tests 176 passed / 0 failed. `forge fmt --check` clean.
+
+**Boundary-doc corrections (thanks to the backend agent's report).** Auditing `CONTRACTS_TO_BACKEND.md`
+against the source found the problem was wider than the one event reported: §2's catalog was missing
+**all ten** events added by tasks 1-6, and still carried the pre-D-022 `RevenueDeposited` signature.
+§1 pointed at the `companyVesting` key removed by D-031, and §7's replay fixture still described the
+vesting mint. All fixed, plus notes that (a) `ReserveYieldAccrued` and `ResidualReserveReleased` move
+the reserve without a redemption, and (b) shortfall events are published, not authoritative — a
+shortfall can begin with no transaction, and enforcement reads the derived `shortfallStartedAt()`.
+Keep the undecoded-log assertion; a missing catalog entry is a contracts-side bug.
+Needs: nothing blocking. Task 10 OHLC ownership answered separately — mock pool emits a canonical
+`Swap`; I own it.
+
+## 2026-08-30 — backend — Milestone C complete: the /v1 read API
+Branch: backend/foundation   Commit: (this commit)
+What: every route in `BACKEND_TO_FRONTEND.md` §2 except `/candles` is live — `/v1/assets`,
+`/assets/:assetId`, `/metrics`, `/nav-history`, `/positions`, `/activity`, `/revenue`,
+`/redemptions`, `/accounts/:address/assets/:assetId`. Each validates its payload against a Zod
+schema before sending. 140 tests green; `typecheck` / `lint` / `build` clean; verified against a
+live Anvil with the 65/30/5 deployment.
+Three things worth knowing:
+1. **The config-snapshot reader exists** (`src/chain/snapshot.ts`), resolving the gap flagged in
+   Milestone A: the offering price/cap/window/wallet limit, supply cap, reserve ratio policy, tick
+   spacing and token ordering are contract *state*, never emitted. It reads them at the **indexed
+   block**, not `latest`, so one response never mixes a projection from block N with a view from
+   block N+3. No contracts change was needed.
+2. **Market price provenance is decided by the pool's bytecode.** `MockUniswapV3Pool` carries
+   test-only setters a canonical V3 pool does not, so `spot`/`twap` come back `mock` on Anvil and
+   `onchain` only against a real pool. The call is genuine either way; what differs is whether the
+   number means anything.
+3. **Tick to price is integer math** — a port of Uniswap's `TickMath.getSqrtRatioAtTick`, checked
+   against the canonical `MIN_SQRT_RATIO` / `MAX_SQRT_RATIO`. `Math.pow(1.0001, tick)` is a float,
+   and a float feeding a chart's band edges is not a number this service publishes.
+Interface changes: six `CHANGED` rows in `BACKEND_TO_FRONTEND.md` §6 — routes shipped; `/candles`
+absent until D; activity `actor` nullable (three events name no acting party); `metrics.supply`
+gains `investor` and `supply.vesting` is always null under D-031; new nullable `reserveSchedule`
+block (D-023) whose `targetBackingNow` rises with time and must not be cached past
+`staleAfterSeconds`; `spot`/`twap` carry per-field provenance; `?status=` takes the status name.
+Also `BACKEND_INDEXER.md` §17 and the header.
+Needs: nothing blocking. Frontend can start migrating panels off fixtures — `backend/README.md` has
+the route table, and every money field is a decimal string with the raw base units alongside it
+wherever the UI might transact.

@@ -16,9 +16,12 @@ contract PrimaryOffering is AccessControl, Pausable, ReentrancyGuard {
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    uint16 public constant ISSUER_BPS = 7_000;
-    uint16 public constant RESERVE_BPS = 2_000;
-    uint16 public constant MARKET_BPS = 1_000;
+    /// @notice Capitalisation at settlement (D-023): 65% issuer proceeds, 30% protected reserve,
+    ///         5% market allocation. The 30% holdback is the reserve's starting balance and the
+    ///         first point on the sinking-fund schedule; the issuer's fresh capital is the 65%.
+    uint16 public constant ISSUER_BPS = 6_500;
+    uint16 public constant RESERVE_BPS = 3_000;
+    uint16 public constant MARKET_BPS = 500;
 
     struct OfferingConfig {
         address stablecoin;
