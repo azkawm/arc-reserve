@@ -321,14 +321,39 @@ atomic batch settlement exists today. Those are target-only requirements in `BUS
 
 ## 8. Revenue distribution
 
-Revenue deposit split:
+Deposits are made per reporting period (D-022):
 
-| Destination | Basis points |
-| --- | ---: |
-| Yield-eligible holders | 6,000 |
-| Protected reserve | 2,500 |
-| Operator | 1,000 |
-| Protocol fees | 500 |
+```text
+depositRevenue(amount, periodId, reportHash)
+```
+
+`periodId` and `reportHash` are recorded, not validated - the verifier reconciles them against the
+term sheet offchain. `revenueByPeriod[periodId]` accumulates, so a period may be topped up.
+
+**The split is dynamic (D-023).** Two variants are stored, and the one in force is chosen per
+deposit by reading `vault.isBehindSchedule()` live, so it can never go stale:
+
+| Destination | On schedule | Behind schedule |
+| --- | ---: | ---: |
+| Yield-eligible holders | 6,000 | 4,000 |
+| Protected reserve | 2,500 | 4,500 |
+| Operator | 1,000 | 1,000 |
+| Protocol fees | 500 | 500 |
+
+While the sinking fund is behind, twenty points move from holders to the reserve so it catches up
+faster. Operator and protocol shares never move. Curing a shortfall restores the holder share on the
+very next deposit with no admin action.
+
+Both variants are admin-settable via `setRevenueSplits`, bounded so the mechanism cannot be abused:
+each must total 10,000, `holderBps >= MIN_HOLDER_BPS` (3,000), `operatorBps <= MAX_OPERATOR_BPS`
+(1,500), `protocolBps <= MAX_PROTOCOL_BPS` (1,000), and the behind-schedule variant may never route
+*less* to the reserve or *more* to holders than the on-schedule one.
+
+**Reporting cadence.** `setReportingPolicy(periodSeconds, graceSeconds)` declares how often a report
+is expected. `isReportingOverdue()` is true once `lastRevenueDepositAt + periodSeconds +
+graceSeconds` has passed. It is surfaced to the verifier and UI and **gates nothing onchain** - a
+missing report is an offchain covenant breach, not a protocol failure. A zero period disables the
+view rather than reporting every asset as late.
 
 The holder allocation remains in the distributor until claimed. Reserve and protocol allocations
 move immediately to the vault. Operator allocation remains in the distributor until the immutable

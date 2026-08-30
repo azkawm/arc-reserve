@@ -17,16 +17,39 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
     bytes32 public constant REVENUE_DEPOSITOR_ROLE = keccak256("REVENUE_DEPOSITOR_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    uint16 public constant HOLDER_BPS = 6_000;
-    uint16 public constant RESERVE_BPS = 2_500;
-    uint16 public constant OPERATOR_BPS = 1_000;
-    uint16 public constant PROTOCOL_BPS = 500;
+    /// @notice Guard rails on any admin-set split (D-023). Holders cannot be squeezed out and the
+    ///         operator/protocol shares cannot be inflated, whatever the schedule state.
+    uint16 public constant MIN_HOLDER_BPS = 3_000;
+    uint16 public constant MAX_OPERATOR_BPS = 1_500;
+    uint16 public constant MAX_PROTOCOL_BPS = 1_000;
     uint256 private constant ACCURACY = 1e30;
+
+    /// @notice How one revenue deposit is divided. Basis points, must total 10,000.
+    struct RevenueSplit {
+        uint16 holderBps;
+        uint16 reserveBps;
+        uint16 operatorBps;
+        uint16 protocolBps;
+    }
 
     IERC20 public immutable stablecoin;
     IAssetToken public immutable assetToken;
     IAssetVault public immutable vault;
     address public immutable operator;
+
+    /// @notice Split applied while the reserve is on or ahead of the D-023 schedule.
+    RevenueSplit public onScheduleSplit;
+    /// @notice Split applied while backing is below schedule: holders take less so the sinking
+    ///         fund catches up faster. Constrained to favour the reserve relative to the
+    ///         on-schedule split - see `_validateSplits`.
+    RevenueSplit public behindScheduleSplit;
+
+    /// @notice Reporting cadence (D-022). Zero period disables the overdue view entirely.
+    uint64 public reportingPeriodSeconds;
+    uint64 public reportingGraceSeconds;
+    uint64 public lastRevenueDepositAt;
+    uint256 public lastPeriodId;
+    mapping(uint256 => uint256) public revenueByPeriod;
 
     uint256 public cumulativeRevenuePerToken;
     uint256 public totalHolderRevenue;
@@ -39,18 +62,24 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
 
     event RevenueDeposited(
         address indexed depositor,
+        uint256 indexed periodId,
+        bytes32 reportHash,
+        bool behindSchedule,
         uint256 grossAmount,
         uint256 holderAmount,
         uint256 reserveAmount,
         uint256 operatorAmount,
         uint256 protocolAmount
     );
+    event RevenueSplitsSet(RevenueSplit onSchedule, RevenueSplit behindSchedule);
+    event ReportingPolicySet(uint64 periodSeconds, uint64 graceSeconds);
     event RevenueClaimed(address indexed holder, uint256 amount);
     event OperatorRevenueClaimed(address indexed operator, uint256 amount);
     event YieldExclusionChanged(address indexed account, bool excluded, uint256 accountBalance);
 
     error InvalidAddress();
     error InvalidSplits();
+    error InvalidReportingPolicy();
     error NoYieldEligibleSupply();
     error NoRevenueToClaim();
     error UnauthorizedHook();
@@ -67,9 +96,13 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
             stablecoin_ == address(0) || assetToken_ == address(0) || vault_ == address(0)
                 || operator_ == address(0) || admin == address(0)
         ) revert InvalidAddress();
-        if (HOLDER_BPS + RESERVE_BPS + OPERATOR_BPS + PROTOCOL_BPS != 10_000) {
-            revert InvalidSplits();
-        }
+        // Defaults: 60/25/10/5 on schedule, shifting to 40/45/10/5 while behind (D-023).
+        RevenueSplit memory onSchedule = RevenueSplit(6_000, 2_500, 1_000, 500);
+        RevenueSplit memory behind = RevenueSplit(4_000, 4_500, 1_000, 500);
+        _validateSplits(onSchedule, behind);
+        onScheduleSplit = onSchedule;
+        behindScheduleSplit = behind;
+        emit RevenueSplitsSet(onSchedule, behind);
         stablecoin = IERC20(stablecoin_);
         assetToken = IAssetToken(assetToken_);
         vault = IAssetVault(vault_);
@@ -79,7 +112,15 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
         _grantRole(PAUSER_ROLE, admin);
     }
 
-    function depositRevenue(uint256 amount)
+    /// @notice Deposit the contracted share of gross asset revenue for one reporting period.
+    /// @param  amount     mUSD to distribute.
+    /// @param  periodId   The reporting period this settles (D-022). Recorded, not validated -
+    ///                    the verifier reconciles it against the term sheet offchain.
+    /// @param  reportHash Hash of the revenue report backing this deposit.
+    /// @dev    The split depends on whether the reserve is behind the D-023 schedule at this
+    ///         moment: holders take less so the sinking fund catches up faster. Evaluated live
+    ///         rather than stored so it cannot go stale.
+    function depositRevenue(uint256 amount, uint256 periodId, bytes32 reportHash)
         external
         onlyRole(REVENUE_DEPOSITOR_ROLE)
         nonReentrant
@@ -89,21 +130,106 @@ contract RevenueDistributor is AccessControl, Pausable, ReentrancyGuard, IRevenu
         if (supply == 0) revert NoYieldEligibleSupply();
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
 
-        uint256 holderAmount = DecimalMath.applyBps(amount, HOLDER_BPS);
-        uint256 reserveAmount = DecimalMath.applyBps(amount, RESERVE_BPS);
-        uint256 operatorAmount = DecimalMath.applyBps(amount, OPERATOR_BPS);
+        bool behind = vault.isBehindSchedule();
+        RevenueSplit memory split = behind ? behindScheduleSplit : onScheduleSplit;
+
+        uint256 holderAmount = DecimalMath.applyBps(amount, split.holderBps);
+        uint256 reserveAmount = DecimalMath.applyBps(amount, split.reserveBps);
+        uint256 operatorAmount = DecimalMath.applyBps(amount, split.operatorBps);
         uint256 protocolAmount = amount - holderAmount - reserveAmount - operatorAmount;
 
         cumulativeRevenuePerToken += holderAmount * ACCURACY / supply;
         totalHolderRevenue += holderAmount;
         operatorAccrued += operatorAmount;
 
+        lastRevenueDepositAt = uint64(block.timestamp);
+        lastPeriodId = periodId;
+        revenueByPeriod[periodId] += amount;
+
         stablecoin.safeTransfer(address(vault), reserveAmount + protocolAmount);
         vault.creditRevenueReserve(reserveAmount, protocolAmount);
 
         emit RevenueDeposited(
-            msg.sender, amount, holderAmount, reserveAmount, operatorAmount, protocolAmount
+            msg.sender,
+            periodId,
+            reportHash,
+            behind,
+            amount,
+            holderAmount,
+            reserveAmount,
+            operatorAmount,
+            protocolAmount
         );
+    }
+
+    /// @notice Replace both split variants. Bounded by `MIN_HOLDER_BPS`, `MAX_OPERATOR_BPS` and
+    ///         `MAX_PROTOCOL_BPS`, and the behind-schedule variant must favour the reserve at
+    ///         least as much as the on-schedule one.
+    function setRevenueSplits(RevenueSplit calldata onSchedule, RevenueSplit calldata behind)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _validateSplits(onSchedule, behind);
+        onScheduleSplit = onSchedule;
+        behindScheduleSplit = behind;
+        emit RevenueSplitsSet(onSchedule, behind);
+    }
+
+    /// @notice Set the expected reporting cadence (D-022). A zero period disables
+    ///         `isReportingOverdue` entirely rather than reporting everything as late.
+    function setReportingPolicy(uint64 periodSeconds, uint64 graceSeconds)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (periodSeconds == 0 && graceSeconds != 0) revert InvalidReportingPolicy();
+        reportingPeriodSeconds = periodSeconds;
+        reportingGraceSeconds = graceSeconds;
+        // Start the clock from configuration so a freshly configured asset is not instantly late.
+        if (lastRevenueDepositAt == 0) lastRevenueDepositAt = uint64(block.timestamp);
+        emit ReportingPolicySet(periodSeconds, graceSeconds);
+    }
+
+    /// @notice The split that a deposit would use right now.
+    function activeSplit() external view returns (RevenueSplit memory split, bool behind) {
+        behind = vault.isBehindSchedule();
+        split = behind ? behindScheduleSplit : onScheduleSplit;
+    }
+
+    /// @notice When the next revenue report is due, or 0 when no cadence is configured.
+    function reportingDueAt() public view returns (uint64) {
+        if (reportingPeriodSeconds == 0) return 0;
+        return lastRevenueDepositAt + reportingPeriodSeconds;
+    }
+
+    /// @notice True when a reporting period has been missed past its grace window (D-022). This is
+    ///         surfaced to the verifier and UI; it does not itself gate anything onchain.
+    function isReportingOverdue() public view returns (bool) {
+        uint64 dueAt = reportingDueAt();
+        if (dueAt == 0) return false;
+        return block.timestamp > uint256(dueAt) + reportingGraceSeconds;
+    }
+
+    function _validateSplits(RevenueSplit memory onSchedule, RevenueSplit memory behind)
+        private
+        pure
+    {
+        _validateSplit(onSchedule);
+        _validateSplit(behind);
+        // The behind-schedule variant exists to refill the reserve. It may never route less to the
+        // reserve, or more to holders, than the on-schedule split.
+        if (behind.reserveBps < onSchedule.reserveBps || behind.holderBps > onSchedule.holderBps) {
+            revert InvalidSplits();
+        }
+    }
+
+    function _validateSplit(RevenueSplit memory split) private pure {
+        if (
+            uint256(split.holderBps) + split.reserveBps + split.operatorBps + split.protocolBps
+                != 10_000
+        ) revert InvalidSplits();
+        if (split.holderBps < MIN_HOLDER_BPS) revert InvalidSplits();
+        if (split.operatorBps > MAX_OPERATOR_BPS) revert InvalidSplits();
+        if (split.protocolBps > MAX_PROTOCOL_BPS) revert InvalidSplits();
     }
 
     function onTokenTransfer(address from, address to, uint256 amount) external {

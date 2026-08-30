@@ -131,9 +131,13 @@ abstract contract ArcReserveTestBase is Test {
     }
 
     function _depositRevenue(uint256 amount) internal {
+        _depositRevenue(amount, 1);
+    }
+
+    function _depositRevenue(uint256 amount, uint256 periodId) internal {
         musd.faucet(address(this), amount);
         musd.approve(address(revenue), amount);
-        revenue.depositRevenue(amount);
+        revenue.depositRevenue(amount, periodId, keccak256(abi.encode("report", periodId)));
     }
 
     function _setOneDollarOracle(int24 spotOffset) internal {

@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 122 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
-(2026-08-30, after D-023 task 2).
+Baseline: 144 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
+(2026-08-30, after task 3).
 
 ## Interface stability rules
 - Do not rename or re-order enum members (`AssetStatus`, `RedemptionMode`, `PositionKind`,
@@ -70,7 +70,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    for the issuer; gate `withdrawIssuerProceeds` (and future issuance) on not-in-shortfall past
    grace. Events: `ReserveScheduleSet`, `ReserveContribution`, `ReserveShortfallEntered/Cleared`.
    Invariant: backing never decreases through a redemption.
-3. **Dynamic revenue split (D-023) + period tagging (D-022).** `RevenueDistributor` splits become
+3. ~~**Dynamic revenue split (D-023) + period tagging (D-022).**~~ **DONE 2026-08-30.** `RevenueDistributor` splits become
    admin-settable within bounds with a `behindSchedule` variant (40/45/10/5); `depositRevenue(amount,
    periodId, reportHash)` emits the period; missing period past grace is reported via a view.
 4. **Reserve yield hook (D-023).** `accrueReserveYield(amount)` (yield-source role) credits the

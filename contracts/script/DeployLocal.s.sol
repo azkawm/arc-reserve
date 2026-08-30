@@ -8,6 +8,7 @@ import { MockUniswapV3Pool } from "../src/mocks/MockUniswapV3Pool.sol";
 import { AssetRegistry } from "../src/registry/AssetRegistry.sol";
 import { AssetVault } from "../src/vault/AssetVault.sol";
 import { AssetToken } from "../src/token/AssetToken.sol";
+import { RevenueDistributor } from "../src/revenue/RevenueDistributor.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
@@ -120,6 +121,10 @@ contract DeployLocal is Script {
         // with the 20,000 seed a full raise lands near 0.45 - comfortably ahead of the 0.30 start.
         AssetVault(deployment.vault)
             .setReserveSchedule(300_000, 1_000_000, uint64(block.timestamp), maturity, 30 days);
+
+        // D-022 reporting cadence: a revenue report every 30 days, with a 30-day grace window
+        // before `isReportingOverdue()` flags the issuer to the verifier and the UI.
+        RevenueDistributor(deployment.revenueDistributor).setReportingPolicy(30 days, 30 days);
         vm.stopBroadcast();
 
         _writeDeployment(assetId, deployment);

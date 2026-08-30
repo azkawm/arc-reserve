@@ -151,3 +151,37 @@ clean. Coverage: `AssetVault` 72.81 -> 83.15% lines and 7.14 -> 50.00% branches;
 Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
 Needs: nothing blocking. Next is task 3 (dynamic revenue split + period tagging), which layers the
 40/45/10/5 behind-schedule variant on top of `isBehindSchedule()`.
+
+## 2026-08-30 — contracts — D-022/D-023 dynamic revenue split and period tagging (task 3)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `RevenueDistributor` now stores two split variants and chooses per deposit by reading
+`vault.isBehindSchedule()` live — 60/25/10/5 on schedule, 40/45/10/5 behind, so holders take less
+while the sinking fund catches up. Both are admin-settable via `setRevenueSplits` within bounds
+(holders >= 30%, operator <= 15%, protocol <= 10%, each totalling 100%), and the behind-schedule
+variant may never route less to the reserve or more to holders than the on-schedule one — the
+mechanism cannot be inverted into a way to pay insiders more during distress.
+`depositRevenue` now takes `(amount, periodId, reportHash)`; `revenueByPeriod` accumulates and the
+event carries the period, the report hash and which split ran. `setReportingPolicy` +
+`isReportingOverdue()` expose the D-022 cadence; the flag is deliberately **non-gating** — a missing
+report is an offchain covenant breach for the verifier, not a reason to freeze a live market. The
+reserve shortfall is what actually freezes issuer capital.
+`DeployLocal` sets a 30-day cadence with a 30-day grace.
+
+Verified on Anvil: on schedule `activeSplit` is (6000,2500,1000,500); two years on it flips to
+(4000,4500,1000,500) with `isReportingOverdue` true, and a live 1,000 mUSD deposit moved
+450 to the reserve, 400 to holders, 100 operator, 50 protocol, recording period 202608.
+
+Tests 122 -> 144 (`test/unit/RevenueSplits.t.sol`, 22 cases). `forge fmt --check` clean.
+Coverage: `RevenueDistributor` 85.11 -> 90.37% lines and 68.42 -> 81.48% branches; overall
+83.25 -> 84.16% lines.
+
+**Interface changes — read before your next build.** Both boundary docs have rows dated 2026-08-30
+marked BREAKING:
+- `depositRevenue(uint256)` -> `depositRevenue(uint256, uint256, bytes32)`. The frontend's issuer
+  revenue-deposit write **will revert until updated**.
+- `RevenueDeposited` gained `periodId` (indexed), `reportHash` and `behindSchedule` before the
+  existing amount fields — regenerate the ABI rather than hand-patching decoders.
+- The `HOLDER_BPS` / `RESERVE_BPS` / `OPERATOR_BPS` / `PROTOCOL_BPS` constants are removed. Read
+  `activeSplit()` instead; the applied split now varies per deposit.
+Needs: nothing blocking. Next is task 4 (reserve yield hook), which credits yield to the reserve
+while behind schedule and to issuer proceeds once on or ahead of it.

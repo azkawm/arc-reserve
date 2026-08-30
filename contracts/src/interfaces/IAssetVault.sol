@@ -17,5 +17,7 @@ interface IAssetVault {
     function reserveRatioBps() external view returns (uint256);
     function availableRedemptionLiquidity() external view returns (uint256);
     function isSolvent() external view returns (bool);
+    /// @notice True when liquid backing per investor token is below the D-023 schedule right now.
+    function isBehindSchedule() external view returns (bool);
 }
 

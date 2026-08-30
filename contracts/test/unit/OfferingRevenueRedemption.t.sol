@@ -103,7 +103,7 @@ contract OfferingRevenueRedemptionTest is ArcReserveTestBase {
         musd.faucet(address(this), 1_000e6);
         musd.approve(address(revenue), 1_000e6);
         vm.expectRevert(RevenueDistributor.NoYieldEligibleSupply.selector);
-        revenue.depositRevenue(1_000e6);
+        revenue.depositRevenue(1_000e6, 1, bytes32(0));
     }
 
     function testRevenueGrowsReserveAndKeepsAccountingSolvent() public {

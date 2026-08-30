@@ -20,6 +20,8 @@ contract FinancialHandler {
     ///         floor ratchet depends on this never happening while an asset is Active.
     bool public backingFellThroughRedemption;
 
+    uint256 private periodCounter;
+
     constructor(
         MockUSD musd_,
         AssetToken token_,
@@ -38,7 +40,8 @@ contract FinancialHandler {
         uint256 amount = uint256(rawAmount) % 1_000e6 + 1;
         musd.faucet(address(this), amount);
         musd.approve(address(revenue), amount);
-        try revenue.depositRevenue(amount) { } catch { }
+        periodCounter++;
+        try revenue.depositRevenue(amount, periodCounter, bytes32(periodCounter)) { } catch { }
     }
 
     function claimRevenue() external {

@@ -244,14 +244,26 @@ Contract implications: `depositRevenue(amount, periodId, reportHash)` records th
 and the hash of the revenue report; a period without a deposit past its grace window is a
 reporting shortfall (see D-023 enforcement).
 
+**Implemented 2026-08-30** (contracts task 3). `revenueByPeriod[periodId]` accumulates, the period
+and report hash are carried on `RevenueDeposited`, and `setReportingPolicy` / `isReportingOverdue`
+expose the cadence. The overdue flag is deliberately **non-gating**: a missing report is an offchain
+covenant breach for the verifier to act on, not something that should freeze a live market. The
+reserve shortfall (D-023) is what actually freezes issuer capital.
+
 ## D-023: Sinking-fund reserve with a linear schedule, reserve yield, and residual return
 
 Status: accepted 2026-08-27. **Schedule and enforcement implemented 2026-08-30** (contracts task 2:
 `AssetVault.ReserveSchedule`, `targetBackingAt`, `currentBacking`, `isBehindSchedule`,
 `shortfallStartedAt`, `isInEnforcedShortfall`, `depositReserve`, the `withdrawIssuerProceeds` gate,
-`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: the dynamic revenue
-split (task 3), reserve yield (task 4), residual return (task 5), and the 65/30/5 settlement split
-(task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: reserve yield (task 4),
+residual return (task 5), and the 65/30/5 settlement split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+
+**Dynamic split implemented 2026-08-30** (contracts task 3). `RevenueDistributor` stores two split
+variants and picks per deposit by reading `vault.isBehindSchedule()` live: 60/25/10/5 on schedule,
+40/45/10/5 behind. Both are admin-settable within bounds (holders >= 30%, operator <= 15%, protocol
+<= 10%, each totalling 100%), and the behind-schedule variant may never route less to the reserve or
+more to holders than the on-schedule one - so the mechanism cannot be inverted into a way to pay the
+operator more during distress.
 
 **Implementation note (2026-08-30).** Shortfall start is *derived* rather than observed: the target
 curve is monotonically increasing, so the crossing time is recovered by inverting the line from the
