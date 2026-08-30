@@ -185,3 +185,25 @@ marked BREAKING:
   `activeSplit()` instead; the applied split now varies per deposit.
 Needs: nothing blocking. Next is task 4 (reserve yield hook), which credits yield to the reserve
 while behind schedule and to issuer proceeds once on or ahead of it.
+
+## 2026-08-30 — contracts — D-023 reserve yield hook (task 4)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `AssetVault.accrueReserveYield(amount)` under a new `YIELD_SOURCE_ROLE` routes yield earned on
+the protected reserve by schedule state — reserve while behind, `issuerProceeds` once on or ahead.
+**Conservative default: with no schedule configured the yield also stays with the reserve**, so a
+forgotten schedule cannot silently route investor yield to the issuer. Funds are pulled from the
+caller, making classification atomic and ensuring a stray transfer into the vault can never be swept
+up as yield; a rebasing-stable integration would instead classify unaccounted surplus, noted in the
+NatSpec. New event `ReserveYieldAccrued` carries which bucket grew.
+`src/mocks/MockYieldSource.sol` is the demo stand-in; `DeployLocal` deploys it, grants the role and
+seeds it with 5,000 mUSD. New `deployments/<chainId>.json` key `mockYieldSource` — added, nothing
+renamed, every other address unchanged.
+
+Verified on a fresh Anvil: on schedule a 1,000 mUSD accrual moved 1,000 to `issuerProceeds` and 0 to
+the reserve; two years later, behind schedule, the same call moved 1,000 to the reserve and 0 to the
+issuer.
+
+Tests 144 -> 157 (`test/unit/ReserveYield.t.sol`, 13 cases). `forge fmt --check` clean. Coverage:
+`AssetVault` 85.96 -> 86.77% lines, `MockYieldSource` 100%.
+Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
+Needs: nothing blocking. Next is task 5 (residual return at `Closed` after the maturity window).

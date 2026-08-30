@@ -9,6 +9,7 @@ import { AssetRegistry } from "../src/registry/AssetRegistry.sol";
 import { AssetVault } from "../src/vault/AssetVault.sol";
 import { AssetToken } from "../src/token/AssetToken.sol";
 import { RevenueDistributor } from "../src/revenue/RevenueDistributor.sol";
+import { MockYieldSource } from "../src/mocks/MockYieldSource.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
@@ -33,6 +34,7 @@ contract DeployLocal is Script {
     uint8 private constant CLASS_RETAIL = 1;
 
     address private musdAddress;
+    address private mockYieldSourceAddress;
     address private registryAddress;
     address private factoryAddress;
     IdentityRegistry private identityRegistry;
@@ -125,6 +127,15 @@ contract DeployLocal is Script {
         // D-022 reporting cadence: a revenue report every 30 days, with a 30-day grace window
         // before `isReportingOverdue()` flags the issuer to the verifier and the UI.
         RevenueDistributor(deployment.revenueDistributor).setReportingPolicy(30 days, 30 days);
+
+        // D-023 reserve yield. DEMO: a stand-in for holding the reserve in a yield-bearing stable.
+        // Yield lands in the reserve while backing is behind schedule and with the issuer once it
+        // is on or ahead. Seeded with 5,000 mUSD so the demo can show both branches.
+        MockYieldSource yieldSource = new MockYieldSource(address(musd), deployment.vault);
+        mockYieldSourceAddress = address(yieldSource);
+        AssetVault(deployment.vault)
+            .grantRole(AssetVault(deployment.vault).YIELD_SOURCE_ROLE(), mockYieldSourceAddress);
+        musd.faucet(mockYieldSourceAddress, 5_000e6);
         vm.stopBroadcast();
 
         _writeDeployment(assetId, deployment);
@@ -185,6 +196,7 @@ contract DeployLocal is Script {
         vm.serializeAddress(root, "mockUSD", musdAddress);
         vm.serializeAddress(root, "registry", registryAddress);
         vm.serializeAddress(root, "factory", factoryAddress);
+        vm.serializeAddress(root, "mockYieldSource", mockYieldSourceAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));

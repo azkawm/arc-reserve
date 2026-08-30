@@ -255,8 +255,15 @@ reserve shortfall (D-023) is what actually freezes issuer capital.
 Status: accepted 2026-08-27. **Schedule and enforcement implemented 2026-08-30** (contracts task 2:
 `AssetVault.ReserveSchedule`, `targetBackingAt`, `currentBacking`, `isBehindSchedule`,
 `shortfallStartedAt`, `isInEnforcedShortfall`, `depositReserve`, the `withdrawIssuerProceeds` gate,
-`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: reserve yield (task 4),
-residual return (task 5), and the 65/30/5 settlement split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: residual return (task 5)
+and the 65/30/5 settlement split (task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+
+**Reserve yield implemented 2026-08-30** (contracts task 4). `AssetVault.accrueReserveYield` under
+`YIELD_SOURCE_ROLE` credits `redemptionReserve` while behind schedule and `issuerProceeds` once on
+or ahead, with a conservative default: **no schedule configured also credits the reserve**, so a
+forgotten schedule cannot silently route investor yield to the issuer. Funds are pulled from the
+caller so classification is atomic; a rebasing-stable integration would instead classify unaccounted
+surplus. `MockYieldSource` is the demo stand-in.
 
 **Dynamic split implemented 2026-08-30** (contracts task 3). `RevenueDistributor` stores two split
 variants and picks per deposit by reading `vault.isBehindSchedule()` live: 60/25/10/5 on schedule,

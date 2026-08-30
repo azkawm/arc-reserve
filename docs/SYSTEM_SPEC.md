@@ -293,6 +293,27 @@ keep their exit. Headroom issuance will join the gate when it exists.
 `depositReserve(amount, periodId)` is the issuer's scheduled contribution, tagged with the reporting
 period it settles, and emits `ReserveContribution`.
 
+### 6.5 Reserve yield (D-023)
+
+`accrueReserveYield(amount)` is callable only by `YIELD_SOURCE_ROLE` and routes yield earned on the
+protected reserve by schedule state:
+
+| Schedule state | Destination |
+| --- | --- |
+| Behind schedule | `redemptionReserve` - the yield helps the sinking fund catch up |
+| On or ahead of schedule | `issuerProceeds` |
+| **No schedule configured** | `redemptionReserve` |
+
+The last row is a deliberate conservative default: forgetting to configure a schedule must not
+silently route the investors' reserve yield to the issuer.
+
+Funds are **pulled** from the caller, so classification is atomic and a stray transfer into the vault
+can never be swept up as yield. A rebasing yield-bearing stablecoin would instead grow the balance in
+place; that integration would classify the unaccounted surplus rather than pulling.
+
+`MockYieldSource` (`src/mocks/`) is the demo stand-in - it holds mUSD and hands it over on demand so
+the local demo can show both branches without an external protocol.
+
 ## 7. Current primary offering
 
 The current offering is direct mint-on-purchase:

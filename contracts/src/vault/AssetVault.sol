@@ -18,6 +18,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     bytes32 public constant REDEMPTION_CONTROLLER_ROLE = keccak256("REDEMPTION_CONTROLLER_ROLE");
     bytes32 public constant MARKET_MANAGER_ROLE = keccak256("MARKET_MANAGER_ROLE");
     bytes32 public constant REVENUE_DEPOSITOR_ROLE = keccak256("REVENUE_DEPOSITOR_ROLE");
+    bytes32 public constant YIELD_SOURCE_ROLE = keccak256("YIELD_SOURCE_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     IERC20 public immutable stablecoin;
@@ -74,6 +75,9 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     );
     event ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking);
     event ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking);
+    event ReserveYieldAccrued(
+        address indexed source, uint256 amount, bool creditedToReserve, uint256 newCategoryBalance
+    );
 
     error InvalidAddress();
     error InvalidRatio();
@@ -142,6 +146,36 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
             configured: true
         });
         emit ReserveScheduleSet(startBacking, targetBacking, startTime, maturity, graceSeconds);
+        _syncShortfall();
+    }
+
+    /// @notice Credit yield earned on the protected reserve (D-023).
+    /// @dev    Destination follows the schedule: while backing is below target the yield stays with
+    ///         the reserve and helps it catch up; once on or ahead of schedule it is the issuer's.
+    ///         With no schedule configured the yield stays with the reserve - forgetting to set a
+    ///         schedule must not silently route the investors' reserve yield to the issuer.
+    ///
+    ///         Funds are pulled from the caller, so classification is atomic and an accidental
+    ///         transfer into the vault can never be swept up as yield. A rebasing yield-bearing
+    ///         stablecoin would instead grow the balance in place; that integration would classify
+    ///         the unaccounted surplus via `_requireUnaccounted` rather than pulling.
+    function accrueReserveYield(uint256 amount)
+        external
+        onlyRole(YIELD_SOURCE_ROLE)
+        nonReentrant
+        whenNotPaused
+    {
+        stablecoin.safeTransferFrom(msg.sender, address(this), amount);
+        bool toReserve = !reserveSchedule.configured || isBehindSchedule();
+        if (toReserve) {
+            redemptionReserve += amount;
+            _emitAllocation("REDEMPTION_RESERVE", int256(amount), redemptionReserve);
+            emit ReserveYieldAccrued(msg.sender, amount, true, redemptionReserve);
+        } else {
+            issuerProceeds += amount;
+            _emitAllocation("ISSUER_PROCEEDS", int256(amount), issuerProceeds);
+            emit ReserveYieldAccrued(msg.sender, amount, false, issuerProceeds);
+        }
         _syncShortfall();
     }
 
