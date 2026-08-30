@@ -166,6 +166,9 @@ contract DeployLocal is Script {
         musd.faucet(mockYieldSourceAddress, 5_000e6);
 
         _configureFloor(deployer, deployment, assetId);
+        if (vm.envOr("DEMO_SEED_LIQUIDITY", false)) {
+            _seedDemoLiquidity(deployer, deployment, musd);
+        }
         vm.stopBroadcast();
 
         _writeDeployment(assetId, deployment);
@@ -219,6 +222,43 @@ contract DeployLocal is Script {
     // the offering is the only holder of ISSUANCE_CONTROLLER_ROLE for the life of the asset.
     // Of the 100,000 authorized supply, 80,000 is offering inventory and 20,000 stays unminted
     // headroom (D-002, D-004).
+
+    /// @notice Optional: put non-zero liquidity into the anchor position so the UI's liquidity
+    ///         cards and the engine screen show something other than zeros.
+    /// @dev    DEMO: seeding requires supply and market allocation, and both are zero at deploy
+    ///         (D-031 mints nothing, and market allocation only arrives with a purchase). So this
+    ///         first makes a real primary purchase as the deployer - who is a verified
+    ///         institutional wallet - and then funds the engine from the proceeds. Off by default
+    ///         because it changes the seeded chain from "nothing has happened yet" into "one
+    ///         purchase has happened", which is a different fixture for the other stacks.
+    function _seedDemoLiquidity(
+        address deployer,
+        AssetFactory.Deployment memory deployment,
+        MockUSD musd
+    ) private {
+        AssetMarketManager market = AssetMarketManager(deployment.marketManager);
+        AssetToken assetToken = AssetToken(deployment.token);
+
+        musd.faucet(deployer, 10_000e6);
+        musd.approve(deployment.offering, 10_000e6);
+        PrimaryOffering(deployment.offering).buy(10_000e6, 0);
+
+        // 5% of the raise reached the market allocation; put it and a slice of the tokens to work.
+        market.fundFromVault(500e6);
+        assetToken.approve(deployment.marketManager, 500e18);
+        market.fundTokenInventory(500e18);
+        market.addLiquidity(
+            AssetMarketManager.AddLiquidityParams({
+                kind: AssetMarketManager.PositionKind.Anchor,
+                liquidity: 1_000,
+                maxAmount0: 500e18,
+                maxAmount1: 500e18,
+                minimumAmount0: 0,
+                minimumAmount1: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+    }
 
     /// @notice D-025 published protected floor. Starts at ~0.2983 mUSD per token, just under the
     ///         0.30 schedule start, and ratchets up one tick spacing (~0.6%) per call as backing

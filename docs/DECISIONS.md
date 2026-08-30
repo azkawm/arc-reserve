@@ -528,6 +528,25 @@ sinking-fund schedule, which are the right instruments for a debt-shaped claim.
 currently unused by the demo but still referenced by a yield-exclusion test. Left in place pending
 owner confirmation.
 
+## D-032: The factory renounces every role it receives, not just the admin role
+
+Status: accepted and implemented 2026-08-30 (contracts task 10, `AssetFactory._handoffAdministration`,
+`test/unit/FactoryRoleHygiene.t.sol`).
+
+**The finding.** `AssetFactory` is passed as `admin` to every component constructor so it can wire
+them. Those constructors grant the admin more than `DEFAULT_ADMIN_ROLE`: also `PAUSER_ROLE` on all
+six, `KEEPER_ROLE` on the redemption controller and market manager, and `REVENUE_DEPOSITOR_ROLE` on
+the distributor. The handoff renounced only `DEFAULT_ADMIN_ROLE`, so **the factory permanently held
+pauser on every component of every series it had ever deployed**, plus keeper on two of them.
+
+Not exploitable today - the factory has no function that calls into those roles - but it is a
+standing privilege with no purpose and a very large blast radius, and it is exactly what a reviewer
+looking at role holders would flag first in a system that calls itself institution-grade.
+
+**Decision.** The factory renounces every role it holds, admin last because the grants to the
+protocol admin need it. `FactoryRoleHygiene.t.sol` asserts two things: the factory ends up holding
+nothing on any component, and nothing it gave up was left without a holder.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:

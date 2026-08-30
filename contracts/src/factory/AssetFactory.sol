@@ -302,6 +302,23 @@ contract AssetFactory is AccessControl {
         market.grantRole(market.DEFAULT_ADMIN_ROLE(), protocolAdmin);
         market.grantRole(market.PAUSER_ROLE(), protocolAdmin);
 
+        // The factory is constructed as `admin` of every component so it can wire them, which
+        // means each constructor also handed it PAUSER_ROLE, and KEEPER_ROLE / REVENUE_DEPOSITOR_ROLE
+        // where those default to the admin. It has no function that uses any of them, so keeping
+        // them is a standing privilege with no purpose over every series it ever deploys.
+        // Renounce all of them, not just the admin role. `FactoryRoleHygiene.t.sol` asserts the
+        // factory ends up holding nothing, and that nothing it gave up was left without a holder.
+        token.renounceRole(token.PAUSER_ROLE(), address(this));
+        vault.renounceRole(vault.PAUSER_ROLE(), address(this));
+        offering.renounceRole(offering.PAUSER_ROLE(), address(this));
+        revenue.renounceRole(revenue.PAUSER_ROLE(), address(this));
+        revenue.renounceRole(revenue.REVENUE_DEPOSITOR_ROLE(), address(this));
+        redemption.renounceRole(redemption.PAUSER_ROLE(), address(this));
+        redemption.renounceRole(redemption.KEEPER_ROLE(), address(this));
+        market.renounceRole(market.PAUSER_ROLE(), address(this));
+        market.renounceRole(market.KEEPER_ROLE(), address(this));
+
+        // Admin last: the grants above need it.
         token.renounceRole(token.DEFAULT_ADMIN_ROLE(), address(this));
         vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), address(this));
         offering.renounceRole(offering.DEFAULT_ADMIN_ROLE(), address(this));

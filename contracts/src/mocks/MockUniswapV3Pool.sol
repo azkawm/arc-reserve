@@ -24,6 +24,19 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
     uint256 public mintAmount0PerLiquidity = 1;
     uint256 public mintAmount1PerLiquidity = 1;
     uint16 public swapOutputBps = 9_900;
+    uint128 public totalLiquidity;
+
+    /// @notice Amount of input that moves the price by exactly one `tickSpacing`. Zero disables
+    ///         price movement entirely, which is what tests wanting a static oracle should set.
+    /// @dev    DEMO: a real AMM derives price movement from the curve and the liquidity actually in
+    ///         range. This is a linear stand-in so the local demo produces candles that move in the
+    ///         right direction by the right order of magnitude. It models no price impact curve,
+    ///         no tick crossing, no fee growth and no liquidity exhaustion, so anything derived
+    ///         from it is a labelled demo feed, never price discovery.
+    uint256 public swapImpactUnit = 1_000e6;
+    /// @notice Ceiling on how far one swap may move the tick, so a fat-fingered demo trade cannot
+    ///         send the price to the end of the tick range.
+    int24 public maxTickMovePerSwap = 600;
 
     mapping(bytes32 => uint128) public liquidityOf;
 
@@ -37,6 +50,7 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
         require(!initialized, "INITIALIZED");
         sqrtPriceX96 = sqrtPriceX96_;
         initialized = true;
+        emit Initialize(sqrtPriceX96_, spotTick);
     }
 
     function setOracleForTest(int24 spotTick_, int24 twapTick_) external {
@@ -50,6 +64,13 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
     {
         mintAmount0PerLiquidity = amount0PerLiquidity;
         mintAmount1PerLiquidity = amount1PerLiquidity;
+    }
+
+    /// @notice Configure the demo price impact. `unit` is the input amount that moves one tick
+    ///         spacing; zero pins the price so a test can keep a static oracle.
+    function setSwapImpactForTest(uint256 unit, int24 maxTickMove) external {
+        swapImpactUnit = unit;
+        maxTickMovePerSwap = maxTickMove;
     }
 
     function setSwapOutputBpsForTest(uint16 outputBps) external {
@@ -83,6 +104,7 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
         amount1 = uint256(liquidity) * mintAmount1PerLiquidity;
         IUniswapV3MintCallback(msg.sender).uniswapV3MintCallback(amount0, amount1, data);
         liquidityOf[keccak256(abi.encode(recipient, tickLower, tickUpper))] += liquidity;
+        totalLiquidity += liquidity;
     }
 
     function burn(int24 tickLower, int24 tickUpper, uint128 liquidity)
@@ -92,6 +114,7 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
         bytes32 key = keccak256(abi.encode(msg.sender, tickLower, tickUpper));
         require(liquidityOf[key] >= liquidity, "LIQUIDITY");
         liquidityOf[key] -= liquidity;
+        totalLiquidity -= liquidity;
         amount0 = uint256(liquidity) * mintAmount0PerLiquidity;
         amount1 = uint256(liquidity) * mintAmount1PerLiquidity;
     }
@@ -130,6 +153,27 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
             IUniswapV3SwapCallback(msg.sender).uniswapV3SwapCallback(amount0, amount1, data);
             IERC20(token0).safeTransfer(recipient, amountOut);
         }
+
+        _applyDemoPriceImpact(zeroForOne, amountIn);
+        emit Swap(msg.sender, recipient, amount0, amount1, sqrtPriceX96, totalLiquidity, spotTick);
+    }
+
+    /// @dev Selling token0 into the pool lowers the token1/token0 price, which is a lower tick;
+    ///      the reverse raises it. Direction is canonical even though the magnitude is a stand-in.
+    function _applyDemoPriceImpact(bool zeroForOne, uint256 amountIn) private {
+        if (swapImpactUnit == 0) return;
+        uint256 magnitude = amountIn * uint256(uint24(tickSpacing)) / swapImpactUnit;
+        uint256 ceiling = uint256(uint24(maxTickMovePerSwap));
+        if (magnitude > ceiling) magnitude = ceiling;
+        if (magnitude == 0) return;
+
+        int24 move = int24(uint24(magnitude));
+        int24 next = zeroForOne ? spotTick - move : spotTick + move;
+        if (next < TickPriceMath.MIN_TICK) next = TickPriceMath.MIN_TICK;
+        if (next > TickPriceMath.MAX_TICK) next = TickPriceMath.MAX_TICK;
+
+        spotTick = next;
+        sqrtPriceX96 = TickPriceMath.getSqrtRatioAtTick(next);
     }
 
     function _min(uint256 a, uint256 b) private pure returns (uint256) {

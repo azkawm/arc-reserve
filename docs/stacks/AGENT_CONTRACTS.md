@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 232 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
-(2026-08-30, after task 9). Note `via_ir = false` and it stays that way — fix stack-too-deep by
+Baseline: 247 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
+(2026-08-30, after task 10 — **all ten tasks complete**). Note `via_ir = false` and it stays that way — fix stack-too-deep by
 extracting a helper, not by turning on the IR pipeline.
 
 ## Interface stability rules

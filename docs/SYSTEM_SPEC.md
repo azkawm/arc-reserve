@@ -553,7 +553,25 @@ The target position must have zero recorded liquidity. New endpoints must be val
 ranges and each endpoint may move no farther than `maxTickShift`. A successful update records the
 current timestamp and starts cooldown. Remint is a separate transaction.
 
-### 10.5 Callback authentication
+### 10.5 Canonical pool events and the demo price feed (task 10)
+
+`IUniswapV3Pool` declares `Initialize(uint160,int24)` and
+`Swap(address indexed,address indexed,int256,int256,uint160,uint128,int24)` with v3-core's exact
+argument order, so anything implementing it carries them in its ABI and an indexer decodes a demo
+pool log through the same path a real pool would need. The `Swap` topic0 is asserted against the
+canonical `0xc42079f9...ca67` in `test/unit/MockPoolSwapEvents.t.sol`.
+
+`MockUniswapV3Pool` moves `sqrtPriceX96` and `spotTick` on every swap and emits both events.
+Direction is canonical: selling token0 lowers the token1/token0 price, which is a lower tick.
+Magnitude is a labelled linear stand-in - `swapImpactUnit` of input moves one `tickSpacing`, capped
+by `maxTickMovePerSwap` - and setting `swapImpactUnit` to zero pins the price for tests that need a
+deterministic oracle.
+
+The mock still models no impact curve, no tick crossing, no fee growth and no liquidity exhaustion.
+Anything derived from it is a **labelled demo feed, never price discovery**, and must stay badged as
+such in the UI.
+
+### 10.6 Callback authentication
 
 For mint and swap, the manager creates a nonce-bearing callback payload and stores its hash only for
 the active external pool call. A callback succeeds only when:

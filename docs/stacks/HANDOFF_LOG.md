@@ -506,3 +506,48 @@ Interface changes: both boundary docs, rows dated 2026-08-30. `PrimaryOffering`'
 to the §9 pinned surface.
 Needs: nothing blocking. Task 10 is the last one — mock pool emits canonical `Swap` + `Initialize`,
 `DEMO_SEED_LIQUIDITY`, factory role-renounce decision.
+
+## 2026-08-30 — contracts — Task 10: canonical pool events, demo seeding, factory role hygiene
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+**The contracts task list is complete (1–10 plus D-031).**
+
+Three parts.
+
+**Canonical pool events.** `IUniswapV3Pool` now declares `Initialize` and `Swap` with v3-core's exact
+argument order, so they appear in the synced `MockUniswapV3Pool` artifact and the backend can drop
+its hand-written pool-events ABI. `Swap` topic0 verified as
+`0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67`, asserted in the test rather
+than trusted. The mock now moves `sqrtPriceX96`/`spotTick` on every swap and emits both events.
+Direction is canonical (selling token0 lowers the tick); magnitude is a labelled linear stand-in —
+`swapImpactUnit` of input moves one `tickSpacing`, capped by `maxTickMovePerSwap`, and setting the
+unit to zero pins the price for deterministic tests. It still models no impact curve, no tick
+crossing, no fee growth and no liquidity exhaustion, so candles from it are a **labelled demo feed,
+never price discovery**.
+
+**`DEMO_SEED_LIQUIDITY`.** Off by default. Seeding needs both supply and market allocation, and both
+are zero at deploy (D-031 mints nothing; market allocation only arrives with a purchase), so the flag
+makes a real 10,000 mUSD purchase as the deployer — a verified institutional wallet — then funds the
+engine and adds an anchor position. It is off by default precisely because it changes the seeded
+chain from "nothing has happened yet" into "one purchase has happened", which is a different fixture
+for the other stacks. Verified both ways: default gives totalSupply 0 / pool liquidity 0; seeded
+gives totalSupply 10,000e18 / pool liquidity 1,000 / reserve 23,000e6.
+
+**Factory role hygiene — a real finding, now D-032.** The factory is passed as `admin` to every
+component constructor, and those constructors grant the admin more than `DEFAULT_ADMIN_ROLE`: also
+`PAUSER_ROLE` on all six, `KEEPER_ROLE` on the redemption controller and market manager, and
+`REVENUE_DEPOSITOR_ROLE` on the distributor. The handoff renounced only the admin role, so the
+factory permanently held **pauser on every component of every series it had ever deployed**, plus
+keeper on two. Not exploitable today — the factory has no function that calls into them — but a
+standing privilege with no purpose and a large blast radius, and the first thing a reviewer scanning
+role holders would flag. Now renounced in full, admin last. `FactoryRoleHygiene.t.sol` asserts both
+directions: the factory ends up holding nothing, and nothing it gave up lost its holder. If you track
+role holders, the factory disappears from all six components.
+
+Tests 232 -> 247 (`FactoryRoleHygiene.t.sol` 7 cases, `MockPoolSwapEvents.t.sol` 8 cases).
+`forge fmt --check` clean. `via_ir` still false.
+Interface changes: `CONTRACTS_TO_BACKEND.md` row dated 2026-08-30.
+Note: `contracts/deployments/31337.json` is deliberately **not** in this change. Both the committed
+snapshot and my verification runs came from Anvil instances with residual state, so neither holds
+canonical fresh-chain addresses. It is documented as a snapshot to regenerate, not a registry —
+regenerate it from a genuinely fresh chain before the demo.
+Needs: nothing. The contracts track is done; remaining work is whatever the owner prioritises next.

@@ -2,6 +2,22 @@
 pragma solidity ^0.8.24;
 
 interface IUniswapV3Pool {
+    /// @notice Canonical Uniswap V3 pool events. Declared here so anything implementing this
+    ///         interface carries them in its ABI and an indexer can decode a pool log from the
+    ///         project's own artifacts. Signatures and argument order match v3-core exactly:
+    ///         `Swap` must hash to
+    ///         0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67.
+    event Initialize(uint160 sqrtPriceX96, int24 tick);
+    event Swap(
+        address indexed sender,
+        address indexed recipient,
+        int256 amount0,
+        int256 amount1,
+        uint160 sqrtPriceX96,
+        uint128 liquidity,
+        int24 tick
+    );
+
     function token0() external view returns (address);
     function token1() external view returns (address);
     function tickSpacing() external view returns (int24);
