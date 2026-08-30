@@ -61,7 +61,7 @@ export async function registerAccountRoutes(app: FastifyInstance, deps: ApiDeps)
 
     // Claimable revenue and the wallet limit are read from chain at the indexed block: both
     // depend on accumulator state the events do not carry.
-    const [claimable, walletLimit, redemptionPrice] = await Promise.all([
+    const [claimable, remainingAllowance, redemptionPrice] = await Promise.all([
       readOrNull<bigint>(() =>
         client.readContract({
           address: getAddress(deployment.revenue_distributor),
@@ -71,11 +71,17 @@ export async function registerAccountRoutes(app: FastifyInstance, deps: ApiDeps)
           blockNumber: cursor.blockNumber,
         }) as Promise<bigint>,
       ),
+      /**
+       * D-028. `remainingAllowance` folds the effective wallet cap, the class aggregate cap
+       * and the remaining raise into one number. The flat `walletPurchaseLimit` it replaces
+       * is wrong the moment any class is configured — and the demo now configures three.
+       */
       readOrNull<bigint>(() =>
         client.readContract({
           address: getAddress(deployment.offering),
           abi: loadAbi('PrimaryOffering'),
-          functionName: 'walletPurchaseLimit',
+          functionName: 'remainingAllowance',
+          args: [getAddress(address)],
           blockNumber: cursor.blockNumber,
         }) as Promise<bigint>,
       ),
@@ -92,8 +98,9 @@ export async function registerAccountRoutes(app: FastifyInstance, deps: ApiDeps)
 
     const balance = BigInt(holder?.balance ?? '0');
     const purchasedRaw = BigInt(purchased);
-    const limitRaw = walletLimit ?? 0n;
-    const remainingLimit = limitRaw > purchasedRaw ? limitRaw - purchasedRaw : 0n;
+    // Read whole from the contract, not derived by subtracting purchases from a flat cap:
+    // the class aggregate and the remaining raise can bind before the wallet cap does.
+    const remainingLimit = remainingAllowance ?? 0n;
 
     // isVerified is a function of now(), so it is recomputed here from the stored claim
     // rather than read from a column that was correct only when it was written.

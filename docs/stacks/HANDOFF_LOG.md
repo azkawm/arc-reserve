@@ -551,3 +551,33 @@ snapshot and my verification runs came from Anvil instances with residual state,
 canonical fresh-chain addresses. It is documented as a snapshot to regenerate, not a registry —
 regenerate it from a genuinely fresh chain before the demo.
 Needs: nothing. The contracts track is done; remaining work is whatever the owner prioritises next.
+
+## 2026-08-30 — backend (acting on frontend) — Milestone E: the fixture → API migration
+Branch: backend/foundation   Commit: (this commit)
+**Note for whoever resumes the frontend stack: the frontend migration now lives on
+`backend/foundation`, not on `frontend/kyc-and-correctness`.** That branch is clean and ~13 behind
+with docs-only commits and no `frontend/` diff, so resuming there would rebuild against the
+pre-migration tree. Fast-forward it or work from this line.
+What: the owner asked this session to do the migration directly. Built the provenance layer and
+moved the marketplace and asset page off fixtures. `typecheck`, `lint`, `build` all green.
+- `src/lib/api.ts` — typed client, the §1 envelope, the full §3 response types.
+- `src/lib/queries.ts` — React Query hooks, keys namespaced `["api", route, …]`, `staleTime` held
+  below the backend's own staleness window so the UI never asserts freshness the API disclaimed.
+- `src/lib/fixtures.ts` — adapts `data.ts` into the API shapes, so components read one type and
+  decide from `meta.provenance` rather than from scattered "demo mode" branches.
+- `src/components/data-source.tsx` — `DataSourceBadge`, `PanelLoading`, `PanelError`, and a
+  `DataPanel` that takes the query result directly so "I forgot the error case" is unreachable.
+- Migrated: marketplace hero/stats/list, asset header, chart panel, supply structure, floor card,
+  positions, holdings. Every hardcoded literal is gone from those panels — verified by grep.
+The distinction the whole thing rests on: **no API URL ⇒ fixture mode with Mock badges; API URL
+present but failing ⇒ error state, never a fixture.** Those look the same in a screenshot and are
+completely different claims.
+Also fixed in the backend, prompted by task 9: `/accounts` `remainingWalletLimit` now reads
+`remainingAllowance(buyer)` instead of subtracting purchases from the flat `walletPurchaseLimit`.
+The old number was wrong the moment any class was configured, and the demo now configures three.
+Verified live: accredited Anvil #1 shows 50,000, retail Anvil #2 shows 5,000.
+Interface changes: none to `BACKEND_TO_FRONTEND.md`. `docs/FRONTEND.md` §3 now carries the
+real-versus-mock table.
+Not migrated (still fixtures, still badged): issuer profile and asset story copy, keeper history,
+engine controls, `/issuer` and `/verifier` panels, lock-and-earn preview.
+Needs: nothing. The chart stays `Mock` until contracts task 10 makes the pool emit canonical swaps.

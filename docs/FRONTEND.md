@@ -51,7 +51,40 @@ Do not commit real secrets. All `NEXT_PUBLIC_*` variables are shipped to the bro
 
 ## 3. Current data model
 
-`src/lib/data.ts` contains the visual demo state:
+**Updated 2026-08-30 — the backend migration has landed.** The marketplace and the asset page now
+read `/v1` and label every panel with its provenance. Real versus mock, as it stands:
+
+| Surface | Source | Badge |
+| --- | --- | --- |
+| Marketplace list, featured card, filters, search | `GET /v1/assets` | Live |
+| Protocol statistics strip | `/v1/assets` + `/metrics` | Live |
+| Asset header, price, status | `/v1/assets` + `/metrics` | Live (`spot` carries its own badge) |
+| Candle chart, interval buttons, Y domain, overlays | `/candles` + `/metrics` | **Mock** on Anvil — see below |
+| Supply structure and the three denominators | `/metrics` | Live |
+| Protected floor card, reserve ratio, D-023 schedule | `/metrics` | Live |
+| Published floor level + coverage (D-025) | `/metrics.floor` | Live |
+| Liquidity by position, tick ranges, prices | `/positions` | Live |
+| "Your position" (holdings, claimable, allowance, verification) | `/accounts/:address/assets/:assetId` | Live, wallet required |
+| Issuer profile, asset story, journey copy | `data.ts` / static copy | Mock — presentation, not protocol state |
+| Lock & earn, settlement preview | Target model | Labelled "Target model" |
+| Keeper history, engine controls | Not yet migrated | Mock |
+
+Two behaviours worth stating explicitly, because they look identical in a screenshot and are
+completely different claims:
+
+- **No `NEXT_PUBLIC_API_URL` ⇒ fixture mode.** The app runs on `data.ts` through the same client
+  interface and every panel shows `Mock`.
+- **API URL configured but the request fails ⇒ error state.** It never falls back to a fixture
+  (D-019). `PanelError` names the failure instead of showing a plausible number.
+
+The chart is `Mock` on Anvil for a structural reason, not an oversight: `MockUniswapV3Pool` emits
+no canonical `Swap` and its price does not move with trading, so there is no series to aggregate.
+The backend serves an explicitly synthetic feed behind `ALLOW_MOCK_MARKET_DATA`, and returns
+`503 MOCK_DISABLED` when that flag is off rather than an empty array a chart would draw as a flat
+line at zero.
+
+`src/lib/data.ts` remains as the fixture source behind `src/lib/fixtures.ts`, which adapts it into
+the API's shapes so components never branch on "is this mock":
 
 - asset profile and issuer profile;
 - market, NAV, TWAP, floor, redemption, and reserve values;
