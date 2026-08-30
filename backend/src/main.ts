@@ -6,6 +6,7 @@ import { createDatabase } from './db/client.js';
 import { createChainClient } from './chain/client.js';
 import { assertChainReady } from './chain/identity.js';
 import { buildServer } from './server.js';
+import { Indexer } from './indexer/runner.js';
 import { StartupError } from './lib/errors.js';
 
 /**
@@ -49,10 +50,16 @@ async function main(): Promise<void> {
     'chain verified',
   );
 
+  // API and indexer share one process for the demo (BACKEND_INDEXER.md section 3). They keep
+  // separate modules and separate database transactions so they can be split later.
+  const indexer = new Indexer({ config, db, client, logger });
+  await indexer.prepare();
+
   const app = await buildServer({ config, db, client, logger, version, startedAt });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');
+    await indexer.stop();
     await app.close();
     await db.close();
     process.exit(0);
@@ -63,6 +70,9 @@ async function main(): Promise<void> {
 
   await app.listen({ port: config.PORT, host: config.HOST });
   logger.info({ url: `http://${config.HOST}:${config.PORT}/v1/health` }, 'listening');
+
+  await indexer.start();
+  logger.info({ startBlock: config.START_BLOCK.toString() }, 'indexer running');
 }
 
 main().catch((error: unknown) => {

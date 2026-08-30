@@ -45,7 +45,7 @@
   },
   {
     "type": "function",
-    "name": "HOLDER_BPS",
+    "name": "MAX_OPERATOR_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -58,7 +58,20 @@
   },
   {
     "type": "function",
-    "name": "OPERATOR_BPS",
+    "name": "MAX_PROTOCOL_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_HOLDER_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -84,32 +97,6 @@
   },
   {
     "type": "function",
-    "name": "PROTOCOL_BPS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "RESERVE_BPS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "REVENUE_DEPOSITOR_ROLE",
     "inputs": [],
     "outputs": [
@@ -123,6 +110,46 @@
   },
   {
     "type": "function",
+    "name": "activeSplit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "split",
+        "type": "tuple",
+        "internalType": "struct RevenueDistributor.RevenueSplit",
+        "components": [
+          {
+            "name": "holderBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "reserveBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "operatorBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "behind",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "assetToken",
     "inputs": [],
     "outputs": [
@@ -130,6 +157,34 @@
         "name": "",
         "type": "address",
         "internalType": "contract IAssetToken"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "behindScheduleSplit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "holderBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "reserveBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "operatorBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "protocolBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -213,6 +268,16 @@
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "periodId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reportHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -288,6 +353,73 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isReportingOverdue",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastPeriodId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastRevenueDepositAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "onScheduleSplit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "holderBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "reserveBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "operatorBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "protocolBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -381,6 +513,64 @@
   },
   {
     "type": "function",
+    "name": "reportingDueAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reportingGraceSeconds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reportingPeriodSeconds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revenueByPeriod",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "revokeRole",
     "inputs": [
       {
@@ -392,6 +582,86 @@
         "name": "account",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setReportingPolicy",
+    "inputs": [
+      {
+        "name": "periodSeconds",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "graceSeconds",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRevenueSplits",
+    "inputs": [
+      {
+        "name": "onSchedule",
+        "type": "tuple",
+        "internalType": "struct RevenueDistributor.RevenueSplit",
+        "components": [
+          {
+            "name": "holderBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "reserveBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "operatorBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "behind",
+        "type": "tuple",
+        "internalType": "struct RevenueDistributor.RevenueSplit",
+        "components": [
+          {
+            "name": "holderBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "reserveBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "operatorBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -514,6 +784,19 @@
   },
   {
     "type": "function",
+    "name": "yieldEligibleSupply",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "yieldExcluded",
     "inputs": [
       {
@@ -565,6 +848,25 @@
   },
   {
     "type": "event",
+    "name": "ReportingPolicySet",
+    "inputs": [
+      {
+        "name": "periodSeconds",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "graceSeconds",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RevenueClaimed",
     "inputs": [
       {
@@ -591,6 +893,24 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "periodId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reportHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "behindSchedule",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       },
       {
         "name": "grossAmount",
@@ -621,6 +941,69 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RevenueSplitsSet",
+    "inputs": [
+      {
+        "name": "onSchedule",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct RevenueDistributor.RevenueSplit",
+        "components": [
+          {
+            "name": "holderBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "reserveBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "operatorBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "behindSchedule",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct RevenueDistributor.RevenueSplit",
+        "components": [
+          {
+            "name": "holderBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "reserveBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "operatorBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
       }
     ],
     "anonymous": false
@@ -772,6 +1155,11 @@
   {
     "type": "error",
     "name": "InvalidAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidReportingPolicy",
     "inputs": []
   },
   {

@@ -238,3 +238,40 @@ Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, row
 Note for backend: `ResidualReserveReleased` debits the reserve **without** a redemption, so a
 projection driven only by redemption events will drift.
 Needs: nothing blocking. Next is task 6 (settlement split 65/30/5), which is the last D-023 item.
+
+## 2026-08-30 — backend — Milestone B complete: event ingestion, projections, reorg recovery
+Branch: backend/foundation   Commit: (this commit)
+What: the indexer runs. Address discovery from `AssetSystemDeployed` / `IdentityRegistryAdded` /
+`ComplianceAdded` / `ModuleAdded` (only registry, factory and mUSD are configured); kind-keyed
+decoding so the shared `Transfer` selector cannot confuse 18-decimal asset movements with 6-decimal
+mUSD; 23 projection tables covering identity, lifecycle, NAV, the three supply denominators,
+holders, the five vault categories, the D-023 reserve schedule, purchases, revenue, redemptions,
+positions, rebalances and ERC-3643 state; one database transaction per block; reorg recovery by
+rollback + rebuild. 105 tests green, `typecheck` / `lint` / `build` clean. Verified end to end
+against a live Anvil: full replay, restart, and a real `evm_revert` reorg.
+Three defects the acceptance tests caught, all fixed:
+1. Current-state aggregates (`token_supply`, `vault_balances`, `token_balances`, `position_configs`,
+   `identities`) have no block key, so a rollback deleted the history and left the balances carrying
+   the orphaned effects. Fixed by re-deriving the read model from the surviving logs
+   (`src/indexer/rebuild.ts`, `BACKEND_INDEXER.md` §8.4) rather than writing an inverse per projector.
+2. `viem` caches `getBlockNumber` for ~4s by default, so the indexer read a stale head and skipped
+   blocks that already existed. Chain client now sets `cacheTime: 0` (§8.5).
+3. `/v1/health` reported `degraded` on an idle Anvil because the newest block was older than
+   `STALE_AFTER_SECONDS`. A quiet chain is not a sick service; degraded now means the indexer is
+   *behind and not catching up*. Data age stays where it belongs, in `meta.stale` per response.
+Interface changes: none to `BACKEND_TO_FRONTEND.md` — no new routes yet. `BACKEND_INDEXER.md`
+§6.2, §8.4, §8.5 and §17 updated (schema and reorg design are mine to own).
+Needs — two for the contracts agent, neither blocking:
+1. **`CONTRACTS_TO_BACKEND.md` §1 and §7 are stale after D-031.** §7 still says the seed mints
+   20,000 SOLAR01 to vesting and asserts `totalSupply = 20_000e18` / `excludedSupply = 20_000e18`;
+   the chain now deploys with total supply 0 and no `CompanyVestingWallet`. §1 still tells the
+   backend to read `deployments.json → companyVesting`, a key that no longer exists. My acceptance
+   test compares against the contracts' own views instead of those constants, so nothing is blocked
+   — but the next reader of that document will be misled.
+2. **`AssetVault.MaturityWindowSet(uint64)` is emitted but not in the event catalog.** Found because
+   my indexer archived it undecoded and the test that asserts every watched log decodes went red.
+   That is the mechanism working, but §2 should list it (and any other event from tasks 4–6) with a
+   `CHANGED` row so the catalog stays the contract.
+Still open from Milestone A, needed before C: the config-snapshot reader (no event carries the
+offering config, `supply.maximum`, `minimumReserveRatioBps`, `tickSpacing` or `assetIsToken0`), and
+who owns synthetic OHLC.

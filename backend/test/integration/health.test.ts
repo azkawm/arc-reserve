@@ -102,6 +102,43 @@ describe('GET /v1/health', () => {
     expect(body.meta).toMatchObject({ indexedBlock: 100, indexedBlockHash: blockHash, lagBlocks: 20 });
   });
 
+  it('stays healthy when the chain is merely quiet', async () => {
+    // Anvil mines only on transactions, so the newest block can be hours old while the
+    // indexer is exactly current. That is an idle chain, not a degraded service; the age of
+    // the data is reported per response as meta.stale.
+    await registerChain(db, config);
+    await db.query(
+      `INSERT INTO indexer_cursors (chain_id, worker, block_number, block_hash, block_timestamp)
+       VALUES (31337, 'arc-events', 120, $1, $2)`,
+      [`0x${'cd'.repeat(32)}`, Math.floor(Date.now() / 1000) - 7200],
+    );
+
+    const server = await serve(stubClient({ latestBlock: 120n }));
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.status).toBe('healthy');
+    expect(body.data.indexers[0]?.lagBlocks).toBe(0);
+    expect(body.data.indexers[0]?.lagSeconds).toBeGreaterThan(config.STALE_AFTER_SECONDS);
+    // The response still declares its own age honestly.
+    expect(body.meta.stale).toBe(true);
+  });
+
+  it('degrades when the indexer falls behind the chain and stops catching up', async () => {
+    await registerChain(db, config);
+    await db.query(
+      `INSERT INTO indexer_cursors (chain_id, worker, block_number, block_hash, block_timestamp,
+                                    updated_at)
+       VALUES (31337, 'arc-events', 100, $1, $2, now() - interval '1 hour')`,
+      [`0x${'ab'.repeat(32)}`, Math.floor(Date.now() / 1000)],
+    );
+
+    const server = await serve(stubClient({ latestBlock: 500n }));
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.status).toBe('degraded');
+    expect(body.data.indexers[0]?.lagBlocks).toBe(400);
+  });
+
   it('degrades when a projection anomaly is open', async () => {
     await registerChain(db, config);
     await db.query(

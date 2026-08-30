@@ -243,7 +243,19 @@ Required by the projection rule in `CONTRACTS_TO_BACKEND.md` §2: when an applie
 with the emitted new balance, **flag the row, never overwrite silently**. This table is evidence,
 never trusted state.
 
-### 6.2 Protocol projection tables
+### 6.2 Protocol projection tables (implemented)
+
+Live in `migrations/*_projections.sql`. Two shapes, and the difference decides how a reorg is
+undone (§8.4): **history** tables carry `(block_number, transaction_hash, log_index)` and cascade
+from `indexed_blocks`; **current-state** tables (`token_supply`, `vault_balances`, `token_balances`,
+`position_configs`, `identities`, `compliance_config`, `holder_locks`, `reserve_schedules`) are
+incremental aggregates with no block key.
+
+Added beyond the original list: `watched_addresses` (the discovered log filter),
+`reserve_schedules` / `reserve_contributions` / `reserve_shortfall_events` (D-023), and
+`token_supply` carrying all three denominators — `total_supply`, `excluded_supply` and
+`issuer_allocation_supply` (D-024), from which `investorSupply` and `yieldEligibleSupply` are
+derived. `identities` deliberately has no `is_verified` column.
 
 Recommended tables:
 
@@ -388,6 +400,37 @@ in one database transaction per block or small atomic range.
 
 For Anvil, confirmation depth may be zero. For public networks, choose finality based on the target
 chain and show provisional data separately when indexing the non-finalized tip.
+
+### 8.4 Rolling back is a rebuild, not an inverse (implemented)
+
+The projection tables come in two shapes, and only one of them can be rolled back by deletion:
+
+- **History** (`token_transfers`, `vault_allocations`, `nav_history`, ...) is keyed by block and
+  cascades from `indexed_blocks`, so an orphaned block takes its rows with it.
+- **Current-state aggregates** (`token_supply`, `vault_balances`, `token_balances`,
+  `position_configs`, `identities`, `compliance_config`) are *incrementally maintained* and carry no
+  block key at all. A balance is the sum of everything that ever happened to it. Deleting the
+  reorged blocks does nothing to them.
+
+Writing a correct inverse for every projector — six kinds of arithmetic, in reverse, including two
+flag events that move a denominator with no `Transfer` — is exactly the sort of code that is wrong
+in a way nobody notices. Instead the read model is treated as a **pure function of the canonical log
+sequence**: after rolling back to the common ancestor, the projections are cleared and the surviving
+`raw_logs` are replayed in chain order. The logs above the ancestor are already gone, so what
+remains *is* the canonical history.
+
+Cost: one full re-projection per reorg. On a demo chain, milliseconds. The optimisation for a long
+chain is periodic snapshots of the current-state tables, rebuilding from the newest snapshot below
+the ancestor instead of from genesis.
+
+A divergence deeper than the search window (default 256 blocks) is **refused**, not resolved: an
+indexer that silently rewrites unbounded history is worse than one that stops and reports.
+
+### 8.5 Never read a cached head
+
+`viem`'s `getBlockNumber` caches for `cacheTime`, which defaults to the polling interval (4s). An
+indexer that reads a cached head concludes there is nothing new, skips blocks that already exist,
+and reports a lag that is an artefact of its own cache. The chain client sets `cacheTime: 0`.
 
 ## 9. Price conversion
 
@@ -621,12 +664,25 @@ fingerprint, cursor hash) including fresh-chain-restart detection; `GET /v1/heal
 covering exact-decimal arithmetic, the envelope rules, schema integrity against a real PostgreSQL,
 and the guards. Run instructions in `backend/README.md`.
 
-### Milestone B: ArcReserve indexer
+### Milestone B: ArcReserve indexer — **done (2026-08-30)**
 
 - registry and deployment discovery;
 - event ingestion and projections;
 - restart-safe cursor; and
 - reorg rollback tests.
+
+Delivered: address discovery from `AssetSystemDeployed` / `IdentityRegistryAdded` /
+`ComplianceAdded` / `ModuleAdded` (only three addresses are configured); kind-keyed decoding so the
+shared `Transfer` selector cannot confuse an 18-decimal asset movement with 6-decimal mUSD;
+projections for identity, lifecycle, NAV, the three supply denominators, holders, the five vault
+categories, the D-023 reserve schedule, purchases, revenue, redemptions, positions, rebalances and
+ERC-3643 state; one transaction per block; and reorg recovery by rebuilding the read model from the
+surviving logs (see §8.4). Acceptance is `backend/test/integration/replay.test.ts` and
+`reorg.test.ts`, both against a live Anvil.
+
+**Not projected, deliberately:** `isVerified`, NAV staleness, offering open/closed and reserve
+shortfall are functions of `now()` and are computed at query time; under D-023 a shortfall can begin
+with no transaction at all. Position token amounts are not derived from `uint128 liquidity`.
 
 ### Milestone C: read API
 

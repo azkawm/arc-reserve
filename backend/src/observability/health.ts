@@ -102,6 +102,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     databaseOk: database.ok,
     rpcOk: rpc.ok,
     openAnomalies,
+    now,
     indexers,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   });
@@ -162,7 +163,13 @@ function deriveStatus(input: {
   databaseOk: boolean;
   rpcOk: boolean;
   openAnomalies: number;
-  indexers: Array<{ lagSeconds: number; reorgDepth: number; lastError: string | null }>;
+  now: number;
+  indexers: Array<{
+    lagBlocks: number;
+    updatedAt: number;
+    reorgDepth: number;
+    lastError: string | null;
+  }>;
   staleAfterSeconds: number;
 }): HealthStatus {
   // Without the database or the chain there is nothing truthful to serve.
@@ -174,7 +181,11 @@ function deriveStatus(input: {
       (indexer) =>
         indexer.lastError !== null ||
         indexer.reorgDepth > 0 ||
-        indexer.lagSeconds > input.staleAfterSeconds,
+        // Behind the chain, and not catching up. Deliberately not "the newest block is old":
+        // Anvil mines only on transactions, so a quiet chain would otherwise report itself
+        // permanently degraded while the indexer is perfectly current. How old the data is
+        // belongs in `meta.stale` on each response, not in the health of the service.
+        (indexer.lagBlocks > 0 && input.now - indexer.updatedAt > input.staleAfterSeconds),
     );
 
   return degraded ? 'degraded' : 'healthy';

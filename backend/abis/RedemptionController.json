@@ -668,6 +668,16 @@
   },
   {
     "type": "error",
+    "name": "IssuerAllocationCannotRedeem",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MaturityWindowClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PeriodLimitExceeded",
     "inputs": []
   },

@@ -27,6 +27,11 @@ export type ArcPublicClient = PublicClient;
 export function createChainClient(config: Config): ArcPublicClient {
   return createPublicClient({
     chain: defineArcChain(config),
+    // viem caches `getBlockNumber` for `cacheTime` (defaulting to the polling interval, 4s).
+    // An indexer must never read a cached head: it would decide there is nothing new, skip
+    // blocks that already exist, and report a lag that is an artefact of its own cache.
+    cacheTime: 0,
+    pollingInterval: config.POLL_INTERVAL_MS,
     transport: http(config.RPC_HTTP_URL, {
       // Hedera's JSON-RPC relay is slower and rate limited; one retry with backoff keeps a
       // transient 429 from being reported as an indexing failure.

@@ -33,11 +33,23 @@ export async function closeTestDatabase(): Promise<void> {
   cached = null;
 }
 
-/** Wipe every projection between tests while keeping the schema and migration history. */
+/**
+ * Wipe every projection between tests while keeping the schema and migration history.
+ *
+ * Enumerated from the catalogue rather than hardcoded. Naming a few tables and relying on
+ * `CASCADE` for the rest is wrong here: the current-state aggregates (`token_supply`,
+ * `vault_balances`, `token_balances`, ...) have no foreign key to `chains`, so a cascade
+ * misses them entirely and a supposedly fresh replay double-applies onto stale balances.
+ */
 export async function truncateAll(db: Database): Promise<void> {
-  await db.query(
-    'TRUNCATE chains, indexed_blocks, raw_logs, indexer_cursors, projection_anomalies RESTART IDENTITY CASCADE',
+  const { rows } = await db.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        AND table_name <> 'pgmigrations'`,
   );
+  if (rows.length === 0) return;
+  const tables = rows.map((row) => `"${row.table_name}"`).join(', ');
+  await db.query(`TRUNCATE ${tables} RESTART IDENTITY CASCADE`);
 }
 
 async function prepare(): Promise<void> {
