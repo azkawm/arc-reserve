@@ -1,8 +1,7 @@
 # Backend, Indexer, and OHLC Specification
 
-Status: **milestones A, B and C are implemented** in `backend/` — workspace and guards, event
-ingestion with reorg recovery, and the `/v1` read API. Milestone D (OHLC) and E (frontend
-migration) are still specification. Stack choices are fixed by D-030. See `backend/README.md` for
+Status: **milestones A, B, C and D are implemented** in `backend/` — workspace and guards, event
+ingestion with reorg recovery, the `/v1` read API, and the OHLC pipeline. Milestone E (frontend migration) is still specification. Stack choices are fixed by D-030. See `backend/README.md` for
 how to run it and what currently exists.
 
 This specification is intentionally detailed enough for another agent to scaffold the service. It
@@ -705,12 +704,26 @@ payload against a Zod schema before sending. Two design points worth carrying fo
 Tick to price uses a port of Uniswap's `TickMath.getSqrtRatioAtTick` validated against the canonical
 boundary ratios, not `Math.pow`.
 
-### Milestone D: OHLC
+### Milestone D: OHLC — **done (2026-08-30)**
 
-- canonical Swap ingestion or explicit synthetic-demo adapter;
+- canonical Swap ingestion **and** an explicit synthetic-demo adapter;
 - candle aggregation and rebuild;
 - candle endpoint; and
-- frontend candle migration.
+- frontend candle migration (Milestone E, frontend side).
+
+Both sources are implemented and never blended. Three points worth carrying forward:
+
+- **The canonical path was built before a pool emits it.** `MockUniswapV3Pool` still emits no
+  `Swap`, so the path is proven by ingesting a hand-built canonical log end to end rather than by
+  waiting and meeting the real format for the first time on Base Sepolia.
+- **The pool event ABI is hand-written in the backend** (`abis/UniswapV3PoolEvents.json`). The
+  repository's `IUniswapV3Pool.sol` is a functions-only stub with no events, so nothing synced from
+  `contracts/out` can decode a `Swap`. The Uniswap V3 pool is a third-party contract with a
+  published ABI; its `Swap` topic0 is asserted against `0xc42079f9…` in the tests.
+- **The candle fold is order-independent.** Open and close are chosen by comparing each
+  contributing log's ordering tuple rather than by trusting arrival order, so a post-reorg rebuild
+  converges on the same candle. `candles` has no block key, so it is cleared and rebuilt with the
+  rest of the read model (§8.4).
 
 ### Milestone E: frontend migration
 

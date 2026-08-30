@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from '../../lib/errors.js';
-import { formatFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../lib/decimal.js';
+import { formatFixed, mulDiv, parseFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../lib/decimal.js';
 import { priceAtTick } from '../../lib/tick.js';
 import { buildMeta, respond, type Provenance } from '../envelope.js';
 import {
@@ -71,6 +71,29 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
     }
 
     return { asset, deployment, cursor };
+  }
+
+  /**
+   * Signed percent change against the hourly close 24 hours ago.
+   *
+   * Null — not zero — whenever it cannot be computed: no pool, no candle that old, or a spot
+   * price we would not vouch for. "Unchanged" and "unknown" are different statements, and a
+   * dash is the honest rendering of the second.
+   */
+  async function change24h(
+    deployment: repo.DeploymentRow | null,
+    spot: { value: string; provenance: Provenance } | null,
+  ): Promise<string | null> {
+    if (deployment?.pool == null || spot === null) return null;
+
+    const dayAgo = Math.floor(Date.now() / 1000) - 86_400;
+    const previous = await repo.getCloseAt(db, config.CHAIN_ID, deployment.pool, 3600, dayAgo);
+    if (previous === null || previous === 0n) return null;
+
+    const current = parseFixed(spot.value, STABLE_DECIMALS);
+    // Two decimal places of percent, computed in integers: (current - previous) / previous.
+    const scaled = mulDiv(current - previous, 10_000n, previous);
+    return formatFixed(scaled, 2);
   }
 
   async function snapshotFor(
@@ -151,8 +174,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
           spot,
           floor,
           reserve: balances === null ? null : stable(balances.redemption_reserve ?? '0'),
-          // Requires candles; Milestone D. Null is the honest answer, not zero.
-          change24h: null,
+          change24h: await change24h(deployment, spot),
           contracts: deployment === null ? null : contractsOf(deployment),
         };
       }),

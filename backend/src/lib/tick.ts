@@ -77,8 +77,18 @@ export interface PriceOptions {
  * and stable-per-asset is that ratio, or its reciprocal when the stablecoin is token0.
  */
 export function priceAtTick(tick: number, options: PriceOptions): bigint {
-  const sqrtRatio = getSqrtRatioAtTick(tick);
-  const ratioX192 = sqrtRatio * sqrtRatio;
+  return priceFromSqrtRatioX96(getSqrtRatioAtTick(tick), options);
+}
+
+/**
+ * Stablecoin per **whole** asset token from a Q64.96 sqrt price, scaled to the stablecoin's
+ * decimals. This is the form a canonical `Swap` log carries, so candles and tick bands go
+ * through exactly the same arithmetic and cannot disagree at the same price.
+ */
+export function priceFromSqrtRatioX96(sqrtRatioX96: bigint, options: PriceOptions): bigint {
+  if (sqrtRatioX96 <= 0n) return 0n;
+
+  const ratioX192 = sqrtRatioX96 * sqrtRatioX96;
   const { assetIsToken0, assetDecimals } = options;
 
   // Both branches scale by exactly 10^assetDecimals, and the stablecoin's own decimals cancel
@@ -93,7 +103,6 @@ export function priceAtTick(tick: number, options: PriceOptions): bigint {
   }
 
   // Stable is token0, so stable-per-asset is the reciprocal of the pool's token1/token0.
-  if (ratioX192 === 0n) return 0n;
   return mulDiv(scale, Q192, ratioX192);
 }
 

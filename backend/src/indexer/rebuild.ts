@@ -44,6 +44,10 @@ const PROJECTION_TABLES = [
   'manager_swaps',
   'reserve_contributions',
   'reserve_shortfall_events',
+  'pool_swaps',
+  // Candles have no block key at all — a bucket spans blocks — so they are rebuilt, never
+  // cascaded away.
+  'candles',
   // Current-state aggregates: the reason this module exists.
   'token_balances',
   'token_supply',

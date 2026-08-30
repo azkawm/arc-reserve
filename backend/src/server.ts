@@ -9,6 +9,7 @@ import { ApiError } from './lib/errors.js';
 import { registerHealthRoute } from './api/routes/health.js';
 import { registerAssetRoutes } from './api/routes/assets.js';
 import { registerAccountRoutes } from './api/routes/accounts.js';
+import { registerCandleRoutes } from './api/routes/candles.js';
 
 export interface ServerDeps {
   config: Config;
@@ -87,6 +88,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const apiDeps = { config, db: deps.db, client: deps.client, logger };
   await registerAssetRoutes(app, apiDeps);
   await registerAccountRoutes(app, apiDeps);
+  await registerCandleRoutes(app, apiDeps);
 
   return app;
 }

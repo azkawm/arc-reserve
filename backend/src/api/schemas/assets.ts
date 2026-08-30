@@ -301,3 +301,32 @@ export const accountPositionSchema = z.object({
     .nullable(),
   history: activitySchema,
 });
+
+// --- §3.3 candles ----------------------------------------------------------
+
+export const candlesSchema = z.object({
+  interval: z.union([
+    z.literal(60),
+    z.literal(300),
+    z.literal(900),
+    z.literal(3600),
+    z.literal(14400),
+    z.literal(86400),
+  ]),
+  /** Never blended. A series is entirely canonical or entirely synthetic. */
+  source: z.enum(['canonical_swap', 'mock']),
+  candles: z.array(
+    z.object({
+      /** Bucket start, unix seconds — not a formatted clock time. */
+      timestamp: z.number().int(),
+      open: decimalString,
+      high: decimalString,
+      low: decimalString,
+      close: decimalString,
+      volumeAsset: decimalString,
+      volumeStable: decimalString,
+      tradeCount: z.number().int().nonnegative(),
+      finalized: z.boolean(),
+    }),
+  ),
+});

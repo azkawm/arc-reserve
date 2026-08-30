@@ -20,6 +20,7 @@ import {
   redemptionsSchema,
   revenueSchema,
   accountPositionSchema,
+  candlesSchema,
 } from '../../src/api/schemas/assets.js';
 import type { Database } from '../../src/db/client.js';
 import type { Config } from '../../src/config.js';
@@ -424,3 +425,73 @@ function format(value: bigint, decimals: number): string {
   const body = `${absolute / base}.${(absolute % base).toString().padStart(decimals, '0')}`;
   return negative ? `-${body}` : body;
 }
+
+describe('GET /v1/assets/:assetId/candles', () => {
+  it('refuses to serve a chart rather than fabricating one, when mock data is off', async () => {
+    // The default. No canonical pool has ever emitted a Swap here, so there is genuinely no
+    // price series — and an empty array would be indistinguishable from "never traded",
+    // which a chart draws as a flat line at zero.
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/assets/${deployment.assetId}/candles?interval=3600`,
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ error: { code: 'MOCK_DISABLED' } });
+  });
+
+  it('rejects an interval outside the six documented ones', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/assets/${deployment.assetId}/candles?interval=120`,
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('serves a labelled synthetic series when mock data is explicitly enabled', async () => {
+    const mockConfig = testConfig({
+      RPC_HTTP_URL: ANVIL_RPC_URL,
+      REGISTRY_ADDRESS: deployment.registry,
+      FACTORY_ADDRESS: deployment.factory,
+      MUSD_ADDRESS: deployment.mockUSD,
+      COMPANY_VESTING_ADDRESS: '',
+      ALLOW_MOCK_MARKET_DATA: 'true',
+    });
+
+    const mockApp = await buildServer({
+      config: mockConfig,
+      db,
+      client,
+      logger,
+      version: '0.1.0',
+    });
+
+    try {
+      const response = await mockApp.inject({
+        method: 'GET',
+        url: `/v1/assets/${deployment.assetId}/candles?interval=3600&limit=24`,
+      });
+      expect(response.statusCode).toBe(200);
+
+      const body = envelopeSchema(candlesSchema).parse(response.json());
+      expect(body.data.source).toBe('mock');
+      // The envelope agrees: nothing here is derived from chain activity.
+      expect(body.meta.provenance).toBe('mock');
+      expect(body.data.candles.length).toBeGreaterThan(0);
+
+      for (const candle of body.data.candles) {
+        expect(Number(candle.high)).toBeGreaterThanOrEqual(Number(candle.low));
+        expect(candle.open).toMatch(/^\d+\.\d{6}$/);
+        expect(candle.volumeAsset).toMatch(/^\d+\.\d{18}$/);
+      }
+
+      // Buckets are on the hour grid and ascending.
+      const timestamps = body.data.candles.map((c) => c.timestamp);
+      for (let i = 1; i < timestamps.length; i += 1) {
+        expect(timestamps[i]! - timestamps[i - 1]!).toBe(3600);
+        expect(timestamps[i]! % 3600).toBe(0);
+      }
+    } finally {
+      await mockApp.close();
+    }
+  });
+});

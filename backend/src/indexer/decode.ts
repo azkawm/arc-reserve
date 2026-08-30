@@ -54,7 +54,7 @@ const CONTRACT_BY_KIND: Record<AddressKind, ContractName> = {
  */
 const EXTRA_ABIS: Partial<Record<AddressKind, ContractName[]>> = {
   complianceModule: ['TransferLockModule'],
-  pool: ['IUniswapV3Pool'],
+  pool: ['IUniswapV3Pool', 'UniswapV3PoolEvents'],
 };
 
 export interface DecodedLog {

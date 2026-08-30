@@ -29,7 +29,13 @@ export type ContractName =
   | 'AtsExternalKycList'
   | 'MockUSD'
   | 'MockUniswapV3Pool'
-  | 'IUniswapV3Pool';
+  | 'IUniswapV3Pool'
+  /**
+   * Hand-written from the published Uniswap V3 signatures, NOT synced from contracts/out:
+   * the local IUniswapV3Pool.sol is a functions-only stub with no events, so without this
+   * the canonical OHLC path would decode nothing at all. Verified by topic0 in the tests.
+   */
+  | 'UniswapV3PoolEvents';
 
 export function loadAbi(name: ContractName): Abi {
   const cached = cache.get(name);

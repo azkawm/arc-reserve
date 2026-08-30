@@ -373,3 +373,40 @@ Note: `via_ir` stays **false**. The deploy script hit stack-too-deep and was fix
 Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
 New `deployments/<chainId>.json` key `floorController` (added, nothing renamed).
 Needs: nothing blocking. Next is task 8 (D-026 term-sheet hash binding).
+
+## 2026-08-30 — backend — Milestone D complete: OHLC, both sources
+Branch: backend/foundation   Commit: (this commit)
+What: `/v1/assets/:assetId/candles` ships, plus the two pipelines behind it. 167 tests green;
+`typecheck` / `lint` / `build` clean.
+- **Canonical path built before a pool emits it.** `MockUniswapV3Pool` still emits no `Swap`, so
+  rather than wait, the path is proven end to end by ingesting a hand-built canonical log: decode →
+  price from `sqrtPriceX96` → `pool_swaps` → six interval buckets. When contracts task 10 lands, it
+  should light up with no backend change.
+- **The pool event ABI is hand-written in `backend/abis/UniswapV3PoolEvents.json`.** This is a real
+  gap I hit: `contracts/src/interfaces/IUniswapV3Pool.sol` declares **no events at all**, so nothing
+  synced from `contracts/out` can decode a `Swap` and the canonical path would have silently
+  produced nothing. The V3 pool is third-party with a published ABI, so it belongs here — and its
+  `Swap` topic0 is asserted against the canonical `0xc42079f9…` so a typo cannot pass.
+- **Synthetic adapter** for the demo: `ALLOW_MOCK_MARKET_DATA=true` only, always `source: "mock"`,
+  deterministic from the pool address and bucket time, and it refuses to overwrite a canonical
+  series. With the flag off `/candles` returns `503 MOCK_DISABLED` — never an empty array, which is
+  indistinguishable from "never traded" and draws as a flat line at zero.
+- **The candle fold is order-independent** (open/close chosen by comparing ordering tuples), so the
+  post-reorg rebuild converges. `candles` has no block key, so it joins the rebuild set.
+- `change24h` on `/v1/assets` is now real, and still `null` — never `0` — when it cannot be computed.
+Verified against token ordering: `assetIsToken0()` on the live manager is **false** for the current
+deployment (mUSD `0x5fbd…` sorts below the asset `0xd805…`), and the address-derived ordering the
+swap projector uses agrees with it exactly.
+Interface changes: five `CHANGED`/`SHIPPED` rows in `BACKEND_TO_FRONTEND.md` §6 — `/candles` live;
+`source` never blended and envelope provenance matches; `503 MOCK_DISABLED` by default; `change24h`
+computed. `BACKEND_INDEXER.md` header and §17.
+Needs — one, for contracts, not blocking:
+**`FloorController` (task 7) is invisible to the indexer.** It is not in `AssetSystemDeployed`, so
+it is never a watched address and `FloorLevelUp` will never be seen. `AssetMarketManager` now emits
+`FloorControllerSet(address indexed controller)`, which is exactly the discovery hook I already use
+for the identity registry and compliance — so all I need is the `CHANGED` row with the
+`FloorController` event signatures, and confirmation of whether `DeployLocal` deploys one. I have
+deliberately *not* wired discovery yet: watching an address whose ABI I cannot decode would turn my
+"every watched log decodes" assertion red on purpose.
+Also FYI: `forge build` is currently red on the contracts working tree (`AssetFactory.sol`,
+`AssetRegistry.sol` mid-edit), so I synced ABIs from the last good artifacts.

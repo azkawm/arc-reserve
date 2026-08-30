@@ -371,3 +371,85 @@ export async function getAssetLogs(
   );
   return rows;
 }
+
+export interface CandleRow {
+  bucket_start: bigint;
+  open_raw: string;
+  high_raw: string;
+  low_raw: string;
+  close_raw: string;
+  volume_asset_raw: string;
+  volume_stable_raw: string;
+  trade_count: number;
+  finalized: boolean;
+  source: string;
+}
+
+/**
+ * Which source already owns this series. `canonical_swap` wins: once a real swap has been
+ * indexed the synthetic feed must never write over it.
+ */
+export async function getCandleSource(
+  db: Database,
+  chainId: number,
+  pool: string,
+  interval: number,
+): Promise<'canonical_swap' | 'mock' | null> {
+  const row = await db.maybe<{ source: string }>(
+    `SELECT source FROM candles
+      WHERE chain_id = $1 AND pool = $2 AND interval_seconds = $3
+      ORDER BY (source = 'canonical_swap') DESC
+      LIMIT 1`,
+    [chainId, pool, interval],
+  );
+  if (row === null) return null;
+  return row.source === 'canonical_swap' ? 'canonical_swap' : 'mock';
+}
+
+export async function getCandles(
+  db: Database,
+  chainId: number,
+  pool: string,
+  options: { interval: number; from?: number; to?: number; limit: number },
+): Promise<CandleRow[]> {
+  const params: unknown[] = [chainId, pool, options.interval, options.limit];
+  let where = 'chain_id = $1 AND pool = $2 AND interval_seconds = $3';
+
+  if (options.from !== undefined) {
+    params.push(options.from);
+    where += ` AND bucket_start >= $${params.length}`;
+  }
+  if (options.to !== undefined) {
+    params.push(options.to);
+    where += ` AND bucket_start <= $${params.length}`;
+  }
+
+  const { rows } = await db.query<CandleRow>(
+    `SELECT bucket_start, open_raw::text, high_raw::text, low_raw::text, close_raw::text,
+            volume_asset_raw::text, volume_stable_raw::text, trade_count, finalized, source
+       FROM (
+         SELECT * FROM candles WHERE ${where}
+          ORDER BY bucket_start DESC LIMIT $4
+       ) recent
+      ORDER BY bucket_start ASC`,
+    params,
+  );
+  return rows;
+}
+
+/** Close of the newest bucket at or before `at`, for a 24h change calculation. */
+export async function getCloseAt(
+  db: Database,
+  chainId: number,
+  pool: string,
+  interval: number,
+  at: number,
+): Promise<bigint | null> {
+  const row = await db.maybe<{ close_raw: string }>(
+    `SELECT close_raw::text FROM candles
+      WHERE chain_id = $1 AND pool = $2 AND interval_seconds = $3 AND bucket_start <= $4
+      ORDER BY bucket_start DESC LIMIT 1`,
+    [chainId, pool, interval, at],
+  );
+  return row === null ? null : BigInt(row.close_raw);
+}

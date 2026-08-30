@@ -17,7 +17,7 @@ Output contract (`/v1` shapes): [`../docs/stacks/BACKEND_TO_FRONTEND.md`](../doc
 | A — workspace, config validation, migrations, chain identity check, `/v1/health` | **Done** |
 | B — ArcReserve event ingestion, restart-safe cursor, reorg rollback | **Done** |
 | C — read API with the provenance envelope | **Done** |
-| D — OHLC (synthetic on Anvil, canonical `Swap` where a real pool exists) | Not started |
+| D — OHLC (synthetic on Anvil, canonical `Swap` where a real pool exists) | **Done** |
 | E — frontend migration off fixtures | Not started |
 
 ## Routes
@@ -33,10 +33,8 @@ Output contract (`/v1` shapes): [`../docs/stacks/BACKEND_TO_FRONTEND.md`](../doc
 | `GET /v1/assets/:assetId/activity` | `?type=&limit=` — unified timeline |
 | `GET /v1/assets/:assetId/revenue` | Deposit history and split totals |
 | `GET /v1/assets/:assetId/redemptions` | Period state and history |
+| `GET /v1/assets/:assetId/candles` | `?interval=&from=&to=&limit=` — six intervals; 503 MOCK_DISABLED by default |
 | `GET /v1/accounts/:address/assets/:assetId` | Holdings, verification, claim and redemption context |
-
-`/candles` is **not** implemented — it is Milestone D, and the route 404s rather than returning
-empty candles that a chart would happily draw as a flat line.
 
 Every response is validated against its Zod schema before it is sent, so a shape the frontend was
 promised cannot drift without a test going red.
@@ -55,6 +53,37 @@ harness whose price does not move with trading. The pool's own bytecode decides 
 carries test-only setters a canonical V3 pool does not, so `spot` and `twap` come back with `mock`
 provenance on Anvil and `onchain` only against a real pool. Serving the harness value as `onchain`
 is exactly the substitution D-019 forbids.
+
+### OHLC has two sources, never blended
+
+A series is entirely `canonical_swap` or entirely `mock`, and the envelope's `provenance` matches
+(`derived` or `mock`).
+
+**Canonical.** A real Uniswap V3 `Swap` is decoded, priced from its `sqrtPriceX96`, and folded into
+six interval buckets. The fold is deliberately *order-independent* — open and close are decided by
+comparing the contributing log's `(block, transactionIndex, logIndex)`, not by trusting the caller
+to feed them in order — so a rebuild after a reorg converges on the same candle. Volume records
+each leg's absolute size once; the two legs of a swap are one trade.
+
+The pool ABI for this path is **hand-written** (`abis/UniswapV3PoolEvents.json`), not synced from
+`contracts/out`: the local `IUniswapV3Pool.sol` is a functions-only stub with no events, so without
+it the canonical path would decode nothing at all. Its `Swap` topic0 is asserted against Uniswap's
+published `0xc42079f9…` in the tests.
+
+`AssetMarketManager.SwapExecuted` is deliberately *not* a source. It carries amounts but no
+post-swap price, so aggregating it would produce candles whose prices came from somewhere other
+than the trade.
+
+**Synthetic.** `MockUniswapV3Pool` emits no canonical `Swap` and its price does not move with
+trading, so on Anvil there is no series to aggregate and anything on a chart is a drawing. The
+synthetic adapter produces that drawing explicitly: only behind `ALLOW_MOCK_MARKET_DATA=true`,
+always `source: "mock"`, and **deterministic** — seeded from the pool address and bucket time, so
+it cannot drift into looking like live discovery and two people running the demo see the same
+shape. It refuses to overwrite a canonical series.
+
+With the flag off, `/candles` returns `503 MOCK_DISABLED` rather than an empty array. An empty
+array is indistinguishable from "this asset has never traded", which a chart draws as a flat line
+at zero.
 
 ### Ticks are converted with integer math
 
