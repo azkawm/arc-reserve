@@ -14,17 +14,24 @@ contract FinancialHandler {
     AssetToken private immutable token;
     RevenueDistributor private immutable revenue;
     RedemptionController private immutable redemption;
+    AssetVault private immutable vault;
+
+    /// @notice Set if a redemption was ever observed to lower backing per investor token. D-025's
+    ///         floor ratchet depends on this never happening while an asset is Active.
+    bool public backingFellThroughRedemption;
 
     constructor(
         MockUSD musd_,
         AssetToken token_,
         RevenueDistributor revenue_,
-        RedemptionController redemption_
+        RedemptionController redemption_,
+        AssetVault vault_
     ) {
         musd = musd_;
         token = token_;
         revenue = revenue_;
         redemption = redemption_;
+        vault = vault_;
     }
 
     function depositRevenue(uint96 rawAmount) external {
@@ -42,7 +49,14 @@ contract FinancialHandler {
         uint256 balance = token.balanceOf(address(this));
         if (balance == 0) return;
         uint256 amount = uint256(rawTokens) % balance + 1;
-        try redemption.redeem(amount, 0, RedemptionController.RedemptionMode.Normal) { } catch { }
+        uint256 backingBefore = vault.currentBacking();
+        try redemption.redeem(amount, 0, RedemptionController.RedemptionMode.Normal) {
+            // Recorded rather than asserted: a revert here would be swallowed by the handler and
+            // the violation would go unreported.
+            if (token.investorSupply() > 0 && vault.currentBacking() < backingBefore) {
+                backingFellThroughRedemption = true;
+            }
+        } catch { }
     }
 }
 
@@ -51,7 +65,7 @@ contract FinancialInvariantsTest is StdInvariant, ArcReserveTestBase {
 
     function setUp() public override(ArcReserveTestBase) {
         ArcReserveTestBase.setUp();
-        handler = new FinancialHandler(musd, token, revenue, redemption);
+        handler = new FinancialHandler(musd, token, revenue, redemption, vault);
         revenue.grantRole(revenue.REVENUE_DEPOSITOR_ROLE(), address(handler));
         _verify(address(handler));
         _buy(address(handler), 20_000e6);
@@ -79,5 +93,12 @@ contract FinancialInvariantsTest is StdInvariant, ArcReserveTestBase {
 
     function invariantOutstandingObligationsMatchTokenSupply() public view {
         assertEq(redemption.outstandingTokenObligations(), token.totalSupply());
+    }
+
+    /// @notice D-023/D-025: a redemption pays at most `reserve / investorSupply`, so it can only
+    ///         raise backing for the holders who stay. Nothing in the Active lifecycle may lower
+    ///         it, which is what lets the published floor ratchet upward safely.
+    function invariantBackingNeverFallsThroughRedemption() public view {
+        assertFalse(handler.backingFellThroughRedemption());
     }
 }

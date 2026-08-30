@@ -33,6 +33,26 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     uint256 public issuerProceeds;
     uint256 public protocolFees;
 
+    /// @notice The sinking-fund schedule (D-023). `targetBacking` is mUSD per investor-held token
+    ///         (6 decimals) and rises linearly from `startBacking` at `startTime` to
+    ///         `targetBacking` at `maturity`. Stored rather than hardcoded so a front-loaded curve
+    ///         can be introduced later without changing enforcement.
+    struct ReserveSchedule {
+        uint256 startBacking;
+        uint256 targetBacking;
+        uint64 startTime;
+        uint64 maturity;
+        uint64 graceSeconds;
+        bool configured;
+    }
+
+    ReserveSchedule public reserveSchedule;
+
+    /// @notice Last published shortfall start, or 0 when last observed on schedule. This mirrors
+    ///         `shortfallStartedAt()` for indexers and is only as fresh as the last sync;
+    ///         enforcement never reads it.
+    uint64 public shortfallSince;
+
     event AllocationChanged(
         bytes32 indexed category, int256 delta, uint256 newCategoryBalance, uint256 totalAccounted
     );
@@ -42,6 +62,18 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     event RedemptionReleased(address indexed recipient, uint256 amount);
     event MarketFundsReleased(address indexed marketManager, uint256 amount);
     event MarketFundsReturned(address indexed marketManager, uint256 amount);
+    event ReserveScheduleSet(
+        uint256 startBacking,
+        uint256 targetBacking,
+        uint64 startTime,
+        uint64 maturity,
+        uint64 graceSeconds
+    );
+    event ReserveContribution(
+        address indexed issuer, uint256 indexed periodId, uint256 amount, uint256 newReserve
+    );
+    event ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking);
+    event ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking);
 
     error InvalidAddress();
     error InvalidRatio();
@@ -50,6 +82,8 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     error InsufficientCategoryBalance();
     error ReserveRequirementViolated();
     error AccountingInsolvent();
+    error InvalidSchedule();
+    error ReserveShortfallActive();
 
     constructor(
         address stablecoin_,
@@ -83,6 +117,43 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         redemptionReserve += amount;
         _emitAllocation("REDEMPTION_RESERVE", int256(amount), redemptionReserve);
         emit InitialReserveDeposited(msg.sender, amount);
+        _syncShortfall();
+    }
+
+    /// @notice Set or replace the sinking-fund schedule (D-023).
+    /// @dev    In the target model this is called once at settlement with the backing the raise
+    ///         actually produced. `targetBacking` is normally 1.000000 mUSD per investor token.
+    function setReserveSchedule(
+        uint256 startBacking,
+        uint256 targetBacking,
+        uint64 startTime,
+        uint64 maturity,
+        uint64 graceSeconds
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (maturity <= startTime || targetBacking == 0 || targetBacking < startBacking) {
+            revert InvalidSchedule();
+        }
+        reserveSchedule = ReserveSchedule({
+            startBacking: startBacking,
+            targetBacking: targetBacking,
+            startTime: startTime,
+            maturity: maturity,
+            graceSeconds: graceSeconds,
+            configured: true
+        });
+        emit ReserveScheduleSet(startBacking, targetBacking, startTime, maturity, graceSeconds);
+        _syncShortfall();
+    }
+
+    /// @notice Scheduled sinking-fund contribution from the issuer, tagged with the reporting
+    ///         period it settles (D-022 period tagging).
+    function depositReserve(uint256 amount, uint256 periodId) external nonReentrant whenNotPaused {
+        if (msg.sender != issuer) revert UnauthorizedIssuer();
+        stablecoin.safeTransferFrom(msg.sender, address(this), amount);
+        redemptionReserve += amount;
+        _emitAllocation("REDEMPTION_RESERVE", int256(amount), redemptionReserve);
+        emit ReserveContribution(msg.sender, periodId, amount, redemptionReserve);
+        _syncShortfall();
     }
 
     /// @notice Called only after the offering has transferred the exact proceeds into this vault.
@@ -99,6 +170,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         _emitAllocation("ISSUER_PROCEEDS", int256(issuerAmount), issuerProceeds);
         _emitAllocation("REDEMPTION_RESERVE", int256(reserveAmount), redemptionReserve);
         _emitAllocation("MARKET_ALLOCATION", int256(marketAmount), marketMakingAllocation);
+        _syncShortfall();
     }
 
     /// @notice Called after the distributor sends the reserve and protocol shares to this vault.
@@ -112,6 +184,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         protocolFees += protocolAmount;
         _emitAllocation("REDEMPTION_RESERVE", int256(reserveAmount), redemptionReserve);
         _emitAllocation("PROTOCOL_FEES", int256(protocolAmount), protocolFees);
+        _syncShortfall();
     }
 
     function depositAssetRevenue(uint256 amount)
@@ -131,6 +204,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         redemptionReserve += amount;
         _emitAllocation("ASSET_REVENUE", -int256(amount), assetRevenue);
         _emitAllocation("REDEMPTION_RESERVE", int256(amount), redemptionReserve);
+        _syncShortfall();
     }
 
     function releaseRedemption(address recipient, uint256 amount)
@@ -145,6 +219,9 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         _emitAllocation("REDEMPTION_RESERVE", -int256(amount), redemptionReserve);
         emit RedemptionReleased(recipient, amount);
         _assertAccounting();
+        // A redemption pays at most `currentBacking` per token, so backing for the remaining
+        // holders never falls here - but the schedule target keeps rising, so re-observe.
+        _syncShortfall();
     }
 
     function withdrawMarketAllocation(uint256 amount)
@@ -175,9 +252,15 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         emit MarketFundsReturned(msg.sender, amount);
     }
 
+    /// @notice Issuer withdrawal of its share of proceeds.
+    /// @dev    Blocked while the reserve has been behind schedule for longer than the grace window
+    ///         (D-023). The issuer's own capital is the first thing frozen when the sinking fund
+    ///         falls behind - that is the enforcement mechanism behind the schedule.
     function withdrawIssuerProceeds(uint256 amount) external nonReentrant whenNotPaused {
         if (msg.sender != issuer) revert UnauthorizedIssuer();
         if (amount > issuerProceeds) revert InsufficientCategoryBalance();
+        _syncShortfall();
+        if (isInEnforcedShortfall()) revert ReserveShortfallActive();
         issuerProceeds -= amount;
         stablecoin.safeTransfer(issuer, amount);
         _emitAllocation("ISSUER_PROCEEDS", -int256(amount), issuerProceeds);
@@ -227,6 +310,81 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         return Math.mulDiv(redemptionReserve, 10_000, obligationsAtNAV);
     }
 
+    /// @notice Scheduled backing at `timestamp`, in mUSD per investor-held token (6 decimals).
+    /// @dev    Flat at `startBacking` before `startTime` and at `targetBacking` from `maturity`
+    ///         onward. Returns 0 when no schedule is configured, which makes every
+    ///         schedule-dependent check inert rather than blocking.
+    function targetBackingAt(uint64 timestamp) public view returns (uint256) {
+        ReserveSchedule memory schedule = reserveSchedule;
+        if (!schedule.configured) return 0;
+        if (timestamp <= schedule.startTime) return schedule.startBacking;
+        if (timestamp >= schedule.maturity) return schedule.targetBacking;
+        uint256 elapsed = timestamp - schedule.startTime;
+        uint256 span = schedule.maturity - schedule.startTime;
+        uint256 climb = schedule.targetBacking - schedule.startBacking;
+        return schedule.startBacking + Math.mulDiv(climb, elapsed, span);
+    }
+
+    function targetBackingNow() public view returns (uint256) {
+        return targetBackingAt(uint64(block.timestamp));
+    }
+
+    /// @notice Liquid reserve per investor-held token, in mUSD (6 decimals). This is the same
+    ///         quantity the redemption controller caps its price with. Returns 0 when no investor
+    ///         tokens exist; use `isBehindSchedule` rather than reading 0 as a shortfall.
+    function currentBacking() public view returns (uint256) {
+        uint256 supply = assetToken.investorSupply();
+        if (supply == 0) return 0;
+        return Math.mulDiv(redemptionReserve, 1e18, supply);
+    }
+
+    /// @notice True when backing is below the scheduled level right now. An asset with no investor
+    ///         tokens is never behind - there is nothing to back.
+    function isBehindSchedule() public view returns (bool) {
+        if (!reserveSchedule.configured) return false;
+        if (assetToken.investorSupply() == 0) return false;
+        return currentBacking() < targetBackingNow();
+    }
+
+    /// @notice When the rising target first overtook the current backing level, or 0 when the
+    ///         reserve is on schedule.
+    /// @dev    Derived, not observed. Because the target curve is monotonically increasing and the
+    ///         current backing is known, the crossing time can be inverted from the schedule in
+    ///         closed form - so enforcement does not depend on anyone having called
+    ///         `syncShortfall`. An issuer cannot obtain a fresh grace window by letting the asset
+    ///         sit dormant and then being the first to touch it.
+    ///
+    ///         Backing only ever rises while an asset is Active (a redemption pays at most
+    ///         `currentBacking`), so inverting the *current* backing yields a crossing time at or
+    ///         after the true one. The bound therefore errs in the issuer's favour and can never
+    ///         over-punish.
+    function shortfallStartedAt() public view returns (uint64) {
+        if (!isBehindSchedule()) return 0;
+        ReserveSchedule memory schedule = reserveSchedule;
+        uint256 backing = currentBacking();
+        if (backing <= schedule.startBacking) return schedule.startTime;
+        uint256 climb = schedule.targetBacking - schedule.startBacking;
+        if (climb == 0) return schedule.startTime;
+        uint256 span = schedule.maturity - schedule.startTime;
+        uint256 elapsed = Math.mulDiv(backing - schedule.startBacking, span, climb);
+        return schedule.startTime + uint64(elapsed);
+    }
+
+    /// @notice True once a shortfall has persisted past the grace window. This is the state that
+    ///         blocks issuer proceeds withdrawal (and, when implemented, headroom issuance).
+    function isInEnforcedShortfall() public view returns (bool) {
+        uint64 startedAt = shortfallStartedAt();
+        if (startedAt == 0) return false;
+        return block.timestamp >= uint256(startedAt) + reserveSchedule.graceSeconds;
+    }
+
+    /// @notice Publish a shortfall entry or exit for indexers, the verifier and the UI.
+    /// @dev    Observational only. Enforcement reads `shortfallStartedAt()` directly, so a missed
+    ///         call delays the *event*, never the gate. Permissionless and callable while paused.
+    function syncShortfall() external returns (bool behind) {
+        return _syncShortfall();
+    }
+
     function availableRedemptionLiquidity() external view returns (uint256) {
         return redemptionReserve;
     }
@@ -242,6 +400,20 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
+    }
+
+    function _syncShortfall() private returns (bool behind) {
+        uint64 startedAt = shortfallStartedAt();
+        behind = startedAt != 0;
+        if (behind && shortfallSince == 0) {
+            shortfallSince = startedAt;
+            emit ReserveShortfallEntered(startedAt, currentBacking(), targetBackingNow());
+        } else if (!behind && shortfallSince != 0) {
+            shortfallSince = 0;
+            emit ReserveShortfallCleared(
+                uint64(block.timestamp), currentBacking(), targetBackingNow()
+            );
+        }
     }
 
     function _requireUnaccounted(uint256 amount) private view {

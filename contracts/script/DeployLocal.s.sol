@@ -70,12 +70,13 @@ contract DeployLocal is Script {
         address investor = vm.envOr("DEMO_INVESTOR", DEFAULT_ANVIL_INVESTOR);
         identityRegistry.registerIdentity(investor, investor, COUNTRY_INDONESIA, CLASS_RETAIL, 0);
 
+        uint64 maturity = uint64(block.timestamp + 3 * 365 days);
         bytes32 assetId = registry.submitAsset(
             "Solar Indonesia 01",
             "Renewable energy",
             "ipfs://bafy-arc-reserve-solar-indonesia-01",
             keccak256("solar-indonesia-01-metadata-v1"),
-            uint64(block.timestamp + 3 * 365 days)
+            maturity
         );
         registry.approveAsset(assetId, 1e6);
 
@@ -110,6 +111,15 @@ contract DeployLocal is Script {
         musd.faucet(deployer, 100_000e6);
         musd.approve(deployment.vault, type(uint256).max);
         AssetVault(deployment.vault).depositInitialReserve(20_000e6);
+
+        // D-023 sinking-fund schedule: backing climbs linearly from 0.30 to 1.00 mUSD per investor
+        // token over the three-year term, with a 30-day grace window before a shortfall freezes
+        // issuer proceeds.
+        // DEMO: in the target model this is set once at settlement from the backing the raise
+        // actually produced. The current offering splits 70/20/10 (task 6 moves it to 65/30/5), so
+        // with the 20,000 seed a full raise lands near 0.45 - comfortably ahead of the 0.30 start.
+        AssetVault(deployment.vault)
+            .setReserveSchedule(300_000, 1_000_000, uint64(block.timestamp), maturity, 30 days);
         vm.stopBroadcast();
 
         _writeDeployment(assetId, deployment);

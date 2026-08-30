@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 97 passed / 0 failed / 0 skipped; 5 invariants; `forge fmt --check` clean
-(2026-08-27, after D-024).
+Baseline: 122 passed / 0 failed / 0 skipped; 6 invariants; `forge fmt --check` clean
+(2026-08-30, after D-023 task 2).
 
 ## Interface stability rules
 - Do not rename or re-order enum members (`AssetStatus`, `RedemptionMode`, `PositionKind`,
@@ -64,7 +64,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    `RedemptionController.redeem` reverts for flagged holders; `investorSupply()` view; switch
    `redemptionPrice`, `minimumRequiredReserve`, `reserveRatioBps` to the investor-supply
    denominator. Tests: flagged holder cannot redeem in any mode; denominators exclude it.
-2. **Reserve schedule + enforcement (D-023).** New `ReserveSchedule` state on the vault
+2. ~~**Reserve schedule + enforcement (D-023).**~~ **DONE 2026-08-30.** New `ReserveSchedule` state on the vault
    `(startBacking, targetBacking, startTime, maturity, graceSeconds)`; `targetBacking(t)`,
    `currentBacking()`, `isBehindSchedule()`, `shortfallSince`; `depositReserve(amount, periodId)`
    for the issuer; gate `withdrawIssuerProceeds` (and future issuance) on not-in-shortfall past

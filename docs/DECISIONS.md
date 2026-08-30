@@ -246,8 +246,20 @@ reporting shortfall (see D-023 enforcement).
 
 ## D-023: Sinking-fund reserve with a linear schedule, reserve yield, and residual return
 
-Status: accepted 2026-08-27; target contract change. Supersedes the "issuer deposits 20–30% upfront"
-reading of the business model.
+Status: accepted 2026-08-27. **Schedule and enforcement implemented 2026-08-30** (contracts task 2:
+`AssetVault.ReserveSchedule`, `targetBackingAt`, `currentBacking`, `isBehindSchedule`,
+`shortfallStartedAt`, `isInEnforcedShortfall`, `depositReserve`, the `withdrawIssuerProceeds` gate,
+`test/unit/ReserveSchedule.t.sol`). Still target-only within this decision: the dynamic revenue
+split (task 3), reserve yield (task 4), residual return (task 5), and the 65/30/5 settlement split
+(task 6). Supersedes the "issuer deposits 20–30% upfront" reading of the business model.
+
+**Implementation note (2026-08-30).** Shortfall start is *derived* rather than observed: the target
+curve is monotonically increasing, so the crossing time is recovered by inverting the line from the
+current backing. Enforcement consequently requires no prior `syncShortfall()` call, closing the hole
+where an issuer lets a dormant asset drift behind and then claims a fresh grace window by being the
+first to touch it. `syncShortfall()` remains as a permissionless, pause-tolerant way to publish
+entry/exit events for indexers and the verifier. Redemption is deliberately not gated by a
+shortfall — only issuer capital freezes.
 
 **Instrument.** SOLAR01 is a secured revenue-participation note, not ownership (D-001 stands).
 

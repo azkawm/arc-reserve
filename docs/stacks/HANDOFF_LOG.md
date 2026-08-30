@@ -112,3 +112,42 @@ task 7 is unblocked.
 Needs: nothing blocking. One open sub-question in D-031: whether to delete
 `src/vesting/CompanyVestingWallet.sol` outright — it is now unused by the demo but still referenced
 by a yield-exclusion test. Left in place pending owner confirmation.
+
+## 2026-08-30 — contracts — Branch note (deferred, owner decision)
+Branch: backend/foundation   Commit: 2f17372
+What: the D-024/D-031 contracts commit was made while this shared working tree was checked out on
+`backend/foundation`, so it sits on top of the backend milestone rather than on `main`. The same
+commit is also reachable from `contracts/d024-d031`. Owner decided (2026-08-30) to defer the
+cleanup — hackathon scope. To fix later: rebase `contracts/d024-d031` onto `main` in its own
+worktree, then reset `backend/foundation` to 12ec65d at a point when the backend session is idle.
+`CLAUDE.md` is intentionally uncommitted; it holds concurrent backend edits.
+Needs: nothing. Recorded so it is not discovered as a surprise at merge time.
+
+## 2026-08-30 — contracts — D-023 reserve schedule and shortfall enforcement (task 2)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `AssetVault` gains a `ReserveSchedule` (`startBacking`, `targetBacking`, `startTime`,
+`maturity`, `graceSeconds`), `targetBackingAt`/`targetBackingNow`, `currentBacking`,
+`isBehindSchedule`, `shortfallStartedAt`, `isInEnforcedShortfall`, permissionless `syncShortfall`,
+and issuer `depositReserve(amount, periodId)`. `withdrawIssuerProceeds` reverts
+`ReserveShortfallActive()` past the grace window. `DeployLocal` sets the demo schedule
+(0.30 -> 1.00 over three years, 30-day grace).
+
+Design note worth reading: **shortfall start is derived, not observed.** The target curve is
+monotonically increasing, so the crossing time is recovered by inverting the line from the current
+backing. Enforcement therefore needs no prior `syncShortfall` call — an issuer cannot let a dormant
+asset drift behind and then claim a fresh grace window by being first to touch it. `syncShortfall`
+exists only to publish events for indexers/UI; the stored `shortfallSince` is never read by the
+gate. Verified on Anvil: two years after deploy with zero syncs, `shortfallSince` is 0 while
+`shortfallStartedAt` is the true crossing (469.3 days in, matching the closed form to 3 d.p.) and
+`withdrawIssuerProceeds` reverts `0xffe4402c`.
+
+Redemption is deliberately not gated by a shortfall — only issuer capital freezes; investors keep
+their exit. New invariant: backing never falls through a redemption (mutation-tested: inverting the
+comparison makes it fail, so it is not vacuous).
+
+Tests 97 -> 122 (`test/unit/ReserveSchedule.t.sol`, 24 cases; invariants 5 -> 6). `forge fmt --check`
+clean. Coverage: `AssetVault` 72.81 -> 83.15% lines and 7.14 -> 50.00% branches; overall
+81.65 -> 83.25% lines.
+Interface changes: `CONTRACTS_TO_BACKEND.md` and `CONTRACTS_TO_FRONTEND.md`, rows dated 2026-08-30.
+Needs: nothing blocking. Next is task 3 (dynamic revenue split + period tagging), which layers the
+40/45/10/5 behind-schedule variant on top of `isBehindSchedule()`.

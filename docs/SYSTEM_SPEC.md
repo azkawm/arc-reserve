@@ -251,6 +251,48 @@ another category. Returning market funds increments only the market allocation.
 - Redemption: controller burns tokens, then vault debits reserve and transfers mUSD.
 - Market withdrawal: vault debits market allocation, transfers mUSD, then reasserts accounting.
 
+### 6.4 Reserve schedule and shortfall (D-023)
+
+The vault carries a sinking-fund schedule. `targetBacking` is mUSD per **investor-held** token
+(6 decimals) and rises linearly across the term:
+
+```text
+backing(t)       = redemptionReserve * 1e18 / investorSupply        (6d, flat between transactions)
+targetBacking(t) = startBacking + (targetBacking - startBacking) * (t - startTime) / (maturity - startTime)
+                   clamped to startBacking before startTime and to targetBacking from maturity on
+behindSchedule   = investorSupply > 0 && backing(now) < targetBacking(now)
+```
+
+Demo schedule: `0.30 -> 1.00` over three years, 30-day grace.
+
+**Shortfall start is derived, not observed.** Because the target curve is monotonically increasing,
+the time at which it overtook the current backing is recoverable in closed form by inverting the
+line:
+
+```text
+shortfallStartedAt = startTime + (backing - startBacking) * (maturity - startTime) / (targetBacking - startBacking)
+                     (= startTime when backing <= startBacking; 0 when not behind)
+isInEnforcedShortfall = shortfallStartedAt != 0 && now >= shortfallStartedAt + graceSeconds
+```
+
+This matters for enforcement integrity: nothing has to have been called for the gate to close. An
+issuer cannot let a dormant asset drift behind, then be the first to touch it and claim a fresh
+grace window. Backing only rises while an asset is Active (a redemption pays at most `backing`), so
+inverting the *current* backing yields a crossing time at or after the true one - the bound errs in
+the issuer's favour and can never over-punish.
+
+`syncShortfall()` is permissionless, works while paused, and exists only to publish
+`ReserveShortfallEntered` / `ReserveShortfallCleared` for indexers, the verifier and the UI. The
+stored `shortfallSince` mirrors the derived value at the last sync; **enforcement never reads it**.
+Every vault operation that moves the reserve syncs automatically.
+
+**Enforcement.** `withdrawIssuerProceeds` reverts `ReserveShortfallActive()` while in enforced
+shortfall. Redemption is deliberately *not* gated - only the issuer's capital is frozen, investors
+keep their exit. Headroom issuance will join the gate when it exists.
+
+`depositReserve(amount, periodId)` is the issuer's scheduled contribution, tagged with the reporting
+period it settles, and emits `ReserveContribution`.
+
 ## 7. Current primary offering
 
 The current offering is direct mint-on-purchase:
@@ -456,6 +498,7 @@ vault.isSolvent = true across handler actions
 revenue.totalClaimed <= revenue.totalHolderRevenue
 redemptionReserve >= minimumRequiredReserve
 redemption.outstandingTokenObligations = token.investorSupply
+backing never falls through a redemption (D-023/D-025 ratchet precondition)
 ```
 
 Additional unit/integration properties include unauthorized role rejection, transfer-aware revenue,
