@@ -76,8 +76,6 @@ abstract contract ArcReserveTestBase is Test {
             keccak256("solar-indonesia-01-metadata-v1"),
             uint64(block.timestamp + 3 * 365 days)
         );
-        registry.approveAsset(assetId, 1e6);
-
         AssetFactory.DeploymentParams memory params = AssetFactory.DeploymentParams({
             assetId: assetId,
             tokenName: "Solar Indonesia 01",
@@ -100,6 +98,8 @@ abstract contract ArcReserveTestBase is Test {
             initialSqrtPriceX96: uint160(1 << 96),
             identityRegistry: address(identityRegistry)
         });
+        // D-026: the params ARE the term sheet, so they are hashed and approved before deployment.
+        registry.approveAsset(assetId, 1e6, keccak256(abi.encode(params)));
         AssetFactory.Deployment memory deployment = factory.deployAssetSystem(params);
         token = AssetToken(deployment.token);
         vault = AssetVault(deployment.vault);

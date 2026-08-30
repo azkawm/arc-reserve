@@ -28,8 +28,8 @@ C:\Users\willi\.foundry\bin\forge.exe fmt --check
 anvil   # separate terminal
 C:\Users\willi\.foundry\bin\forge.exe script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
-Baseline: 200 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
-(2026-08-30, after task 7). Note `via_ir = false` and it stays that way — fix stack-too-deep by
+Baseline: 214 passed / 0 failed / 0 skipped; 7 invariants; `forge fmt --check` clean
+(2026-08-30, after task 8). Note `via_ir = false` and it stays that way — fix stack-too-deep by
 extracting a helper, not by turning on the IR pipeline.
 
 ## Interface stability rules
@@ -92,7 +92,7 @@ still re-check `price(level) <= min(NAV, backing)` on every call rather than tru
    (lower, upper)` requiring `upper ≤ floorTick` (price terms) and passing the normal safety gates.
    Invariants: `floorPrice ≤ min(NAV, backing)` always; `floorTick` never moves down in price
    while Active; backing never decreases through a redemption; at most one step per cooldown.
-8. **Term-sheet binding (D-026).** `approveAsset(assetId, initialNAV, termsHash)` +
+8. ~~**Term-sheet binding (D-026).**~~ **DONE 2026-08-30.** `approveAsset(assetId, initialNAV, termsHash)` +
    `reapproveTerms`; registry stores/exposes `termsHashOf(assetId)`; factory checks
    `keccak256(abi.encode(params))` and reverts `TermsMismatch()`. Emit `TermsApproved(assetId,
    termsHash)`. Update `DeployLocal`, `ArcReserveTestBase`, and the `CHANGED` rows (frontend

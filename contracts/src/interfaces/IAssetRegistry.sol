@@ -23,6 +23,8 @@ interface IAssetRegistry {
 
     function statusOf(bytes32 assetId) external view returns (AssetStatus);
     function navOf(bytes32 assetId) external view returns (uint256 nav, uint64 timestamp);
+    /// @notice Hash of the verifier-approved deployment parameters (D-026).
+    function termsHashOf(bytes32 assetId) external view returns (bytes32);
     function maturityOf(bytes32 assetId) external view returns (uint64);
     function issuerOf(bytes32 assetId) external view returns (address);
     function isNAVStale(bytes32 assetId) external view returns (bool);

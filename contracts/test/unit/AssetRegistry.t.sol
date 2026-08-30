@@ -6,6 +6,10 @@ import { AssetRegistry } from "../../src/registry/AssetRegistry.sol";
 import { IAssetRegistry } from "../../src/interfaces/IAssetRegistry.sol";
 
 contract AssetRegistryTest is Test {
+    /// @dev Stand-in term sheet hash (D-026). These tests exercise registry mechanics, not the
+    ///      factory's params-to-hash binding, which `TermSheetBinding.t.sol` covers.
+    bytes32 internal constant TERMS_HASH = keccak256("terms-v1");
+
     AssetRegistry private registry;
     address private issuer = makeAddr("issuer");
     address private verifier = makeAddr("verifier");
@@ -29,7 +33,7 @@ contract AssetRegistryTest is Test {
     function testSubmitAndApproveAsset() public {
         assertEq(uint8(registry.statusOf(assetId)), uint8(IAssetRegistry.AssetStatus.Pending));
         vm.prank(verifier);
-        registry.approveAsset(assetId, 1e6);
+        registry.approveAsset(assetId, 1e6, TERMS_HASH);
         (uint256 nav,) = registry.navOf(assetId);
         assertEq(nav, 1e6);
     }
@@ -37,12 +41,12 @@ contract AssetRegistryTest is Test {
     function testRejectsUnauthorizedApproval() public {
         vm.prank(issuer);
         vm.expectRevert();
-        registry.approveAsset(assetId, 1e6);
+        registry.approveAsset(assetId, 1e6, TERMS_HASH);
     }
 
     function testRejectsExcessiveNAVMovementAndDetectsStaleness() public {
         vm.startPrank(verifier);
-        registry.approveAsset(assetId, 1e6);
+        registry.approveAsset(assetId, 1e6, TERMS_HASH);
         vm.expectRevert(AssetRegistry.NAVMovementTooLarge.selector);
         registry.publishNAV(assetId, 1_300_000);
         registry.publishNAV(assetId, 1_100_000);
@@ -54,7 +58,7 @@ contract AssetRegistryTest is Test {
 
     function testSuspendedAssetCannotIssue() public {
         vm.startPrank(verifier);
-        registry.approveAsset(assetId, 1e6);
+        registry.approveAsset(assetId, 1e6, TERMS_HASH);
         vm.stopPrank();
         registry.grantRole(registry.FACTORY_ROLE(), address(this));
         registry.setAssetContracts(

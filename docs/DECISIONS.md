@@ -386,7 +386,17 @@ published reference is the emergency settlement price. A floor level is a refere
 
 ## D-026: Deployment parameters are bound to the verifier-approved term sheet
 
-Status: accepted 2026-08-27; target contract change.
+Status: accepted 2026-08-27; **implemented 2026-08-30** (contracts task 8:
+`AssetRegistry.approveAsset(assetId, initialNAV, termsHash)` / `reapproveTerms` / `termsHashOf`,
+`AssetFactory` `TermsMismatch()` gate, `test/unit/TermSheetBinding.t.sol`).
+
+**Two implementation choices worth recording.** A zero `termsHash` is rejected rather than treated as
+"unbound" - an unbound approval would let any parameters through, which is the exact hole this
+decision closes. And `reapproveTerms` is restricted to the `Approved` state: once the system is
+deployed the stored hash describes what actually exists, and letting it drift would make
+`termsHashOf` unreliable. A post-deployment amendment is an offchain legal event, not an onchain
+rebinding. The gate is checked before structural parameter validation, so nothing unapproved reaches
+the rest of the factory.
 
 `approveAsset(assetId, initialNAV, termsHash)` records the hash of the term sheet the verifier
 committee approved. `AssetFactory.deployAssetSystem(params)` requires

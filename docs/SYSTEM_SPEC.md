@@ -100,11 +100,24 @@ stale after two days by default.
 - caller is the issuer stored for the asset ID;
 - registry state is Approved;
 - no previous deployment exists for the asset;
+- **`keccak256(abi.encode(params))` equals the registry's `termsHashOf(assetId)`** (D-026), else
+  `TermsMismatch()`. Checked before structural validation, so nothing unapproved gets further;
 - the pool factory is allowlisted;
 - NAV is nonzero and maturity is in the future;
 - supply, offering, reserve, redemption, operator, and pool parameters are valid;
 - `identityRegistry` is a non-zero address (the token is always permissioned); and
 - offering inventory does not exceed maximum supply.
+
+**Term-sheet binding (D-026).** `approveAsset(assetId, initialNAV, termsHash)` records the hash of
+the exact `DeploymentParams` the verifier reviewed. The struct *is* the canonical term sheet, and the
+offchain legal pack references the same hash. A zero hash is rejected rather than treated as unbound,
+since an unbound approval would let any parameters through.
+
+`reapproveTerms(assetId, newTermsHash)` amends the binding, and is deliberately restricted to the
+`Approved` state. Once `setAssetContracts` has run, the stored hash describes what was actually
+deployed; letting it drift afterwards would make `termsHashOf` a claim nobody could rely on. A
+post-deployment amendment is an offchain legal event, and re-binding it onchain would mean
+redeploying the series.
 
 ### 4.2 Components deployed per series
 

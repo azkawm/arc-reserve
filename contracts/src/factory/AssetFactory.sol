@@ -82,6 +82,7 @@ contract AssetFactory is AccessControl {
     error AssetNotApproved();
     error UnauthorizedIssuer();
     error UnapprovedPoolFactory();
+    error TermsMismatch();
     error AlreadyDeployed();
 
     constructor(
@@ -130,6 +131,11 @@ contract AssetFactory is AccessControl {
             revert AssetNotApproved();
         }
         if (registry.issuerOf(params.assetId) != msg.sender) revert UnauthorizedIssuer();
+        // D-026: what gets deployed must hash to what the verifier approved. `DeploymentParams` is
+        // therefore the canonical term sheet, and the offchain legal pack references the same hash.
+        if (keccak256(abi.encode(params)) != registry.termsHashOf(params.assetId)) {
+            revert TermsMismatch();
+        }
         (uint256 nav,) = registry.navOf(params.assetId);
         if (
             nav == 0 || registry.maturityOf(params.assetId) <= block.timestamp

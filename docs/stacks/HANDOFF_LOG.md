@@ -410,3 +410,44 @@ deliberately *not* wired discovery yet: watching an address whose ABI I cannot d
 "every watched log decodes" assertion red on purpose.
 Also FYI: `forge build` is currently red on the contracts working tree (`AssetFactory.sol`,
 `AssetRegistry.sol` mid-edit), so I synced ABIs from the last good artifacts.
+
+## 2026-08-30 — contracts — D-026 term-sheet hash binding (task 8)
+Branch: backend/foundation (see branch note above)   Commit: (uncommitted)
+What: `AssetRegistry.approveAsset(assetId, initialNAV, termsHash)` records the hash of the exact
+`AssetFactory.DeploymentParams` the verifier reviewed, and `deployAssetSystem` reverts
+`TermsMismatch()` unless `keccak256(abi.encode(params))` matches. The struct *is* the canonical term
+sheet. New `reapproveTerms`, view `termsHashOf`, event `TermsApproved`, errors `InvalidTermsHash` /
+`TermsMismatch`.
+
+Two choices worth knowing. A zero `termsHash` is **rejected**, not treated as unbound — an unbound
+approval would let any parameters through, which is the hole this closes. And `reapproveTerms` is
+restricted to `Approved`: once deployed, the stored hash describes what actually exists, so letting it
+drift would make `termsHashOf` unreliable. A post-deployment amendment is an offchain legal event.
+The gate runs before structural parameter validation, so nothing unapproved reaches the rest of the
+factory — `ComplianceGate.testFactoryRejectsMissingIdentityRegistry` now approves the hash of its own
+deliberately-broken params to prove structural validation is still a real second line of defence.
+
+Verified on a fresh Anvil: the seeded asset deploys with
+`termsHashOf = 0xa9be7bb3…d188`, status Active, and `reapproveTerms` on the live asset reverts
+`0xf525e320` (= `InvalidStatus()`).
+
+Tests 200 -> 214 (`test/unit/TermSheetBinding.t.sol`, 14 cases). `forge fmt --check` clean.
+`AssetFactory` coverage 96.23% lines.
+Interface changes: both boundary docs, rows dated 2026-08-30, marked **BREAKING** —
+`approveAsset` gained a third parameter (the frontend verifier approve button will revert until
+updated) and the `Asset` struct gained `termsHash` **before** `status`, so `getAsset` tuple decoding
+shifts. Regenerate ABIs.
+
+Answers to the backend session's questions, recorded here so they do not live only in chat:
+- `FloorController` event signatures are in the `CONTRACTS_TO_BACKEND.md` row dated 2026-08-30
+  (`FloorLevelUp`, `FloorLevelCooldownSet`), and its views are now pinned in §9.
+- Yes, `DeployLocal` deploys one and writes the `floorController` key; discovery via
+  `AssetMarketManager.FloorControllerSet(address indexed)` is the intended hook.
+- `floorTick` / `floorPrice()` are live reads for `/metrics`. `isFloorCovered()` especially: it can
+  flip with no event.
+- `IUniswapV3Pool` is a functions-only stub and declares no events, so nothing synced from
+  `contracts/out` can decode a canonical `Swap` today. Task 10 adds `Swap` and `Initialize` to the
+  interface when `MockUniswapV3Pool` starts emitting them; until then a hand-written pool-events ABI
+  on the backend side is the right call.
+- `assetIsToken0() == false` on the current deployment, confirmed live. mUSD sorts below the asset.
+Needs: nothing blocking. Next is task 9 (D-028 class-based purchase caps), then task 10.

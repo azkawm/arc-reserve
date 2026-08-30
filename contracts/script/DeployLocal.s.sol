@@ -83,32 +83,31 @@ contract DeployLocal is Script {
             keccak256("solar-indonesia-01-metadata-v1"),
             maturity
         );
-        registry.approveAsset(assetId, 1e6);
-
-        deployment = factory.deployAssetSystem(
-            AssetFactory.DeploymentParams({
-                assetId: assetId,
-                tokenName: "Solar Indonesia 01",
-                tokenSymbol: "SOLAR01",
-                maximumSupply: 100_000e18,
-                minimumReserveRatioBps: 2_000,
-                offeringStartsAt: uint64(block.timestamp),
-                offeringEndsAt: uint64(block.timestamp + 30 days),
-                tokenPrice: 1e6,
-                fundraisingCap: 80_000e6,
-                walletPurchaseLimit: 50_000e6,
-                offeringInventory: 80_000e18,
-                minimumPurchase: 1e6,
-                redemptionPeriodDuration: 1 days,
-                redemptionPeriodLimitTokens: 25_000e18,
-                operator: deployer,
-                revenueDepositor: deployer,
-                poolFactory: address(poolFactory),
-                poolFee: 3_000,
-                initialSqrtPriceX96: uint160(1 << 96),
-                identityRegistry: address(identityRegistry)
-            })
-        );
+        AssetFactory.DeploymentParams memory params = AssetFactory.DeploymentParams({
+            assetId: assetId,
+            tokenName: "Solar Indonesia 01",
+            tokenSymbol: "SOLAR01",
+            maximumSupply: 100_000e18,
+            minimumReserveRatioBps: 2_000,
+            offeringStartsAt: uint64(block.timestamp),
+            offeringEndsAt: uint64(block.timestamp + 30 days),
+            tokenPrice: 1e6,
+            fundraisingCap: 80_000e6,
+            walletPurchaseLimit: 50_000e6,
+            offeringInventory: 80_000e18,
+            minimumPurchase: 1e6,
+            redemptionPeriodDuration: 1 days,
+            redemptionPeriodLimitTokens: 25_000e18,
+            operator: deployer,
+            revenueDepositor: deployer,
+            poolFactory: address(poolFactory),
+            poolFee: 3_000,
+            initialSqrtPriceX96: uint160(1 << 96),
+            identityRegistry: address(identityRegistry)
+        });
+        // D-026: the verifier approves the hash of the exact parameters that will be deployed.
+        registry.approveAsset(assetId, 1e6, keccak256(abi.encode(params)));
+        deployment = factory.deployAssetSystem(params);
 
         _configureCompliance(deployer, deployment);
         _configureMarket(deployment);

@@ -46,9 +46,12 @@ contract ComplianceGateTest is ArcReserveTestBase {
             keccak256("two"),
             uint64(block.timestamp + 3 * 365 days)
         );
-        registry.approveAsset(secondAsset, 1e6);
         AssetFactory.DeploymentParams memory params = _paramsFor(secondAsset);
         params.identityRegistry = address(0);
+        // Approve the hash of these exact (broken) params, so the D-026 gate passes and the
+        // configuration validation behind it is what rejects them. Structural validation is a real
+        // second line of defence, not something the terms binding makes redundant.
+        registry.approveAsset(secondAsset, 1e6, keccak256(abi.encode(params)));
         vm.expectRevert(AssetFactory.InvalidConfiguration.selector);
         factory.deployAssetSystem(params);
     }
