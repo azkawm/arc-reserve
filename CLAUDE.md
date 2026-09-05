@@ -90,18 +90,18 @@ Do not weaken these rules without an explicit product decision and corresponding
 | --- | --- | --- |
 | Solidity contracts | Implemented | Foundry project under `contracts/` |
 | Local deployment | Implemented | Anvil deployment script and deterministic mock pool |
-| Contract tests | Implemented | 74 passing tests at the last verification (2026-08-27) |
+| Contract tests | Implemented | 247 passing tests at the last verification (2026-08-30, after task 10) |
 | Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
 | Market-manager coverage | Strong | 98.17% lines, 95.50% statements, 73.91% branches, 100% functions |
-| Frontend | Implemented prototype | Next.js 15, React 19, wagmi, viem, Recharts; typecheck/lint/build clean |
-| Wallet writes | Partially live | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls |
-| Market data | Mostly mocked | Static profile, metrics, liquidity cards, rebalances, and OHLC candles |
-| Backend API | Not implemented | No `backend/` service exists yet |
-| Chain indexer | Not implemented | No event ingestion, persistence, or reorg handling |
-| Canonical OHLC | Not implemented | Current candles are fixtures; mock pool swaps do not produce real price discovery |
+| Frontend | Migrated to the API | Marketplace and asset page read `/v1` with a provenance badge per panel; issuer/verifier/engine panels still fixtures. See `docs/FRONTEND.md` §3 |
+| Wallet writes | Partially live | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls. Unchanged by the API migration: writes still go through the wallet |
+| Market data | Live except the chart | Metrics, reserves, supply, positions and holdings come from `/v1`. Candles stay `mock`-badged on Anvil |
+| Backend API | Implemented | `backend/` (D-030): the full `/v1` read API — assets, metrics, positions, activity, revenue, redemptions, candles, per-account. Provenance envelope on every response; 175 tests |
+| Chain indexer | Implemented | Event ingestion, address discovery, 23 projection tables, restart-safe cursor, reorg rollback + rebuild. Verified against a live Anvil replay and an `evm_revert` reorg |
+| Canonical OHLC | Implemented | Canonical `Swap` ingestion and candle aggregation; the mock pool emits canonical events since task 10. Anvil candles are still badged `mock` — a linear stand-in, not price discovery |
 | Escrowed fundraising | Target only | Current offering mints immediately on each purchase |
 | Threshold settlement | Target only | Full/partial/failed settlement rules exist only in specification and UI preview |
-| Company vesting | Partially implemented | Vesting contract and local-script wiring exist; factory settlement does not create it |
+| Company vesting | Removed from the product (D-031) | No issuer token allocation; the issuer is paid in cash. `CompanyVestingWallet` still exists as an unused primitive and `setYieldExcluded` is still used for excluded addresses |
 | Controlled issuance headroom | Target only | Cap exists, policy controller does not |
 | Lock and earn | Target only | UI preview and business rules only |
 
@@ -142,6 +142,12 @@ arc-reserve/
 |   |-- src/components/               Charts, transaction panels, controls, shared UI
 |   |-- src/lib/contracts.ts          Minimal ABIs and environment addresses
 |   `-- src/lib/data.ts               Explicit demo fixtures
+|-- backend/                          Indexer and read API (milestones A-E)
+|   |-- migrations/                   Plain SQL, run by node-pg-migrate (D-030)
+|   |-- abis/                         Snapshot of contracts/out, via npm run sync-abis
+|   |-- src/config.ts                 Validated environment; refuses non-testnet chains
+|   |-- src/chain/identity.ts         Startup guards and fresh-chain detection
+|   `-- src/api/                      /v1 routes, envelope, Zod response schemas
 `-- docs/
     |-- SYSTEM_SPEC.md                Canonical implementation-level specification
     |-- ARCHITECTURE.md               Components, trust boundaries, and flows
@@ -170,19 +176,25 @@ The local script deploys one series with these values:
 | Stablecoin | mUSD, 6 decimals, test faucet |
 | Maximum token supply | 100,000 SOLAR01 |
 | Offering inventory | 80,000 SOLAR01 |
-| Company vesting allocation | 20,000 SOLAR01 in the local script |
+| Company/issuer token allocation | None (D-031). The issuer is paid in cash; 20,000 SOLAR01 stays unminted headroom |
 | Offering price | 1.000000 mUSD per SOLAR01 |
 | Fundraising cap | 80,000 mUSD |
 | Wallet purchase limit | 50,000 mUSD |
 | Minimum purchase | 1 mUSD |
 | Initial protected reserve | 20,000 mUSD |
-| Minimum reserve ratio | 20% of NAV-valued issued supply |
+| Minimum reserve ratio | 20% of NAV-valued investor supply |
+| Reserve schedule (D-023) | Backing 0.30 -> 1.00 mUSD per investor token over three years, 30-day grace |
 | Maturity | Deployment time plus three years |
-| Revenue split | 60% holders / 25% reserve / 10% operator / 5% protocol |
-| Primary purchase split | 70% issuer / 20% reserve / 10% market allocation |
+| Revenue split | 60/25/10/5 on schedule; 40/45/10/5 while backing is behind schedule (D-023) |
+| Reporting cadence | Revenue report every 30 days, 30-day grace before `isReportingOverdue()` |
+| Reserve yield | `MockYieldSource` seeded with 5,000 mUSD; credits reserve while behind schedule, issuer otherwise |
+| Maturity window | 90 days after maturity to redeem at par, then residual reserve returns to the issuer |
+| Published floor (D-025) | `FloorController` starts at ~0.2983 mUSD/token, ratchets one tick spacing (~0.6%) per `levelUp()`, 30-minute cooldown |
+| Primary purchase split | 65% issuer / 30% reserve / 5% market allocation (D-023) |
 | Redemption period | One day |
 | Redemption limit | 25,000 SOLAR01 per period |
-| Verified wallets | Anvil #0 (deployer) and Anvil #1 (investor), country 360, class 1, no expiry |
+| Verified wallets | Anvil #0 deployer (institutional), Anvil #1 investor (accredited), Anvil #2 (retail) — country 360, no expiry |
+| Class caps (D-028) | Retail 5,000 mUSD / accredited 50,000 / institutional uncapped within the raise |
 | Compliance modules | `CountryAllowModule` (Indonesia only), `TransferLockModule` (hold period 0) |
 | NAV stale threshold | Two days |
 | Maximum NAV move | 20% per update |
@@ -192,8 +204,9 @@ The local script deploys one series with these values:
 | Maximum TWAP/NAV deviation | 20% |
 | Maximum range move | 1,200 ticks |
 
-The script also creates a one-year linear `CompanyVestingWallet`, registers it as yield-excluded
-before minting, mints 20,000 SOLAR01 to it, and revokes the deployer's temporary mint role.
+The script mints nothing at deploy time (D-031). Total supply starts at zero, `PrimaryOffering` is
+the only holder of `ISSUANCE_CONTROLLER_ROLE`, and of the 100,000 authorized supply 80,000 is
+offering inventory while 20,000 remains unminted headroom.
 
 ## Contract model in one page
 
@@ -344,8 +357,12 @@ installed. A future chart should consume indexed canonical pool swaps as specifi
 
 ## Backend and indexer: next major subsystem
 
-There is no backend directory yet. The agreed next direction is a backend API, event indexer, and
-OHLC aggregation service. Before implementing it, read `docs/BACKEND_INDEXER.md` in full.
+`backend/` is built through Milestone E: event ingestion with reorg-safe rollback, the `/v1` read
+API, the OHLC pipeline, and the frontend migration onto it. Read `backend/README.md` for the route
+table and `docs/BACKEND_INDEXER.md` for the design. Two rules it enforces and any change must keep:
+a failed live read becomes an error state, never a fixture; and a value that is a function of *now*
+— KYC verification, NAV staleness, offering openness, reserve shortfall, floor coverage — is
+computed per request, never projected.
 
 Key requirements:
 
@@ -435,7 +452,7 @@ Backend track order:
 5. Frontend migration from fixtures to provenance-labeled queries.
 6. Production Uniswap V3 fork tests and position fee accounting.
 7. Escrowed fundraising and deterministic full/partial/failed settlement.
-8. Factory-integrated company vesting and governed issuance headroom.
+8. Governed issuance headroom (factory-integrated company vesting is dropped under D-031).
 9. Lock-and-earn funded only by realized stablecoin revenue or fees.
 
 Do not combine steps 7-9 into the current direct offering without a migration and accounting plan.
