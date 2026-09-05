@@ -2,6 +2,7 @@
 
 This file is the primary context document for Claude Code, Codex, or another implementation agent.
 Read it before changing the repository. Then follow the links to the detailed specifications.
+A human taking over the project starts with `HANDOVER.md` at the repository root.
 
 Before material implementation, complete [`docs/AI_COMPREHENSION_CHECK.md`](docs/AI_COMPREHENSION_CHECK.md)
 and present the answers to the project owner. This is a required context check, not a coding task.

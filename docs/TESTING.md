@@ -1,16 +1,20 @@
 # Testing and Verification Guide
 
-Status: current as of 2026-08-17.
+Status: baselines updated 2026-09-05; suite map below predates tasks 1-10 and is being reworked.
 
 ## 1. Baseline
 
-The last full Foundry run completed with:
+The last full Foundry run (2026-09-05, `main` at task 10) completed with:
 
 ```text
-74 tests passed
+247 tests passed
 0 failed
 0 skipped
 ```
+
+Backend: its own suite (unit + real-PostgreSQL integration + replay/reorg) is green per
+`backend/README.md` and the Milestone E entry in `docs/stacks/HANDOFF_LOG.md`; run it with
+`cd backend && npm run test`. The frontend still has no test runner.
 
 Coverage summary:
 
@@ -74,7 +78,9 @@ forge test --rerun -vvvv
 | `MarketMakingHappyPathTest` | 3 | Hikari-inspired slide, sweep, discovery refresh and remint |
 | `FinancialInvariantsTest` | 5 | Supply, accounting/solvency, claims, reserve, obligation equality |
 
-Total: 74 (2026-08-27). Every test in `ArcReserveTestBase` runs against a permissioned token:
+Total: 247 (2026-09-05; the table above lists only the pre-task-1 suites — see `contracts/test/`
+for the compliance, schedule, floor, terms, and class-cap suites added since).
+Every test in `ArcReserveTestBase` runs against a permissioned token:
 `alice`, `bob`, and the test contract are registered in the `IdentityRegistry`; `attacker` is not.
 
 ## 4. Shared fixture

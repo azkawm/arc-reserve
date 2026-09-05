@@ -44,6 +44,9 @@ issuance headroom, floor accretion from realized value, and stablecoin-funded to
 
 ## Documentation
 
+Taking over this project? Start with [HANDOVER.md](HANDOVER.md) — current state, what remains,
+and the onboarding gate.
+
 For another coding agent, start with [CLAUDE.md](CLAUDE.md) and complete the
 [AI comprehension check](docs/AI_COMPREHENSION_CHECK.md) before implementation.
 

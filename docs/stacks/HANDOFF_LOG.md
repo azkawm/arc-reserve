@@ -581,3 +581,12 @@ real-versus-mock table.
 Not migrated (still fixtures, still badged): issuer profile and asset story copy, keeper history,
 engine controls, `/issuer` and `/verifier` panels, lock-and-earn preview.
 Needs: nothing. The chart stays `Mock` until contracts task 10 makes the pool emit canonical swaps.
+
+## 2026-09-05 — architect — Handover prepared
+Branch: main   Commit: (this commit)
+What: `HANDOVER.md` written at the repo root (state, remaining work, onboarding gate, working
+agreements, environment quirks, known stale spots); `docs/TESTING.md` baseline refreshed to 247;
+pending CLAUDE.md/deployment refresh committed; merged `contracts/d024-d031` branch pruned; main
+fast-forwarded. Incoming maintainer: start at `HANDOVER.md`, announce yourself here per §5.6.
+Interface changes: none
+Needs: nothing
