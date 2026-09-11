@@ -93,7 +93,7 @@ Do not weaken these rules without an explicit product decision and corresponding
 | Local deployment | Implemented | Anvil deployment script and deterministic mock pool |
 | Contract tests | Implemented | 247 passing tests at the last verification (2026-08-30, after task 10) |
 | Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
-| Market-manager coverage | Strong | 98.17% lines, 95.50% statements, 73.91% branches, 100% functions |
+| Market-manager coverage | Strong | 98.28% lines, 95.44% statements, 73.47% branches, 100% functions (2026-09-11) |
 | Frontend | Migrated to the API | Marketplace and asset page read `/v1` with a provenance badge per panel; issuer/verifier/engine panels still fixtures. See `docs/FRONTEND.md` §3 |
 | Wallet writes | Partially live | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls. Unchanged by the API migration: writes still go through the wallet |
 | Market data | Live except the chart | Metrics, reserves, supply, positions and holdings come from `/v1`. Candles stay `mock`-badged on Anvil |
@@ -305,6 +305,14 @@ reference = emergency settlement price when set in emergency mode, otherwise NAV
 redemption price = min(reference, liquid backing per token)
 ```
 
+In Maturity mode the reference is additionally capped at par: `reference = min(NAV,
+vault.maturityParValue())`, where par is the D-023 schedule's end target (normally 1.000000 mUSD).
+SOLAR01 is a note, so backing above par is not holder upside. Maturity redemption is open only
+until `vault.maturityWindowEndsAt()` (demo: 90 days after maturity), and reverts
+`MaturityWindowClosed()` after that. Once the asset is `Closed` and the window has passed, the
+issuer's `releaseResidualReserve()` returns only the reserve above
+`investorSupply * min(NAV, par)`, so remaining holders keep full par cover.
+
 The period limit and reserve liquidity are checked before the token burns and the vault pays.
 
 ### ARC Liquidity Engine
@@ -381,8 +389,9 @@ Key requirements:
 
 Since contracts task 10 the mock pool emits canonical Uniswap `Swap` events, so one keeper swap
 produces real `canonical_swap` candles; until a swap happens on a fresh deploy, `/candles` returns
-503 `MOCK_DISABLED` unless the explicitly labeled synthetic feed is enabled. The mock pool still
-does not model price impact — its candles are honest records of demo swaps, not price discovery.
+503 `MOCK_DISABLED` unless the explicitly labeled synthetic feed is enabled. The mock pool models
+only a linear stand-in price impact — no impact curve, tick crossing, fee growth, MEV, or
+liquidity exhaustion — so its candles are honest records of demo swaps, not price discovery.
 
 ## Commands
 
@@ -429,10 +438,13 @@ Last contract verification:
 - 247 tests passed (2026-09-11, re-verified on `main`);
 - zero failures and zero skips;
 - seven stateful financial invariants;
-- `AssetMarketManager`: 98.17% lines, 95.50% statements, 73.91% branches, 100% functions;
-- `AssetToken` (with compliance gate): 95.65% lines, 91.50% statements, 75.76% branches; and
-- overall Solidity sources: 80.91% lines, 80.50% statements, 50.42% branches, 79.28% functions
-  (the new `IdentityRegistry` / `ModularCompliance` admin paths are the least covered).
+- `AssetMarketManager`: 98.28% lines, 95.44% statements, 73.47% branches, 100% functions;
+- `AssetToken` (with compliance gate): 96.24% lines, 92.78% statements, 80.00% branches;
+- `AssetVault`: 88.64% lines, 60.53% branches; `RedemptionController`: 90.28% lines, 41.18%
+  branches; `AssetRegistry`: 84.21% lines, 20.00% branches — the weakest branch coverage is now
+  in these money paths, logged as quality-bar debt; and
+- overall Solidity sources: 85.17% lines, 84.33% statements, 59.05% branches, 85.41% functions
+  (measured 2026-09-11).
 
 Last frontend verification: `npm.cmd run typecheck`, `npm.cmd run lint`, and
 `npm.cmd run build` all passed. Next.js generated the marketplace, asset, engine, issuer, and verifier
@@ -476,7 +488,8 @@ Do not combine steps 7-9 into the current direct offering without a migration an
 - Sell is intentionally not implemented in the frontend.
 - Frontend mojibake was cleaned up; a byte scan on 2026-08-27 found only valid UTF-8 punctuation in
   `frontend/src`. Keep files UTF-8 when editing on Windows.
-- The mock pool does not model price impact, tick crossing, fee growth, MEV, or liquidity exhaustion.
+- The mock pool models only a linear stand-in price impact — no impact curve, tick crossing, fee
+  growth, MEV, or liquidity exhaustion.
 - `collectFees` cannot separate fees from principal at the generic manager interface level.
 - A paused market still permits authorized liquidity removal, fee collection, and return of idle mUSD.
   This is intentional recovery behavior.
