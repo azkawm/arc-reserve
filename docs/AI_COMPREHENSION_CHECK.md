@@ -115,32 +115,43 @@ Added 2026-08-27:
 
 ## Part B: Expected answer key
 
+> Refreshed 2026-09-11 against `main` (contracts tasks 1-10, D-031/D-032, backend milestones A-E,
+> frontend Milestone E). Grade against this version only.
+
 1. It is a capped asset participation token. No automatic equity, title, guaranteed return, peg,
    principal protection, or unconditional legal claim should be asserted.
 2. Solidity plus passing tests, then canonical system/decision docs, then other docs, then frontend
    copy/fixtures.
 3. Spot, TWAP, verified NAV, protected floor reference, and redemption price.
 4. No. It is a backing-aware reference and redemption remains liquidity- and mode-limited.
-5. Current purchase transfers mUSD, immediately accounts it 70/20/10, and immediately mints tokens.
-   Target flow escrows subscriptions and settles full/partial/failed outcomes atomically later.
+5. Current purchase transfers mUSD, immediately accounts it 65/30/5 (issuer/reserve/market,
+   D-023), enforces per-class caps (D-028), and immediately mints tokens. Target flow escrows
+   subscriptions and settles full/partial/failed outcomes atomically later.
 6. No. Immutable `maximumSupply` and the mint check enforce the cap.
 7. No. It has no issuance role and may use only transferred inventory.
 8. Unminted capacity below the cap. It is neither issued nor circulating and does not enter backing or
    yield denominators.
-9. The vesting wallet contract, exclusion mechanism, tests, and local-script wiring exist. Factory and
-   general offering settlement do not automatically create/register/fund vesting.
+9. Under D-031 the issuer receives no token allocation at all — nothing is minted at deploy, the
+   issuer is paid in cash (65% of the raise + 10% operator share). `CompanyVestingWallet` exists
+   only as an unused primitive; the yield-exclusion mechanism and the `issuerAllocation` flag
+   (D-024) remain available but are unused in the demo.
 10. `token.totalSupply() - revenue.excludedSupply()`.
-11. Yes. They remain issued supply even though excluded from revenue eligibility.
+11. Two separate mechanisms since D-024: a merely *yield-excluded* balance stays in issued and
+    investor supply, so it still counts toward reserve and redemption obligations; an
+    *issuer-allocation-flagged* balance leaves `investorSupply()` (the backing/redemption
+    denominator) and can never redeem. The demo has neither.
 12. They may participate only in deposits after becoming eligible, not earlier deposits.
 13. The token calls the distributor before balance changes; sender and recipient revenue/debt are
     checkpointed using their pre-transfer balances.
-14. 60% holder pool in distributor, 25% reserve in vault, 10% operator accrual in distributor, and 5%
-    protocol fees in vault.
+14. On schedule: 60% holder pool (distributor), 25% reserve (vault), 10% operator accrual
+    (distributor), 5% protocol fees (vault). While backing is behind the D-023 schedule the split
+    shifts automatically to 40/45/10/5, evaluated live on every period-tagged deposit.
 15. Redemption reserve, market-making allocation, asset revenue, issuer proceeds, protocol fees.
 16. Only market-making allocation. It cannot withdraw redemption reserve.
 17. Actual vault mUSD covers all accounted categories, and redemption reserve meets the NAV-derived
     minimum requirement.
-18. `min(NAV, redemptionReserve / current totalSupply)`, expressed per token.
+18. `min(NAV, redemptionReserve / investorSupply)`, expressed per token (D-024); during the 90-day
+    maturity window the payout is additionally capped at par (1.00).
 19. Active, Matured, and Suspended/Defaulted respectively.
 20. It reduces token obligations before releasing backing and prevents pay-without-burn ordering.
 21. ReserveFloor for stable-biased lower market depth, Anchor for main two-sided liquidity, Discovery
@@ -154,23 +165,28 @@ Added 2026-08-27:
     20%, solvent vault, and 30-minute cooldown for rebalances; max shift is 1,200 ticks.
 26. Remove liquidity, collect fees, and return idle mUSD remain available for recovery. New risk
     actions are blocked.
-27. Selected approvals, buy/claim/redeem, issuer/verifier writes, and keeper calls are real when
-    configured. Most cards, OHLC, liquidity figures, profiles, activity, holdings, and settlement
-    preview are fixtures.
-28. Neither. It uses Recharts with custom candle shapes and static data.
-29. It does not emit canonical swap-price events or move price as a real AMM would; it is a deterministic
-    callback/oracle harness.
-30. Create schema/config, ingest logs idempotently, checkpoint block hashes, roll back orphaned blocks,
-    build derived read models, expose APIs, then aggregate canonical swap ticks/prices into candles.
+27. Wallet writes are real when configured. Since Milestone E the marketplace and asset page read
+    `/v1` with a provenance badge per panel; issuer/verifier/engine panels, issuer profile copy,
+    keeper history, and the settlement/lock-and-earn previews are still fixtures. No API URL ⇒
+    labelled fixture mode; a failing API ⇒ error state, never a fixture.
+28. Recharts, now consuming `/v1` candles and drawing overlays from `/nav-history` + `/metrics`;
+    on a fresh Anvil the chart is empty/`MOCK_DISABLED` until a keeper swap produces candles.
+29. Since task 10 it emits canonical `Swap` events, so real `canonical_swap` candles exist after
+    any swap — but it still has no price impact or tick crossing, so its candles record demo
+    trades rather than price discovery.
+30. Implemented (milestones A-E; see `backend/README.md`): idempotent per-block ingestion with
+    block-hash checkpoints and cursor in one transaction, reorg rollback with candle rebuild,
+    fresh-chain detection, 23 projections, `/v1` with the provenance envelope.
 
 Scenario answers:
 
 1. Show all three values separately: market 1.80, NAV 1.00, backing/floor 0.82. Maximum normal
    redemption reference is 0.82 before other limits.
-2. Existing inventory, scheduled vesting release, governed headroom issuance, then a new series. The
-   market manager must not mint.
-3. Eligible for the new deposit if release and exclusion accounting completed first; never eligible
-   retroactively.
+2. Existing market inventory, then governed headroom issuance (20,000 unminted under D-031), then
+   a new verified series. There is no vesting-release step any more, and the market manager must
+   not mint.
+3. (Now hypothetical — the demo has no vesting.) A formerly yield-excluded balance becomes
+   eligible only for deposits after its exclusion is lifted; never retroactively.
 4. No. Stale NAV stops guarded market funding, liquidity addition, swaps, and rebalances.
 5. It cannot add. The keeper can remove and return idle mUSD.
 6. No. Show stale/error state and preserve provenance.
@@ -197,8 +213,9 @@ Scenario answers:
     notified; 90 days is a default trigger.
 36. Gross. Profit is issuer-controlled and hard to verify; gross (kWh × tariff) is externally
     verifiable, so the holders' claim cannot be diluted by cost accounting.
-37. Issuer-allocation (company vesting) tokens. They would otherwise let the issuer redeem against
-    the investors' reserve and dilute backing; their exit is the market after vesting.
+37. Any balance flagged `issuerAllocation` (D-024) — excluded from `investorSupply()` and barred
+    from redeeming, because issuer-held tokens must never drain the investors' reserve. Under
+    D-031 the demo flags nothing: the issuer holds no tokens at all.
 38. Exactly one pool tick spacing (demo 60 ticks ≈ 0.6%). Anyone. `price(next tick) ≤ min(NAV,
     backing)` and the cooldown has elapsed. No — `redeem()` keeps paying the continuous
     `min(NAV, backing)`, which is always ≥ the level.

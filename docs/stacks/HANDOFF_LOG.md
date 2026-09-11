@@ -590,3 +590,45 @@ pending CLAUDE.md/deployment refresh committed; merged `contracts/d024-d031` bra
 fast-forwarded. Incoming maintainer: start at `HANDOVER.md`, announce yourself here per §5.6.
 Interface changes: none
 Needs: nothing
+
+## 2026-09-11 — contracts — Correction: "track done" meant tasks 1–10; D-027 testnet scope is open
+Branch: main   Commit: (uncommitted)
+What: my 2026-08-30 task 10 entry said "The contracts track is done". That was accurate only for the
+ten numbered tasks in `AGENT_CONTRACTS.md`. The D-027 scope deliverables in the same brief have not
+been started:
+- no chain-aware deploy script keyed on `block.chainid` — only `script/DeployLocal.s.sol` exists;
+- no `deployments/84532.json` (Base Sepolia) or `deployments/296.json` (Hedera testnet);
+- the Base Sepolia Uniswap V3 factory address has not been verified from Uniswap's official list;
+- the Hedera path (mock pool unless a V3-compatible factory is verified) is not built;
+- `evm_version` is not pinned in `foundry.toml` (Hedera's supported EVM version must be checked first).
+Without these the demo cannot run on either target chain.
+
+Verified 2026-09-11 on `main`: 247 tests / 0 failed / 7 invariants, `forge fmt --check` clean; all
+ten contracts commits (`2f17372`..`1d13218`) are on `main` and `main == origin/main`;
+`deployments/31337.json` holds fresh-chain addresses (`mockUSD` = `0x5FbDB2…0aa3`, the first CREATE
+on a fresh Anvil), regenerated in `a043f0d`.
+
+Also stale and flagged, not fixed here: the `CLAUDE.md` contract-model prose still says the offering
+splits 70/20/10 (now 65/30/5), describes the removed D-031 vesting mint, gives
+`minimumRequiredReserve` and redemption backing over total supply (investor supply since D-024) with
+no maturity par cap, quotes a 74-test / 5-invariant baseline (247 / 7), says the mock pool emits no
+canonical `Swap` (it has since task 10), and keeps the pitfall that the local script wires vesting.
+Interface changes: none.
+Needs: owner — (1) sequencing: testnet prep vs D-007 escrow; the architect recommends testnet first
+(HANDOVER §4); (2) funded deployer keys for 84532 and 296 in an untracked `.env`; (3) approval for the
+`CLAUDE.md` fix. Queued after testnet prep: branch coverage in money paths (RedemptionController ~41%,
+AssetRegistry ~20%, AssetVault ~58% branches).
+
+## 2026-09-11 — architect — Answer key and CLAUDE.md refreshed; frontend regression logged
+Branch: main   Commit: (this commit)
+What: AI_COMPREHENSION_CHECK Part B refreshed against main (answers 5, 9, 11, 14, 18, 27-30, 37,
+scenarios 2/3 — grade only against the 2026-09-11 version); CLAUDE.md stale contract-model prose
+fixed per Contract Arch's list (65/30/5, D-031 no issuer allocation, investor-supply denominators,
+247 tests / 7 invariants, canonical Swap events since task 10). Also committing Contract Arch's
+2026-09-11 correction entry that was pending in the tree.
+Known regression (found by arcreserve-19, fix assigned to frontend task 1): the issuer revenue form
+still calls the removed `depositRevenue(uint256)` selector — every UI revenue deposit reverts on
+main; `depositReserve` (D-023) and `approveAsset(...,termsHash)` (D-026) have no frontend wiring.
+Interface changes: none
+Needs: owner — grade the frontend agent's comprehension answers; confirm testnet-first sequencing;
+provide funded Base Sepolia / Hedera testnet deployer keys when the deploy script lands.

@@ -245,8 +245,10 @@ returns the selector of the first failing rule for UI previews. `TRANSFER_AGENT_
 manager; `ModularCompliance` (per token) with `CountryAllowModule` / `TransferLockModule` is bound
 post-deploy by the admin. See `src/compliance/`.
 
-The local vesting script temporarily grants a mint role to the protocol admin to create the disclosed
-company allocation. That path is demo wiring, not a generic settlement controller.
+Under D-031 the issuer receives no token allocation: nothing is minted at deploy time, the offering
+is the only holder of `ISSUANCE_CONTROLLER_ROLE`, and `CompanyVestingWallet` remains only as an
+unused primitive. The `issuerAllocation` flag (D-024) still exists for any future flagged address:
+flagged balances leave `investorSupply()` and can never redeem against the reserve.
 
 ### Vault accounting
 
@@ -267,7 +269,8 @@ Required solvency:
 stablecoin balance >= totalAccounted
 redemptionReserve >= minimumRequiredReserve
 
-minimumRequiredReserve = NAV value of total issued supply * minimum reserve ratio
+minimumRequiredReserve = NAV value of investor supply * minimum reserve ratio
+investor supply        = totalSupply - issuerAllocationSupply   (D-024; equal to totalSupply in the demo)
 ```
 
 Direct token transfers to the vault are unaccounted until an authorized function credits a category.
@@ -275,7 +278,8 @@ Direct token transfers to the vault are unaccounted until an authorized function
 ### Offering
 
 The current `PrimaryOffering` is a direct purchase contract, not escrow. A successful `buy` transfers
-mUSD to the vault, accounts it 70/20/10, and immediately mints tokens to the buyer. It checks time,
+mUSD to the vault, accounts it 65/30/5 (issuer/reserve/market, D-023), and immediately mints tokens
+to the buyer. It enforces per-class purchase caps from the identity registry (D-028) and checks time,
 asset status, fundraising cap, wallet limit, inventory, minimum purchase, and minimum token output.
 
 The target full/partial/failed fundraising settlement in `BUSINESS_MODEL.md` is not implemented.
@@ -296,7 +300,7 @@ Normal redemption is allowed only while active, maturity redemption only while m
 redemption only while suspended or defaulted. The price is:
 
 ```text
-liquid backing per token = redemption reserve / current total supply
+liquid backing per token = redemption reserve / investor supply
 reference = emergency settlement price when set in emergency mode, otherwise NAV
 redemption price = min(reference, liquid backing per token)
 ```
@@ -375,9 +379,10 @@ Key requirements:
 - no backend-held user signing keys; and
 - frontend fallback that never silently substitutes mock data for failed live data.
 
-The current mock pool does not emit canonical Uniswap `Swap` events and its swaps do not move price.
-Real OHLC cannot be honestly derived from it. Use a clearly labeled synthetic demo feed or integrate a
-canonical pool/fork before calling candles live.
+Since contracts task 10 the mock pool emits canonical Uniswap `Swap` events, so one keeper swap
+produces real `canonical_swap` candles; until a swap happens on a fresh deploy, `/candles` returns
+503 `MOCK_DISABLED` unless the explicitly labeled synthetic feed is enabled. The mock pool still
+does not model price impact — its candles are honest records of demo swaps, not price discovery.
 
 ## Commands
 
@@ -421,9 +426,9 @@ fresh chain. The checked-in `deployments/31337.json` may describe an older local
 
 Last contract verification:
 
-- 74 tests passed (2026-08-27, including 18 compliance-gate tests);
+- 247 tests passed (2026-09-11, re-verified on `main`);
 - zero failures and zero skips;
-- five stateful financial invariants;
+- seven stateful financial invariants;
 - `AssetMarketManager`: 98.17% lines, 95.50% statements, 73.91% branches, 100% functions;
 - `AssetToken` (with compliance gate): 95.65% lines, 91.50% statements, 75.76% branches; and
 - overall Solidity sources: 80.91% lines, 80.50% statements, 50.42% branches, 79.28% functions
@@ -463,7 +468,8 @@ Do not combine steps 7-9 into the current direct offering without a migration an
 - `redemptionReserve` is not spendable market liquidity.
 - `market floor range` is not the protected floor reference.
 - The current offering is immediate minting, despite target fundraising copy in parts of the UI.
-- The vesting contract exists, but only the local script wires it automatically.
+- `CompanyVestingWallet` exists but nothing wires it: the issuer receives no token allocation
+  (D-031). Do not resurrect vesting flows without a new decision.
 - `contracts/deployments/31337.json` is a snapshot, not a durable address registry.
 - `EngineControls` uses a fixed tick pair suitable only for the seeded demo and may revert after a
   previous range update or when token ordering differs.
