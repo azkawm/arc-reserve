@@ -158,8 +158,14 @@ cast send $env:IDENTITY_REGISTRY "registerIdentity(address,address,uint16,uint8,
   0xWALLET 0xWALLET 360 1 0 --rpc-url $env:RPC_URL --private-key $env:DEPLOYER_PRIVATE_KEY
 ```
 
-There is no faucet button in the current UI even though the ABI includes `faucet()`. Use `cast` with
-the second Anvil account:
+**Faucet page (demo tool).** With the frontend dev server running, open
+`http://localhost:3000/faucet.html` (or the port the dev server actually took). It has two paths:
+"Mint with my wallet" (the connected wallet calls `faucet()`, +100,000 mUSD) and "Fund via Anvil #0"
+(funds any typed address with any amount, no wallet needed — works only on local Anvil where the
+dev accounts are unlocked). It also shows the recipient's mUSD balance and KYC status. This is a
+static file in `frontend/public/`, deliberately outside the product UI.
+
+Alternatively, use `cast` with the second Anvil account:
 
 ```powershell
 $env:RPC_URL = "http://127.0.0.1:8545"

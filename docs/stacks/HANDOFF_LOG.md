@@ -696,3 +696,14 @@ The architect approved the candle provenance fix proposed in the entry above.
 Interface changes: Boundary C CHANGED row, 2026-09-11 (`/candles` provenance).
 Needs: frontend (arcreserve-19) to key the chart badge and demo-feed disclaimer on
 `meta.provenance` instead of `source`.
+
+## 2026-09-11 — architect — Demo faucet page added (frontend/public/faucet.html)
+Branch: main   Commit: (this commit)
+What: owner-requested demo tool. Single static dependency-free HTML at /faucet.html: wallet path
+(caller runs faucet(), +100k mUSD, chain-guarded to 31337) and no-wallet path (Anvil #0 unlocked
+account calls faucet(recipient, amount) for any address). Shows recipient balance and
+IdentityRegistry.isVerified. Verified live: page 200, no-wallet path funded Anvil #2 with 5,000
+mUSD, isVerified encoding correct. DEMO.md §6 documents it. Static public asset, no app code
+touched — additive to the frontend stack; arcreserve-19 informed.
+Interface changes: none
+Needs: nothing

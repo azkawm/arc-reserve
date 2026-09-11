@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mUSD Faucet — ArcReserve demo</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #0c0f0d; color: #eef0e8;
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    padding: 24px 16px;
+  }
+  .card {
+    width: 100%; max-width: 460px; background: #121613; border: 1px solid #232a24;
+    border-radius: 14px; padding: 28px;
+  }
+  .banner {
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #ffb36b;
+    border: 1px solid #4a3620; background: #201709; border-radius: 6px;
+    padding: 6px 10px; margin-bottom: 18px; display: inline-block;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: #9aa39a; margin: 0 0 22px; }
+  label { display: block; font-size: 12px; color: #9aa39a; margin: 14px 0 4px; }
+  input {
+    width: 100%; background: #0c0f0d; color: #eef0e8; border: 1px solid #2c352d;
+    border-radius: 8px; padding: 10px 12px; font: 13px ui-monospace, Consolas, monospace;
+  }
+  input:focus { outline: none; border-color: #b7f765; }
+  .row { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+  button {
+    flex: 1; min-width: 150px; cursor: pointer; border: none; border-radius: 8px;
+    padding: 11px 14px; font: 600 13px ui-sans-serif, system-ui, sans-serif;
+  }
+  #btnWallet { background: #b7f765; color: #10130f; }
+  #btnAnvil  { background: #232a24; color: #eef0e8; border: 1px solid #2c352d; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { margin-top: 18px; font-size: 13px; min-height: 20px; word-break: break-all; }
+  .ok    { color: #b7f765; }
+  .err   { color: #ff7f73; }
+  .muted { color: #9aa39a; }
+  .facts { margin-top: 16px; border-top: 1px solid #232a24; padding-top: 14px;
+           display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; }
+  .facts b { font-weight: 600; color: #9aa39a; }
+  .pill { display: inline-block; border-radius: 20px; padding: 1px 10px; font-size: 12px; }
+  .pill.green { background: #17240f; color: #b7f765; border: 1px solid #33471f; }
+  .pill.red   { background: #2b1512; color: #ff7f73; border: 1px solid #4d251f; }
+  footer { margin-top: 20px; font-size: 11px; color: #616a61; }
+  footer a { color: #9aa39a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <span class="banner">Testnet demo — no real funds (D-027)</span>
+  <h1>mUSD Faucet</h1>
+  <p class="sub">Mints demo stablecoin on the local Anvil chain (31337). mUSD is unpermissioned;
+  buying SOLAR01 additionally requires the wallet to be KYC-verified.</p>
+
+  <label for="musd">MockUSD address</label>
+  <input id="musd" value="0x5FbDB2315678afecb367f032d93F642f64180aa3" spellcheck="false">
+
+  <label for="reg">IdentityRegistry address (for the verification check)</label>
+  <input id="reg" value="0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0" spellcheck="false">
+
+  <label for="rcpt">Recipient (leave empty to use the connected wallet)</label>
+  <input id="rcpt" placeholder="0x…" spellcheck="false">
+
+  <label for="amt">Amount, mUSD (Anvil-funding path only; wallet path always mints 100,000)</label>
+  <input id="amt" value="100000" inputmode="numeric">
+
+  <div class="row">
+    <button id="btnWallet">Mint with my wallet</button>
+    <button id="btnAnvil">Fund via Anvil #0 (no wallet)</button>
+  </div>
+
+  <div class="status" id="status"><span class="muted">Ready.</span></div>
+
+  <div class="facts">
+    <b>Balance</b><span id="bal">—</span>
+    <b>KYC status</b><span id="kyc">—</span>
+    <b>Chain</b><span id="chain">—</span>
+  </div>
+
+  <footer>
+    DEMO tool: works only against a local Anvil with unlocked accounts and the test-only
+    <code>MockUSD.faucet</code>. Never deploy this pattern beyond D-027 scope.
+    Runbook: <a href="https://github.com/azkawm/arc-reserve/blob/main/docs/DEMO.md">docs/DEMO.md</a>
+  </footer>
+</div>
+
+<script>
+// DEMO: hand-encoded calls so the page stays a single dependency-free file.
+const SEL = {
+  faucet:        "0xde5f72fd", // faucet()
+  faucetTo:      "0x7b56c2b2", // faucet(address,uint256)
+  balanceOf:     "0x70a08231", // balanceOf(address)
+  isVerified:    "0xb9209e33", // isVerified(address)
+};
+const RPC = "http://127.0.0.1:8545";
+const ANVIL0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"; // unlocked on Anvil
+const CHAIN_HEX = "0x7a69"; // 31337
+
+const $ = (id) => document.getElementById(id);
+const pad = (hex) => hex.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+const encAddr = (a) => pad(a);
+const encUint = (n) => n.toString(16).padStart(64, "0");
+const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a);
+
+function say(msg, cls) { $("status").innerHTML = `<span class="${cls || "muted"}">${msg}</span>`; }
+
+async function rpc(method, params) {
+  const res = await fetch(RPC, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const j = await res.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+
+async function readBadges(addr) {
+  if (!isAddr(addr)) return;
+  try {
+    const bal = await rpc("eth_call", [{ to: $("musd").value, data: SEL.balanceOf + encAddr(addr) }, "latest"]);
+    $("bal").textContent = (Number(BigInt(bal)) / 1e6).toLocaleString() + " mUSD";
+  } catch (e) { $("bal").textContent = "unreadable: " + e.message; }
+  try {
+    const v = await rpc("eth_call", [{ to: $("reg").value, data: SEL.isVerified + encAddr(addr) }, "latest"]);
+    const ok = BigInt(v) === 1n;
+    $("kyc").innerHTML = ok
+      ? '<span class="pill green">Verified — can buy SOLAR01</span>'
+      : '<span class="pill red">Not verified — holds mUSD only; buys revert</span>';
+  } catch (e) { $("kyc").textContent = "unreadable: " + e.message; }
+  try {
+    const c = await rpc("eth_chainId", []);
+    $("chain").textContent = c === CHAIN_HEX ? "Anvil 31337 ✓" : "UNEXPECTED chain " + parseInt(c, 16);
+  } catch { $("chain").textContent = "RPC unreachable at " + RPC; }
+}
+
+async function waitReceipt(hash) {
+  for (let i = 0; i < 30; i++) {
+    const r = await rpc("eth_getTransactionReceipt", [hash]);
+    if (r) return r;
+    await new Promise((s) => setTimeout(s, 500));
+  }
+  throw new Error("no receipt after 15s");
+}
+
+// Path 1: the connected wallet calls faucet() itself (mints 100,000 mUSD to caller).
+$("btnWallet").onclick = async () => {
+  try {
+    if (!window.ethereum) throw new Error("No wallet extension found. Use the Anvil path instead.");
+    say("Requesting wallet…");
+    const [from] = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const chain = await window.ethereum.request({ method: "eth_chainId" });
+    if (chain !== CHAIN_HEX) throw new Error("Wallet is on chain " + parseInt(chain, 16) + " — switch to Anvil 31337 first.");
+    say("Confirm in the wallet…");
+    const hash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [{ from, to: $("musd").value, data: SEL.faucet }],
+    });
+    say("Submitted " + hash.slice(0, 14) + "… waiting for receipt");
+    const rec = await waitReceipt(hash);
+    if (rec.status !== "0x1") throw new Error("transaction reverted");
+    say("Minted 100,000 mUSD to " + from.slice(0, 10) + "… ✓", "ok");
+    readBadges(from);
+  } catch (e) { say(e.message, "err"); }
+};
+
+// Path 2: Anvil's unlocked account #0 calls faucet(recipient, amount) — funds ANY address,
+// no wallet needed. Works only on a local Anvil (dev accounts are unlocked there).
+$("btnAnvil").onclick = async () => {
+  try {
+    const rcpt = $("rcpt").value.trim();
+    if (!isAddr(rcpt)) throw new Error("Enter a recipient address (0x…40 hex) for the Anvil path.");
+    const amount = BigInt(Math.round(parseFloat($("amt").value || "0") * 1e6));
+    if (amount <= 0n) throw new Error("Enter a positive amount.");
+    say("Sending from unlocked Anvil #0…");
+    const hash = await rpc("eth_sendTransaction", [{
+      from: ANVIL0, to: $("musd").value,
+      data: SEL.faucetTo + encAddr(rcpt) + encUint(amount),
+    }]);
+    const rec = await waitReceipt(hash);
+    if (rec.status !== "0x1") throw new Error("transaction reverted");
+    say(`Funded ${(Number(amount) / 1e6).toLocaleString()} mUSD to ${rcpt.slice(0, 10)}… ✓`, "ok");
+    readBadges(rcpt);
+  } catch (e) { say(e.message, "err"); }
+};
+
+$("rcpt").addEventListener("change", () => readBadges($("rcpt").value.trim()));
+readBadges(""); // populates the chain row even before an address is chosen
+rpc("eth_chainId", []).then((c) => {
+  $("chain").textContent = c === CHAIN_HEX ? "Anvil 31337 ✓" : "UNEXPECTED chain " + parseInt(c, 16);
+}).catch(() => { $("chain").textContent = "RPC unreachable at " + RPC; });
+</script>
+</body>
+</html>
