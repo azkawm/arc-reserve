@@ -82,6 +82,21 @@ contract DeployTestnet is Script {
     CountryAllowModule private countryModule;
     TransferLockModule private lockModule;
 
+    /// @dev Zero-flag convenience: `forge script script/DeployTestnet.s.sol:DeployTestnet` with
+    ///      no `--rpc-url` forks `TESTNET_RPC_URL` (default `BASE_SEPOLIA_RPC_URL`, both from
+    ///      contracts/.env) at the LATEST block. Never fork block 0: Base Sepolia's public node
+    ///      prunes old history and refuses it. Set `BLOCK_NUMBER` to pin a specific block.
+    ///      For the future Hedera leg, set `TESTNET_RPC_URL` to the Hedera relay.
+    function setUp() public {
+        string memory rpc = vm.envOr("TESTNET_RPC_URL", vm.envString("BASE_SEPOLIA_RPC_URL"));
+        uint256 blockNumber = vm.envOr("BLOCK_NUMBER", uint256(0));
+        if (blockNumber == 0) {
+            vm.createSelectFork(rpc);
+        } else {
+            vm.createSelectFork(rpc, blockNumber);
+        }
+    }
+
     function run() external returns (AssetFactory.Deployment memory deployment) {
         require(
             block.chainid == CHAIN_BASE_SEPOLIA || block.chainid == CHAIN_HEDERA_TESTNET,
