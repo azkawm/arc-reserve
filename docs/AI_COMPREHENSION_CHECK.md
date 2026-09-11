@@ -196,7 +196,8 @@ Scenario answers:
 ### Answers 31-40 and scenarios 9-12 (added 2026-08-27)
 
 31. Both sender and recipient, unless that leg's account is `complianceExempt`. Only non-investor
-    infrastructure (canonical pool, market manager, vesting wallet) may be exempt, set by the admin.
+    infrastructure (the canonical pool, the market manager — and any future vesting wallet, none
+    deployed under D-031) may be exempt, set by the admin.
     No — exemption is per leg; the pool's payout leg still requires a verified recipient.
 32. Transfer: no (`SenderNotVerified`). Sell into pool: no (same). Redeem: yes — burns skip the
     sender verification so principal is never trapped. Receive a forced transfer: only if the
