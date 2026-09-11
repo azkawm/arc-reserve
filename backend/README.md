@@ -48,8 +48,9 @@ mix a projection from block N with a view from block N+3 and call the pair coher
 
 ### Market price provenance
 
-`marketPrices()` is a real contract read, but on `MockUniswapV3Pool` it returns a number from a
-harness whose price does not move with trading. The pool's own bytecode decides the label: the mock
+`marketPrices()` is a real contract read, but on `MockUniswapV3Pool` the price comes from a demo
+harness. Since contracts task 10 it does move with trading, but by a linear stand-in (60 ticks per
+1,000 mUSD of input, capped per swap), not an impact curve. The pool's own bytecode decides the label: the mock
 carries test-only setters a canonical V3 pool does not, so `spot` and `twap` come back with `mock`
 provenance on Anvil and `onchain` only against a real pool. Serving the harness value as `onchain`
 is exactly the substitution D-019 forbids.
@@ -77,9 +78,10 @@ misread amounts.
 post-swap price, so aggregating it would produce candles whose prices came from somewhere other
 than the trade.
 
-**Synthetic.** `MockUniswapV3Pool` emits no canonical `Swap` and its price does not move with
-trading, so on Anvil there is no series to aggregate and anything on a chart is a drawing. The
-synthetic adapter produces that drawing explicitly: only behind `ALLOW_MOCK_MARKET_DATA=true`,
+**Synthetic.** Until something trades there is no series to aggregate. Since task 10 the demo
+pool emits canonical `Swap`, so the recommended demo path is real keeper swaps (`docs/DEMO.md`
+§4.1, verified 2026-09-11). The synthetic adapter is the fallback, and it produces its drawing
+explicitly: only behind `ALLOW_MOCK_MARKET_DATA=true`,
 always `source: "mock"`, and **deterministic** — seeded from the pool address and bucket time, so
 it cannot drift into looking like live discovery and two people running the demo see the same
 shape. It refuses to overwrite a canonical series.
@@ -87,6 +89,12 @@ shape. It refuses to overwrite a canonical series.
 With the flag off, `/candles` returns `503 MOCK_DISABLED` rather than an empty array. An empty
 array is indistinguishable from "this asset has never traded", which a chart draws as a flat line
 at zero.
+
+**Known labelling gap.** Candles aggregated from the *demo* pool come back `source: "canonical_swap"`,
+provenance `derived`, which is accurate about the events but not about the price model behind them.
+`spot` and `twap` already use `poolIsCanonical` to fall back to `mock`, but the candle route does not.
+Fixing it changes the Boundary C contract and the frontend's disclaimer logic, so it is proposed in
+`docs/stacks/HANDOFF_LOG.md` (2026-09-11) rather than changed unilaterally.
 
 ### Ticks are converted with integer math
 
@@ -281,7 +289,7 @@ cd ../contracts; forge script script/DeployLocal.s.sol:DeployLocal --rpc-url htt
 cd ../backend; npm run test
 ```
 
-140 tests: exact-decimal arithmetic, tick math, configuration validation, envelope and provenance
+175 tests (re-verified 2026-09-11 on `main`): exact-decimal arithmetic, tick math, configuration validation, envelope and provenance
 rules, log decoding, schema integrity against a real PostgreSQL (domains, idempotent ingestion,
 cascade rollback, atomic cursor advancement, multi-chain isolation), the startup guards, the health
 route, and three suites against a live chain.

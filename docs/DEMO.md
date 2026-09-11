@@ -45,6 +45,10 @@ anvil
 Keep this terminal running. Restarting Anvil without state persistence invalidates every previous
 address.
 
+Start it from a normal terminal, not from an agent tool session. An Anvil launched by an agent is
+killed when that session's processes are cleaned up, which surfaces later as `fetch failed` /
+`ECONNREFUSED` on 8545 rather than as an obvious crash.
+
 ## 4. Deploy and seed
 
 Terminal 2:
@@ -61,14 +65,62 @@ The first Anvil key is used by default. The script:
 2. submits and approves Solar Indonesia 01 at 1.000000 mUSD NAV;
 3. deploys token, vault, offering, revenue, redemption, pool, and market manager;
 4. activates the asset and hands component administration to the first account;
-5. creates a one-year company vesting wallet;
-6. marks vesting yield-excluded before funding it;
-7. mints 20,000 SOLAR01 to vesting and revokes the temporary mint role;
-8. configures reserve-floor, anchor, and discovery ranges; and
-9. deposits 20,000 mUSD into protected reserve.
+5. registers the demo identities and mints nothing: total supply starts at zero (D-031);
+6. configures reserve-floor, anchor, and discovery ranges; and
+7. deposits 20,000 mUSD into protected reserve.
 
-Addresses are printed and written to `contracts/deployments/31337.json`. Confirm that the newly
-generated file includes `companyVesting`; an older checked-in snapshot may not.
+Addresses are printed and written to `contracts/deployments/31337.json`. There is no
+`companyVesting` key any more: D-031 removed the issuer token allocation.
+
+### 4.1 Make the price chart real (do this before presenting)
+
+On a fresh deploy nothing has traded, so there is no price history. With the backend's default
+`ALLOW_MOCK_MARKET_DATA=false`, `GET /v1/assets/:assetId/candles` returns `503 MOCK_DISABLED` and the
+asset page's chart shows **Unavailable**. That is deliberate (an empty chart is indistinguishable
+from "never traded"), but it is not what you want on stage.
+
+**Recommended: real swaps through the demo pool.** Since contracts task 10 the mock pool emits
+canonical `Swap` events, and the backend turns them into `canonical_swap` candles with no config
+change. A single keeper swap after a *default* deploy does not work: the market maker holds no
+inventory until the deploy is seeded, and the seeded pool holds only 1,000 base units of each token,
+so any swap large enough to move the price reverts. Deploy with seeding instead of the command above:
+
+```powershell
+cd contracts
+$env:DEMO_SEED_LIQUIDITY = "true"
+forge script script/DeployLocal.s.sol:DeployLocal `
+  --rpc-url http://127.0.0.1:8545 --broadcast
+Remove-Item Env:DEMO_SEED_LIQUIDITY
+```
+
+Seeding makes one real 10,000 mUSD purchase, so supply is no longer zero. Then, as the deployer
+(Anvil #0 holds `KEEPER_ROLE`), deepen the anchor position and make three swaps. Each swap is sized
+below the pool's balance of the token it pays out:
+
+```powershell
+$mm = (Get-Content deployments/31337.json | ConvertFrom-Json).marketManager
+$rpc = "http://127.0.0.1:8545"
+$from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+$deadline = [int](cast block latest -f timestamp --rpc-url $rpc) + 3600
+cast send $mm "addLiquidity((uint8,uint128,uint256,uint256,uint256,uint256,uint256))" "(1,100000000,200000000,200000000,0,0,$deadline)" --unlocked --from $from --rpc-url $rpc
+cast send $mm "executeSwap((bool,int256,uint160,uint256,uint256,uint256))" "(true,60000000,4295128740,60000000,0,$deadline)" --unlocked --from $from --rpc-url $rpc
+cast send $mm "executeSwap((bool,int256,uint160,uint256,uint256,uint256))" "(false,30000000,1461446703485210103287273052203988822378723970341,30000000,0,$deadline)" --unlocked --from $from --rpc-url $rpc
+cast send $mm "executeSwap((bool,int256,uint160,uint256,uint256,uint256))" "(true,50000000,4295128740,50000000,0,$deadline)" --unlocked --from $from --rpc-url $rpc
+```
+
+Expected: every `cast send` reports `status 1 (success)` and the pool tick moves 276324 → 276319.
+The backend indexes the swaps within a second; `/candles?interval=60` then returns one
+`canonical_swap` bar near 1.0003–1.0005 mUSD with three trades.
+
+**Say this out loud when you show the chart.** These are real onchain swap events, but the pool is
+a demo AMM: its price moves by a linear stand-in (60 ticks per 1,000 mUSD of input), not an impact
+curve, with no tick crossing, fee growth or liquidity exhaustion. The chart currently badges these
+candles **Derived** and does not show the demo-feed disclaimer. That is a known labelling gap
+(`docs/stacks/HANDOFF_LOG.md`, 2026-09-11 backend entry), so the presenter has to carry the caveat.
+
+**Fallback: synthetic feed.** If you cannot run the swaps, restart the backend with
+`ALLOW_MOCK_MARKET_DATA=true`. The chart then shows a deterministic synthetic series badged **Mock**,
+with its disclaimer. Use this only if the swap path fails.
 
 ## 5. Configure the frontend
 
@@ -294,6 +346,8 @@ Base-unit output is expected: SOLAR01 uses 18 decimals; mUSD values use 6 decima
 | NAV update reverts | More than 20% move or wrong status/role | Use bounded value and verifier account |
 | Mark matured reverts | Maturity timestamp not reached | Demonstrate through test/time warp, not UI |
 | Engine action reverts | Hardcoded ticks, no direction signal, cooldown, stale NAV, wrong token ordering | Use focused Foundry tests or calculate live range |
+| Price chart shows **Unavailable** | Nothing has traded and `ALLOW_MOCK_MARKET_DATA=false`, so `/candles` returns `503 MOCK_DISABLED` | Run §4.1, or restart the backend with `ALLOW_MOCK_MARKET_DATA=true` for the labelled synthetic feed |
+| Keeper swap reverts | Output exceeds the pool's balance of the output token, or spot drifted more than 3% from TWAP | Keep swaps at or below the §4.1 sizes; re-run §4.1 on a fresh chain if needed |
 | Claim shows 142.80 without deployment | Fixture fallback | Do not describe it as live |
 
 ## 12. Closing proof

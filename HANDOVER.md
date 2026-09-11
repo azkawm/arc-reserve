@@ -118,6 +118,9 @@ Do these in order; do not skip 5:
 - `.gitattributes` pins LF; ignore CRLF warnings.
 - Anvil addresses die with the chain: after every fresh `anvil`, redeploy, then re-sync
   `frontend/.env.local` and the backend addresses from `contracts/deployments/31337.json`.
+- Start `anvil` from a normal terminal and leave it open. An Anvil launched from an agent tool
+  session is killed when that session's process tree is cleaned up — mid-deploy or mid-test — which
+  surfaces as `fetch failed` / `ECONNREFUSED` on 8545 rather than as an obvious crash.
 - Anvil keys never leave Anvil; testnet deployer keys go in untracked `.env` files only.
 
 ## 8. Known stale spots (honesty section)

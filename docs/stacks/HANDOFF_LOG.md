@@ -632,3 +632,50 @@ main; `depositReserve` (D-023) and `approveAsset(...,termsHash)` (D-026) have no
 Interface changes: none
 Needs: owner — grade the frontend agent's comprehension answers; confirm testnet-first sequencing;
 provide funded Base Sepolia / Hedera testnet deployer keys when the deploy script lands.
+
+## 2026-09-11 — backend — Architect's assignments: demo chart path, re-verification, open findings
+Branch: main   Commit: (this commit)
+What:
+- **Re-verified the backend suite on `main`: 175/175 green.** Fixed the stale "140 tests" in
+  `backend/README.md`. The 175 in `CLAUDE.md` is still correct, so it didn't need changing.
+- **Worked out and verified the chart path on a fresh Anvil, then wrote it into `docs/DEMO.md`
+  §4.1.** "One keeper swap after deploy" does **not** work on a default deploy, for two reasons:
+  - the market maker holds no inventory until the deploy runs with `DEMO_SEED_LIQUIDITY=true`;
+  - the seeded pool holds only 1,000 base units of each token and pays each swap's output from that
+    balance, so any swap big enough to move the price reverts.
+
+  What does work: a seeded deploy, then `addLiquidity(Anchor, 1e8)`, then three keeper swaps each
+  sized below the pool's balance of the token it pays out. With `ALLOW_MOCK_MARKET_DATA=false`,
+  `/candles` then returns 200 `canonical_swap`. The 1-minute bar was O 1.000302 / H 1.000502 /
+  L 1.000202 / C 1.000502, from 3 trades and 139.7 mUSD of stable volume. Ticks went 276324 →
+  276321 → 276322 → 276319, exactly as predicted. `ALLOW_MOCK_MARKET_DATA=true` is documented as
+  the fallback.
+- `HANDOVER.md` §7 and `DEMO.md` §3 now say Anvil must run in a normal terminal.
+- `DEMO.md` §4 no longer lists the vesting steps or the `companyVesting` check, both removed by D-031.
+- `DEMO.md` §11 gained recovery rows for an **Unavailable** chart and a reverting swap.
+
+Carried over from my 2026-09-11 status report, as assigned:
+- The `?chainId=` query parameter is reserved in Boundary C but not implemented. Held until the
+  testnet deployments land; after that it's my next task.
+- The testnet indexer settings are unverified: `START_BLOCK` = factory deploy block,
+  `CONFIRMATIONS` > 0, and a `MAX_BLOCK_RANGE` the hashio relay actually accepts. I'll measure
+  these rather than assume them.
+- An optional route showing role-grant activity (a D-032 showcase) is parked behind everything above.
+- Checking the frontend renders in a real browser was routed to the frontend agent; the stale
+  `frontend/kyc-and-correctness` branch is with the architect.
+
+New finding — needs a decision:
+- **Candles from the demo pool are labelled `derived`, not `mock`.** The swaps are real onchain
+  events, but the price comes from the stand-in model (a fixed linear impact per unit of input).
+  The frontend therefore shows these candles with a **Derived** badge and hides its demo-feed
+  disclaimer, which only fires for `source: "mock"`. That contradicts the commitment, made when
+  task 10 landed, that the chart stays mock-badged.
+  - Proposed fix: the candle route decides provenance with `poolIsCanonical`, the same check
+    `spot` and `twap` already use. That needs a Boundary C CHANGED row.
+  - The frontend would also key its disclaimer on provenance instead of `source`.
+  - I haven't changed anything yet, because it's an interface change. Until it's decided,
+    `DEMO.md` §4.1 tells the presenter to say the caveat out loud.
+
+Interface changes: none.
+Needs: the architect decides on the demo-pool candle labelling fix above (it touches backend and
+frontend).
