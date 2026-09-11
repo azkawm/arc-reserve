@@ -8,15 +8,16 @@ import { candlesSchema } from '../schemas/assets.js';
 import * as repo from '../repository.js';
 import { CANDLE_INTERVALS } from '../../candles/aggregate.js';
 import { storeSyntheticCandles } from '../../candles/synthetic.js';
-import { readAssetSnapshot } from '../../chain/snapshot.js';
+import { poolIsCanonical, readAssetSnapshot } from '../../chain/snapshot.js';
 import type { ApiDeps } from './context.js';
 
 /**
  * `GET /v1/assets/:assetId/candles`
  *
- * Two sources, never blended. Real `Swap` logs produce `canonical_swap` candles served with
- * `derived` provenance. Where no canonical pool exists — every Anvil demo today — the route
- * serves the explicitly synthetic series, `source: "mock"`, and only when
+ * Two sources, never blended. Real `Swap` logs produce `canonical_swap` candles. Their
+ * provenance is `derived` only when the pool is a canonical V3 pool; the Anvil demo pool's swaps
+ * are real events priced by a stand-in, so they are served `mock`. Where no swaps have been
+ * indexed the route serves the explicitly synthetic series, `source: "mock"`, and only when
  * `ALLOW_MOCK_MARKET_DATA=true`. With the flag off it returns `MOCK_DISABLED` rather than an
  * empty array, because an empty array is indistinguishable from "this asset has never
  * traded", and a chart would draw that as a flat line at zero.
@@ -58,6 +59,7 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
     if (cursor === null) throw new ApiError('INDEXER_BEHIND', 'nothing has been indexed yet');
 
     const pool = deployment.pool;
+    const canonicalPool = await poolIsCanonical(client, pool as `0x${string}`);
     let source = await repo.getCandleSource(db, config.CHAIN_ID, pool, query.data.interval);
 
     if (source === null || source === 'mock') {
@@ -129,9 +131,11 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
       payload,
       buildMeta({
         chainId: config.CHAIN_ID,
-        // A synthetic series is `mock` at the envelope level too: nothing about it is derived
-        // from chain activity, so labelling the response `derived` would be a lie of category.
-        provenance: source === 'mock' ? 'mock' : 'derived',
+        // `source` and `provenance` answer different questions. `source` says where the candle's
+        // events came from; `provenance` says whether the price is market data. Real `Swap` events
+        // from the demo pool are priced by a linear stand-in, so they stay `canonical_swap` but are
+        // `mock` (D-019) - the same bytecode check that already labels `spot` and `twap`.
+        provenance: source === 'mock' || !canonicalPool ? 'mock' : 'derived',
         staleAfterSeconds: config.STALE_AFTER_SECONDS,
         cursor,
         latestBlock: await client.getBlockNumber().catch(() => null),

@@ -679,3 +679,20 @@ New finding — needs a decision:
 Interface changes: none.
 Needs: the architect decides on the demo-pool candle labelling fix above (it touches backend and
 frontend).
+
+## 2026-09-11 — backend — Demo-pool candles are labelled `mock`
+
+The architect approved the candle provenance fix proposed in the entry above.
+- `/candles` now sets `meta.provenance` to `mock` whenever the pool is not a canonical V3 pool,
+  using the same `poolIsCanonical` bytecode check as `spot` and `twap`. `source` stays
+  `"canonical_swap"` for real `Swap` events. `source` says where the events came from;
+  `provenance` says whether the price is market data (D-019).
+- `test/integration/candle-provenance.test.ts` covers both pools: the demo pool gives
+  `canonical_swap` + `mock`, a canonical pool gives `canonical_swap` + `derived`.
+- `DEMO.md` changes: the §4.1 caveat now describes the fix. The §1, §2 and §6 sections were
+  checked against `DeployLocal`: 247 contract tests; Anvil #0/#1/#2 registered as
+  institutional/accredited/retail; no vesting beneficiary under D-031.
+
+Interface changes: Boundary C CHANGED row, 2026-09-11 (`/candles` provenance).
+Needs: frontend (arcreserve-19) to key the chart badge and demo-feed disclaimer on
+`meta.provenance` instead of `source`.

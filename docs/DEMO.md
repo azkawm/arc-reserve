@@ -9,8 +9,9 @@ Use Anvil accounts as follows:
 
 | Account | Demo role |
 | --- | --- |
-| First Anvil account | Issuer, verifier, protocol admin, keeper, revenue depositor, vesting beneficiary |
-| Second Anvil account | Investor |
+| Anvil #0 | Issuer, verifier, protocol admin, keeper, revenue depositor. Registered as institutional |
+| Anvil #1 | Investor. Registered as accredited (or whichever wallet `DEMO_INVESTOR` names) |
+| Anvil #2 | Retail investor. Registered only so the 5,000 mUSD retail cap can be shown |
 
 Copy private keys only from the local Anvil terminal. Never use Anvil keys on a public network.
 
@@ -23,7 +24,7 @@ cd contracts
 C:\Users\willi\.foundry\bin\forge.exe test
 ```
 
-Expected baseline: 56 passed, 0 failed, 0 skipped.
+Expected baseline: 247 passed, 0 failed, 0 skipped.
 
 Verify the frontend separately:
 
@@ -114,9 +115,11 @@ The backend indexes the swaps within a second; `/candles?interval=60` then retur
 
 **Say this out loud when you show the chart.** These are real onchain swap events, but the pool is
 a demo AMM: its price moves by a linear stand-in (60 ticks per 1,000 mUSD of input), not an impact
-curve, with no tick crossing, fee growth or liquidity exhaustion. The chart currently badges these
-candles **Derived** and does not show the demo-feed disclaimer. That is a known labelling gap
-(`docs/stacks/HANDOFF_LOG.md`, 2026-09-11 backend entry), so the presenter has to carry the caveat.
+curve, with no tick crossing, fee growth or liquidity exhaustion. The API labels these
+candles correctly: `source: "canonical_swap"` (the events are real) with `provenance: "mock"` (the
+price is not). The chart badge follows once the frontend keys its badge and disclaimer on
+`provenance` (Boundary C change log, 2026-09-11). Until that lands the chart still shows
+**Derived** without the demo-feed disclaimer, so say the caveat out loud.
 
 **Fallback: synthetic feed.** If you cannot run the swaps, restart the backend with
 `ALLOW_MOCK_MARKET_DATA=true`. The chart then shows a deterministic synthetic series badged **Mock**,
@@ -142,10 +145,13 @@ Open `http://localhost:3000` and connect the intended Anvil wallet.
 
 ## 6. Fund the investor with demo mUSD
 
-SOLAR01 is a permissioned token. The deploy script registers only Anvil account #0 (deployer) and
-Anvil account #1 (investor) in the `IdentityRegistry`. Connecting any other wallet will make every
-purchase revert with `RecipientNotVerified()`. To use a different investor wallet either set
-`DEMO_INVESTOR=0x...` before running the script, or register it afterwards from account #0:
+SOLAR01 is a permissioned token. The deploy script registers three wallets in the
+`IdentityRegistry`, all in country 360 (Indonesia): Anvil #0 (deployer) as institutional, Anvil #1
+(investor) as accredited, and Anvil #2 as retail. Connecting any other wallet will make every
+purchase revert with `RecipientNotVerified()`. Investor classes are 1 retail, 2 accredited and
+3 institutional; the `cast` example below registers a retail wallet. To use a different investor
+wallet either set `DEMO_INVESTOR=0x...` before running the script, or register it afterwards from
+account #0:
 
 ```powershell
 cast send $env:IDENTITY_REGISTRY "registerIdentity(address,address,uint16,uint8,uint64)" `

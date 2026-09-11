@@ -25,6 +25,8 @@ export interface StubChain {
   latestBlock?: bigint;
   /** Lowercase address -> has code. Anything absent is treated as deployed. */
   code?: Record<string, boolean>;
+  /** Lowercase address -> exact bytecode, for tests that inspect code (e.g. the mock-pool check). */
+  bytecode?: Record<string, string>;
   /** Block number -> hash. A number that is absent behaves like a block past the head. */
   blocks?: Record<string, string>;
   failWith?: Error;
@@ -40,6 +42,7 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
     chainId = 31337,
     latestBlock = 100n,
     code = {},
+    bytecode = {},
     blocks = {},
     failWith,
   } = options;
@@ -55,6 +58,8 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
     },
     async getCode({ address }: { address: string }) {
       if (failWith) throw failWith;
+      const exact = bytecode[address.toLowerCase()];
+      if (exact !== undefined) return exact;
       const has = code[address.toLowerCase()] ?? true;
       return has ? '0x60806040' : '0x';
     },

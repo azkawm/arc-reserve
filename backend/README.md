@@ -90,11 +90,11 @@ With the flag off, `/candles` returns `503 MOCK_DISABLED` rather than an empty a
 array is indistinguishable from "this asset has never traded", which a chart draws as a flat line
 at zero.
 
-**Known labelling gap.** Candles aggregated from the *demo* pool come back `source: "canonical_swap"`,
-provenance `derived`, which is accurate about the events but not about the price model behind them.
-`spot` and `twap` already use `poolIsCanonical` to fall back to `mock`, but the candle route does not.
-Fixing it changes the Boundary C contract and the frontend's disclaimer logic, so it is proposed in
-`docs/stacks/HANDOFF_LOG.md` (2026-09-11) rather than changed unilaterally.
+**Demo-pool candles are labelled `mock`.** Candles built from the demo pool keep
+`source: "canonical_swap"`, because they really are built from onchain `Swap` events. The envelope's
+`provenance` is `mock`, though, decided by the same `poolIsCanonical` bytecode check that labels `spot`
+and `twap`. `source` answers "where did the events come from"; `provenance` answers "is this price
+market data" (D-019). Boundary C has the CHANGED row, dated 2026-09-11.
 
 ### Ticks are converted with integer math
 
@@ -289,7 +289,7 @@ cd ../contracts; forge script script/DeployLocal.s.sol:DeployLocal --rpc-url htt
 cd ../backend; npm run test
 ```
 
-175 tests (re-verified 2026-09-11 on `main`): exact-decimal arithmetic, tick math, configuration validation, envelope and provenance
+177 tests (re-verified 2026-09-11 on `main`): exact-decimal arithmetic, tick math, configuration validation, envelope and provenance
 rules, log decoding, schema integrity against a real PostgreSQL (domains, idempotent ingestion,
 cascade rollback, atomic cursor advancement, multi-chain isolation), the startup guards, the health
 route, and three suites against a live chain.
