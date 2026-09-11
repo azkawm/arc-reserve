@@ -730,3 +730,74 @@ currently holds 0 ETH on Base Sepolia — broadcast waits only on faucet funding
 Interface changes: none (new script only; deployment JSON gains chainId/poolFactory/poolIsCanonical keys).
 Needs: owner funds the deployer, then runs the §broadcast command; Contract Arch to review the
 script and own the Hedera (296) leg + real-broadcast verification flags (--verify with Basescan).
+
+## 2026-09-11 — contracts — Review of DeployTestnet.s.sol: Hedera blocked by the 15M cap; ranges inverted on Base
+Branch: main   Commit: (uncommitted — review only; no source files changed)
+What: adversarial review of the architect's `script/DeployTestnet.s.sol` (266f974), plus measurement.
+
+**CRITICAL — Hedera (296) cannot deploy with the current factory.** On a local Anvil with chain id
+296 (the mock path Hedera uses), throwaway key, `--slow`: 43 transactions, 45,863,028 gas in total, with
+`deployAssetSystem` using **15,294,153** — 294,153 (~2%) over Hedera's hard 15,000,000 per-transaction
+cap (docs.hedera.com "Gas and Fees": rejected at precheck with `INDIVIDUAL_TX_GAS_LIMIT_EXCEEDED`).
+Forge's default 130% multiplier puts the limit at 22.4M, so it fails precheck regardless. Options:
+two-phase factory (recommended; changes AssetFactory's interface), shave ~300k gas (fragile), bypass the
+factory on Hedera (breaks the D-026 demonstration), or defer Hedera. Owner decision. Ruled out: Hedera's
+24KB creation cap (largest directly deployed contract: MarketDeployer 18,877 B), and child-address
+drift (HIP-729, Final v0.40: contract nonces start at 1 and CREATE derives child addresses EVM-style).
+
+**HIGH — position ranges are price-inverted for the token1 ordering**, which is the live branch on Base
+Sepolia (pool at +276,324, `assetIsToken0 == false`) and on local Anvil. `_configureMarket` in both
+DeployTestnet and DeployLocal (and `ArcReserveTestBase._configurePositions`) place ReserveFloor at
+274,800–276,000 (above $1 in asset-price terms) and Discovery at 276,600–278,400 (below $1). Fix: swap
+them for token1 — floor (276_600, 278_400), discovery (274_800, 276_000). Found in task 7 and fixed only
+in my own test fixture; the scripts were missed.
+
+**MEDIUM**
+- A fresh canonical pool reverts `OLD` from `marketPrices()` / `safetyState()` (pinned §9 views) and
+  all eight `_enforceSafety` callers for 30 minutes. It self-recovers, but cardinality 60 covers only 60
+  pool-touching blocks per 30-minute window — raise it to ~900 on Base or document the bound. Backend and
+  frontend should show those reverts as "TWAP warming up".
+- `collectFees` doesn't poke (`burn(lower, upper, 0)`) before `collect` on a real pool, so fees are reported
+  stale (none lost). `removeLiquidity` is correct.
+- `executeSwap` forwards `sqrtPriceLimitX96`; 0 works on the mock and reverts `SPL` on a real pool.
+- D-026 binds only `DeploymentParams`. The seed reserve, reserve schedule, class caps, maturity window,
+  reporting cadence, compliance modules, ranges, floor, yield grant and splits are all set after deploy
+  and remain admin-settable, so task 8's "closes the approved-X, deployed-Y gap" claim holds only for
+  factory parameters. Recommend documenting under D-029 now and adding a policy hash plus
+  `sealConfiguration()` later.
+
+**LOW**
+- The ordering `require` and all simulated addresses are checked only during simulation — add a
+  post-broadcast diff of `registry.getAsset(assetId).contracts_` against `deployments/<chainId>.json`.
+- Untracked `deployments/84532.json` came from a fork rehearsal with sender `0x293a…a91e`, not the
+  owner's deployer, so its addresses won't match the real broadcast: don't commit it. Clear
+  `broadcast/DeployTestnet.s.sol/84532/` before the real run.
+- That rehearsal's receipt log shows 16 transactions with gas used above their own limit, so its
+  per-transaction figures are untrustworthy. Use `--slow` for the real broadcast.
+
+Verified correct: PRIVATE_KEY required and Anvil keys refused under broadcast; the Base factory pin;
+`initialSqrtPriceX96` for both orderings; FloorController start tick; `evm_version = "cancun"` (no bytecode
+change); component deployers use CREATE.
+Funding estimate: Base Sepolia ~0.0003 ETH (48.6M gas × 0.006 gwei); Hedera ~54 HBAR once the cap is solved.
+Interface changes: none.
+Needs: owner — (1) the Hedera route: two-phase factory vs defer; (2) go-ahead to fix the inverted ranges
+in DeployTestnet, DeployLocal and the test base before the real Base broadcast.
+
+## 2026-09-12 — architect — Review findings actioned: range inversion fixed, ring 900, D-026 note
+Branch: main   Commit: (this commit)
+What: from Contract Arch's DeployTestnet review. (1) HIGH range inversion fixed in all three
+places — DeployTestnet, DeployLocal, ArcReserveTestBase else-branches now put the reserve floor at
+the high-tick end and discovery at the low-tick end for the stable-first ordering (matching the
+FloorController fixture); 247 tests green on the fixed layout, and a fresh fork rehearsal deployed
+clean (this run happened to come out asset-as-token0, so both orderings have now been exercised).
+(2) MEDIUM TWAP ring: increaseObservationCardinalityNext raised 60 → 900. (3) D-026 scope note
+added to DECISIONS (option iii accepted for the demo; sealConfiguration() is the production path).
+(4) Fork artifacts (deployments/84532.json, broadcast/DeployTestnet.s.sol) deleted; the real
+84532.json only ever comes from the owner's broadcast, run with --slow.
+Still open from the review: CRITICAL Hedera 15M cap (owner decision: split factory vs defer —
+architect recommends defer, ship Base first); MEDIUM collectFees pre-poke and executeSwap
+sqrtPriceLimit bounds (AssetMarketManager changes — contracts backlog); LOW post-broadcast
+address re-check; cross-stack "TWAP warming up" rendering for safetyState/marketPrices reverts
+(backend + frontend backlog).
+Interface changes: none
+Needs: owner — Hedera decision (defer recommended); faucet funding for 0xE0Dc…1E61, then broadcast.

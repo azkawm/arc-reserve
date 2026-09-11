@@ -228,18 +228,23 @@ contract DeployTestnet is Script {
                 AssetMarketManager.PositionKind.Discovery, -276_000, -274_800
             );
         } else {
-            market.configureCorePositions(274_800, 276_000, 276_000, 276_600);
+            // Higher tick = LOWER asset price when the stable is token0: the reserve floor sits
+            // at the high-tick end and discovery at the low-tick end, mirroring the token0 layout
+            // in price space. (Review 2026-09-12: DeployLocal's else-branch had these swapped.)
+            market.configureCorePositions(276_600, 278_400, 276_000, 276_600);
             market.configureOptionalPosition(
-                AssetMarketManager.PositionKind.Discovery, 276_600, 278_400
+                AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
         if (poolIsCanonical) {
             // Real pool: no test oracle. Grow the observation ring so the 30-minute TWAP can
-            // accumulate; the manager's TWAP-gated paths stay dormant until it has.
+            // accumulate; the manager's TWAP-gated paths stay dormant until it has. 900 slots
+            // keep the 30-minute window covered even through a burst of ~2s blocks touching the
+            // pool every block; 60 slots would shrink the ring below 1800s under such a burst.
             (bool ok,) = deployment.pool
                 .call(
                     abi.encodeWithSignature(
-                        "increaseObservationCardinalityNext(uint16)", uint16(60)
+                        "increaseObservationCardinalityNext(uint16)", uint16(900)
                     )
                 );
             require(ok, "DeployTestnet: increaseObservationCardinalityNext failed");

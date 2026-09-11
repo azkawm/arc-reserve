@@ -153,9 +153,11 @@ abstract contract ArcReserveTestBase is Test {
                 AssetMarketManager.PositionKind.Discovery, -276_000, -274_800
             );
         } else {
-            market.configureCorePositions(274_800, 276_000, 276_000, 276_600);
+            // Higher tick = LOWER asset price when the stable is token0: reserve floor at the
+            // high-tick end, discovery at the low-tick end (fixed 2026-09-12; was inverted).
+            market.configureCorePositions(276_600, 278_400, 276_000, 276_600);
             market.configureOptionalPosition(
-                AssetMarketManager.PositionKind.Discovery, 276_600, 278_400
+                AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
     }
