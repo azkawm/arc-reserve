@@ -149,14 +149,41 @@ async function waitReceipt(hash) {
   throw new Error("no receipt after 15s");
 }
 
+// The wallet's own selected network is independent of this page's RPC. If it sits on
+// Ethereum mainnet (MetaMask's default), switch it to Anvil — adding the network first
+// if the wallet has never seen it.
+async function ensureAnvilNetwork() {
+  const chain = await window.ethereum.request({ method: "eth_chainId" });
+  if (chain === CHAIN_HEX) return;
+  say("Wallet is on chain " + parseInt(chain, 16) + " — asking it to switch to Anvil 31337…");
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: CHAIN_HEX }],
+    });
+  } catch (e) {
+    if (e.code !== 4902) throw e; // 4902 = network unknown to the wallet
+    await window.ethereum.request({
+      method: "wallet_addEthereumChain",
+      params: [{
+        chainId: CHAIN_HEX,
+        chainName: "Anvil (ArcReserve demo)",
+        rpcUrls: [RPC],
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      }],
+    });
+  }
+  const after = await window.ethereum.request({ method: "eth_chainId" });
+  if (after !== CHAIN_HEX) throw new Error("Wallet did not switch to Anvil 31337 — switch it manually and retry.");
+}
+
 // Path 1: the connected wallet calls faucet() itself (mints 100,000 mUSD to caller).
 $("btnWallet").onclick = async () => {
   try {
     if (!window.ethereum) throw new Error("No wallet extension found. Use the Anvil path instead.");
     say("Requesting wallet…");
     const [from] = await window.ethereum.request({ method: "eth_requestAccounts" });
-    const chain = await window.ethereum.request({ method: "eth_chainId" });
-    if (chain !== CHAIN_HEX) throw new Error("Wallet is on chain " + parseInt(chain, 16) + " — switch to Anvil 31337 first.");
+    await ensureAnvilNetwork();
     say("Confirm in the wallet…");
     const hash = await window.ethereum.request({
       method: "eth_sendTransaction",
