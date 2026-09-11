@@ -111,6 +111,18 @@ const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a);
 
 function say(msg, cls) { $("status").innerHTML = `<span class="${cls || "muted"}">${msg}</span>`; }
 
+// Exact 6-decimal handling with BigInt only — no floats on base units.
+function parseMusd(text) {
+  const m = String(text).trim().match(/^(\d+)(?:\.(\d{1,6}))?$/);
+  if (!m) throw new Error("Amount must be a plain number with at most 6 decimals.");
+  return BigInt(m[1]) * 1000000n + BigInt((m[2] || "").padEnd(6, "0") || "0");
+}
+function fmtMusd(base) {
+  const b = BigInt(base);
+  const frac = (b % 1000000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return (b / 1000000n).toLocaleString("en-US") + (frac ? "." + frac : "");
+}
+
 async function rpc(method, params) {
   const res = await fetch(RPC, {
     method: "POST", headers: { "content-type": "application/json" },
@@ -125,7 +137,7 @@ async function readBadges(addr) {
   if (!isAddr(addr)) return;
   try {
     const bal = await rpc("eth_call", [{ to: $("musd").value, data: SEL.balanceOf + encAddr(addr) }, "latest"]);
-    $("bal").textContent = (Number(BigInt(bal)) / 1e6).toLocaleString() + " mUSD";
+    $("bal").textContent = fmtMusd(bal) + " mUSD";
   } catch (e) { $("bal").textContent = "unreadable: " + e.message; }
   try {
     const v = await rpc("eth_call", [{ to: $("reg").value, data: SEL.isVerified + encAddr(addr) }, "latest"]);
@@ -203,8 +215,11 @@ $("btnAnvil").onclick = async () => {
   try {
     const rcpt = $("rcpt").value.trim();
     if (!isAddr(rcpt)) throw new Error("Enter a recipient address (0x…40 hex) for the Anvil path.");
-    const amount = BigInt(Math.round(parseFloat($("amt").value || "0") * 1e6));
+    const amount = parseMusd($("amt").value || "0");
     if (amount <= 0n) throw new Error("Enter a positive amount.");
+    if (await rpc("eth_chainId", []) !== CHAIN_HEX) {
+      throw new Error("RPC at " + RPC + " is not Anvil 31337 — refusing to send.");
+    }
     say("Sending from unlocked Anvil #0…");
     const hash = await rpc("eth_sendTransaction", [{
       from: ANVIL0, to: $("musd").value,
@@ -212,7 +227,7 @@ $("btnAnvil").onclick = async () => {
     }]);
     const rec = await waitReceipt(hash);
     if (rec.status !== "0x1") throw new Error("transaction reverted");
-    say(`Funded ${(Number(amount) / 1e6).toLocaleString()} mUSD to ${rcpt.slice(0, 10)}… ✓`, "ok");
+    say(`Funded ${fmtMusd(amount)} mUSD to ${rcpt.slice(0, 10)}… ✓`, "ok");
     readBadges(rcpt);
   } catch (e) { say(e.message, "err"); }
 };
