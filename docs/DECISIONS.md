@@ -390,6 +390,16 @@ Status: accepted 2026-08-27; **implemented 2026-08-30** (contracts task 8:
 `AssetRegistry.approveAsset(assetId, initialNAV, termsHash)` / `reapproveTerms` / `termsHashOf`,
 `AssetFactory` `TermsMismatch()` gate, `test/unit/TermSheetBinding.t.sol`).
 
+**Scope note (2026-09-12, from the DeployTestnet review).** The hash binds only
+`DeploymentParams`. Policies configured after deployment — seed reserve, reserve schedule, class
+caps, maturity window, reporting cadence, compliance modules, market ranges, floor start/cooldown,
+yield grant, revenue splits — sit outside it and remain admin-settable, so "closes the
+approved-X-deployed-Y gap" holds for factory parameters only. Accepted for the demo under the
+single admin key (D-029); the production path is a policy hash recorded at approval plus a
+permissionless `sealConfiguration()` that gates `buy()` until the live configuration matches.
+Folding the policies into `DeploymentParams` is rejected: it would push `deployAssetSystem`
+further past Hedera's 15M per-transaction gas cap.
+
 **Two implementation choices worth recording.** A zero `termsHash` is rejected rather than treated as
 "unbound" - an unbound approval would let any parameters through, which is the exact hole this
 decision closes. And `reapproveTerms` is restricted to the `Approved` state: once the system is
