@@ -707,3 +707,26 @@ mUSD, isVerified encoding correct. DEMO.md §6 documents it. Static public asset
 touched — additive to the frontend stack; arcreserve-19 informed.
 Interface changes: none
 Needs: nothing
+
+## 2026-09-11 — architect — DeployTestnet.s.sol: Base Sepolia ready pending funding
+Branch: main   Commit: (this commit)
+What: owner asked the architect session directly to create the testnet script while Contract Arch
+held for in-window confirmation. `script/DeployTestnet.s.sol`: chains 84532/296 only (31337 keeps
+DeployLocal, mainnet refused); PRIVATE_KEY hard-required with the ten Anvil dev keys refused in
+broadcast context; Base Sepolia uses the canonical Uniswap V3 factory
+0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24 (verified from Uniswap's official deployments page and
+onchain: feeAmountTickSpacing(3000)=60; note the same address is V2 Router02 on Base mainnet —
+chain-specific, never copy); Hedera keeps the mock factory. Token-ordering is predicted via
+vm.computeCreateAddress and asserted post-deploy; the pool initializes at exactly 1.000000 mUSD for
+either ordering; canonical path grows observation cardinality (TWAP-gated manager ops stay dormant
+until the ring ages — expected) and skips setOracleForTest/seeding. foundry.toml pins
+evm_version = "cancun" (Hedera Besu ceiling; bytecode unchanged, 247 tests green).
+Verified on an Anvil fork of Base Sepolia (real factory bytecode): full broadcast succeeded, pool
+created by the canonical factory, slot0 tick +276324, fee 3000; both key guards fire. Fork
+artifacts deleted — deployments/84532.json will only ever come from a real broadcast.
+Gas measured on the fork: ~48.6M total → 0.02 Base Sepolia ETH is ample funding.
+Owner state: contracts/.env exists with a fresh key; deployer 0xE0Dc359551aDe384cC4c90f89100016898aC1E61
+currently holds 0 ETH on Base Sepolia — broadcast waits only on faucet funding.
+Interface changes: none (new script only; deployment JSON gains chainId/poolFactory/poolIsCanonical keys).
+Needs: owner funds the deployer, then runs the §broadcast command; Contract Arch to review the
+script and own the Hedera (296) leg + real-broadcast verification flags (--verify with Basescan).

@@ -5,6 +5,10 @@ libs = ["lib"]
 test = "test"
 script = "script"
 solc_version = "0.8.24"
+# D-027: pinned to what Hedera testnet supports (Besu is Cancun-configured as of release 0.50;
+# docs.hedera.com "Deploying Smart Contracts"). Matches today's Foundry default for 0.8.24, so
+# bytecode is unchanged; the pin only stops a future Foundry default from breaking the Hedera path.
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
