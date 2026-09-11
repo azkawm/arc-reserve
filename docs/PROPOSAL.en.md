@@ -125,6 +125,30 @@ Five distinct price references (market spot, TWAP, verified NAV, floor level, re
 **deliberately kept separate** throughout the system — they are never collapsed into one
 misleading number.
 
+### What happens if the issuer cannot pay
+
+The failure path is a designed, onchain-enforced escalation ladder — not a private negotiation:
+
+```text
+behind schedule → 30-day grace → SHORTFALL (automatic) → 90 days → DEFAULT (verifier)
+```
+
+| Stage | Trigger | What happens |
+| --- | --- | --- |
+| **Shortfall** (automatic) | Backing below the published schedule for >30 days | The issuer's remaining proceeds withdrawals **freeze** — falling behind costs the issuer access to its own money before it costs investors anything. The revenue split has already tilted toward the reserve (60/25 → 40/45). The floor stops climbing (it never falls), and the state is a public onchain flag. Investors can still redeem the whole time at `min(NAV, backing)`. |
+| **Default** (verifier, ≥90 days of shortfall or a legal default event) | Asset marked `Defaulted` | Issuance and normal market operations stop. The verifier sets an emergency settlement price (capped at NAV — it cannot invent value), and **emergency redemption** opens: investors exit from whatever the reserve actually holds. |
+| **Recovery** (offchain, legal) | Trustee acts on the lien | The token is a *secured* note: the trustee can seize and sell the underlying asset; sale proceeds flow into the reserve, raising what every remaining holder receives. The chain shows the accounting; the courtroom does the enforcement — the same structure as project-finance bonds. |
+
+Worked example (demo numbers): the issuer stops paying at month 18 when the schedule says 0.65
+but the reserve holds 0.55/token. Every redeemer gets ~0.55 immediately (rate-limited per day),
+plus the ~18 months of revenue already collected — and the shortfall flag went up publicly at
+month 13, not at maturity. A useful property: early exits *raise* backing for those who stay,
+because redemptions always pay at or below backing per token.
+
+The honest boundary: **principal is protected exactly to the extent of the reserve plus the
+collateral — never more, and the product never claims more.** Within hackathon scope the trustee
+and lien exist as document hashes in the term sheet, not executed legal agreements (see §8).
+
 ## 6. System architecture
 
 ### Component diagram

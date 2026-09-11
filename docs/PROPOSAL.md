@@ -126,6 +126,32 @@ Lima nilai referensi harga (spot pasar, TWAP, NAV terverifikasi, floor level, ha
 **sengaja dijaga terpisah** di seluruh sistem — tidak pernah dicampur menjadi satu angka yang
 menyesatkan.
 
+### Apa yang terjadi jika issuer gagal membayar kewajibannya
+
+Jalur kegagalan adalah tangga eskalasi yang dirancang dan ditegakkan onchain — bukan negosiasi
+privat:
+
+```text
+tertinggal jadwal → grace 30 hari → SHORTFALL (otomatis) → 90 hari → DEFAULT (verifier)
+```
+
+| Tahap | Pemicu | Yang terjadi |
+| --- | --- | --- |
+| **Shortfall** (otomatis) | Backing di bawah jadwal terpublikasi >30 hari | Penarikan proceeds issuer yang tersisa **dibekukan** — tertinggal jadwal lebih dulu merugikan akses issuer ke uangnya sendiri sebelum merugikan investor. Split revenue sudah otomatis condong ke reserve (60/25 → 40/45). Floor berhenti naik (tidak pernah turun), dan statusnya jadi flag onchain yang publik. Investor tetap bisa redeem sepanjang waktu di `min(NAV, backing)`. |
+| **Default** (verifier, ≥90 hari shortfall atau peristiwa default legal) | Aset ditandai `Defaulted` | Penerbitan dan operasi market normal berhenti. Verifier menetapkan harga settlement darurat (dibatasi NAV — tidak bisa mengarang nilai), lalu **emergency redemption** dibuka: investor keluar dari isi reserve yang benar-benar ada. |
+| **Pemulihan** (offchain, legal) | Trustee mengeksekusi jaminan | Token ini adalah note *berjaminan*: trustee dapat menyita dan menjual aset dasarnya; hasil penjualan mengalir ke reserve dan menaikkan yang diterima setiap holder tersisa. Chain mencatat akuntansinya; pengadilan yang mengeksekusi — struktur yang sama dengan obligasi project finance. |
+
+Contoh angka (demo): issuer berhenti membayar di bulan ke-18 saat jadwal bilang 0,65 tapi reserve
+hanya berisi 0,55/token. Setiap yang redeem langsung menerima ~0,55 (dibatasi kuota harian),
+ditambah revenue ~18 bulan yang sudah diterima — dan flag shortfall sudah tampil publik sejak
+bulan ke-13, bukan baru ketahuan saat jatuh tempo. Sifat yang berguna: exit lebih awal justru
+*menaikkan* backing bagi yang bertahan, karena redemption selalu membayar di atau di bawah
+backing per token.
+
+Batas kejujurannya: **modal pokok dilindungi persis sebesar isi reserve ditambah jaminan — tidak
+lebih, dan produk ini tidak pernah mengklaim lebih.** Dalam lingkup hackathon, trustee dan
+jaminan baru berupa hash dokumen di term sheet, belum perjanjian legal yang dieksekusi (lihat §8).
+
 ## 6. Arsitektur sistem
 
 ### Diagram komponen
