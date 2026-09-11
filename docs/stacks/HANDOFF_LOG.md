@@ -801,3 +801,22 @@ address re-check; cross-stack "TWAP warming up" rendering for safetyState/market
 (backend + frontend backlog).
 Interface changes: none
 Needs: owner — Hedera decision (defer recommended); faucet funding for 0xE0Dc…1E61, then broadcast.
+
+## 2026-09-12 — architect — BROADCAST HOLD: EIP-7825 cap on Base Sepolia; ring growth stepped
+Branch: main   Commit: (this commit)
+What: Contract Arch proved by raw-transaction probe that Base Sepolia enforces EIP-7825's
+16,777,216 per-transaction gas-limit cap (checked at precheck, before balance). Two canonical-path
+transactions exceed it: deployAssetSystem (~18.4M with the real pool's code deposit) and the
+architect's 900-slot ring call (~19.9M). Local Anvil forks do NOT enforce the cap, which is why
+both rehearsals passed — a limitation now on record: fork rehearsals validate logic and ordering,
+not chain-level tx policy. Fixed here: ring growth stepped 300/600/900 (~6.6M each, idempotent).
+NOT fixed here: deployAssetSystem needs the two-phase factory split for BOTH chains (Hedera 15M <
+Base 16.78M, so one split sized under 15M serves both). Split design belongs to Contract Arch once
+the owner rules; architect guidance: keep the AssetSystemDeployed event emitted once, at
+completion, with its current shape, so backend discovery needs no change.
+DO NOT BROADCAST until the split lands: a broadcast now would half-deploy (first ~15 txs succeed,
+deployAssetSystem fails) and burn nonces, shifting every address on retry.
+Interface changes: none yet (the split will carry CHANGED rows).
+Needs: owner — confirm the factory split (it is now required for any testnet, not a choice
+between chains); ideally confirm directly in Contract Arch's window, since that session takes
+build orders only from the owner.

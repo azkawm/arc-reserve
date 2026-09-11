@@ -240,14 +240,20 @@ contract DeployTestnet is Script {
             // Real pool: no test oracle. Grow the observation ring so the 30-minute TWAP can
             // accumulate; the manager's TWAP-gated paths stay dormant until it has. 900 slots
             // keep the 30-minute window covered even through a burst of ~2s blocks touching the
-            // pool every block; 60 slots would shrink the ring below 1800s under such a burst.
-            (bool ok,) = deployment.pool
-                .call(
-                    abi.encodeWithSignature(
-                        "increaseObservationCardinalityNext(uint16)", uint16(900)
-                    )
-                );
-            require(ok, "DeployTestnet: increaseObservationCardinalityNext failed");
+            // pool every block. Grown in three steps because each fresh slot writes a storage
+            // word (~22.1k gas): a single 900-slot call is ~19.9M gas, over EIP-7825's 2^24
+            // per-transaction cap that Base Sepolia enforces (review 2026-09-12). Each 300-slot
+            // step is ~6.6M, safely under both Base's 16,777,216 and Hedera's 15,000,000.
+            // Growth is monotonic, so the calls are idempotent on retry.
+            for (uint16 target = 300; target <= 900; target += 300) {
+                (bool ok,) = deployment.pool
+                    .call(
+                        abi.encodeWithSignature(
+                            "increaseObservationCardinalityNext(uint16)", target
+                        )
+                    );
+                require(ok, "DeployTestnet: increaseObservationCardinalityNext failed");
+            }
         } else {
             int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
             MockUniswapV3Pool(deployment.pool).setOracleForTest(oneDollarTick, oneDollarTick);
