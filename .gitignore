@@ -13,5 +13,6 @@ frontend/dev-server*.log
 backend/node_modules/
 backend/dist/
 backend/.env
+contracts/.env
 backend/coverage/
 backend/*.tsbuildinfo
