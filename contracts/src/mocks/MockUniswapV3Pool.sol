@@ -39,6 +39,15 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
     int24 public maxTickMovePerSwap = 600;
 
     mapping(bytes32 => uint128) public liquidityOf;
+    /// @notice What a burn has credited to a position but not yet paid out, per owner+range.
+    /// @dev    Real v3 tracks `tokensOwed` per position and `collect` can never take more than
+    ///         that. Without an equivalent here, a `collect` requesting `type(uint128).max` — which
+    ///         is what fee collection and the D-035 harvest both do — would drain the pool's whole
+    ///         balance, including the tokens backing OTHER positions, and hand it to the caller as
+    ///         though it were theirs. On the harvest path that money would then be credited to the
+    ///         protected reserve as market surplus: a large, plausible, entirely wrong number.
+    mapping(bytes32 => uint256) public owed0;
+    mapping(bytes32 => uint256) public owed1;
 
     constructor(address token0_, address token1_, int24 tickSpacing_) {
         token0 = token0_;
@@ -117,17 +126,30 @@ contract MockUniswapV3Pool is IUniswapV3Pool {
         totalLiquidity -= liquidity;
         amount0 = uint256(liquidity) * mintAmount0PerLiquidity;
         amount1 = uint256(liquidity) * mintAmount1PerLiquidity;
+        owed0[key] += amount0;
+        owed1[key] += amount1;
     }
 
+    /// @dev Bounded by what the position is actually owed, as real v3 is. Note the mock credits
+    ///      `owed` only from burns: it has no fee growth and never converts a position's
+    ///      composition from one token to the other, so it **cannot** produce market surplus. A
+    ///      D-035 harvest against this pool correctly returns what was put in and nothing more.
     function collect(
         address recipient,
-        int24,
-        int24,
+        int24 tickLower,
+        int24 tickUpper,
         uint128 amount0Requested,
         uint128 amount1Requested
     ) external returns (uint128 amount0, uint128 amount1) {
-        amount0 = uint128(_min(amount0Requested, IERC20(token0).balanceOf(address(this))));
-        amount1 = uint128(_min(amount1Requested, IERC20(token1).balanceOf(address(this))));
+        bytes32 key = keccak256(abi.encode(msg.sender, tickLower, tickUpper));
+        amount0 = uint128(
+            _min(_min(amount0Requested, owed0[key]), IERC20(token0).balanceOf(address(this)))
+        );
+        amount1 = uint128(
+            _min(_min(amount1Requested, owed1[key]), IERC20(token1).balanceOf(address(this)))
+        );
+        owed0[key] -= amount0;
+        owed1[key] -= amount1;
         if (amount0 != 0) IERC20(token0).safeTransfer(recipient, amount0);
         if (amount1 != 0) IERC20(token1).safeTransfer(recipient, amount1);
     }

@@ -58,6 +58,9 @@ contract DemoFlow is Script {
     uint256 private constant MARKET_FUNDING = 2_000e6;
     uint256 private constant TOKEN_INVENTORY = 2_000e18;
     uint128 private constant POSITION_LIQUIDITY = 500e6;
+    /// @dev Sized against the mock's sharpened impact to clear the 600-tick anchor band, and small
+    ///      enough that the pool can pay the output side from what the three positions minted.
+    uint256 private constant TRADE_SIZE = 1_000e6;
     uint256 private constant REDEEM_TOKENS = 5_000e18;
 
     MockUSD private musd;
@@ -83,7 +86,11 @@ contract DemoFlow is Script {
         _revenueAndClaims();
         _fundMarket();
         _addLiquidity();
+        // Explicit level-up FIRST, while the floor's cooldown clock has never started. Run after
+        // the trade instead and `levelUp()` reverts on `CooldownActive`, taking the script with it
+        // — the flywheel's own attempt skips gracefully, but a direct call does not.
         _raiseFloor();
+        _tradeAndTurnFlywheel();
         _rebalance();
         _redeem();
         _report();
@@ -174,26 +181,43 @@ contract DemoFlow is Script {
         floor.levelUp();
     }
 
-    /// @dev D-036: `slide` needs spot to have LEFT the anchor range on the upside. On Anvil the move
-    ///      is synthetic - `setOracleForTest` is a mock-only setter the canonical pool does not have,
-    ///      so this proves the engine's plumbing, never price discovery.
+    /// @dev D-035/D-037: a real user trade through the manager, which also moves the price and so
+    ///      sets up the rebalance below — one action instead of a test setter.
     ///
-    ///      The anchor must also be emptied first (D-015 remove -> move -> remint), and the slide's
-    ///      own opportunistic level-up will be skipped on the floor's 30-minute cooldown, emitting
-    ///      `FloorLevelUpSkipped("NOT_ELIGIBLE")` - which is worth having in the event stream too.
+    ///      **The flywheel will report `NO_SURPLUS` here, and that is correct on Anvil.** The mock
+    ///      pool has no curve: a position's composition never converts from SOLAR01 into mUSD, and
+    ///      that conversion is what *creates* surplus. A harvest against the mock returns exactly
+    ///      what was minted, so there is nothing above principal to credit. The mechanism is still
+    ///      exercised end to end — trade routes, price moves, discovery harvests, skip reasons are
+    ///      emitted — but the *effect* on backing can only be shown against a real pool. It is, in
+    ///      `test/fork/BaseSepoliaMarket.t.sol`: reserve 24,000 -> 24,630.32, backing 0.300000 ->
+    ///      0.307879 from one trade. Do not "fix" this by faucetting mUSD to the manager; that
+    ///      would manufacture a surplus that the mock has not earned.
+    ///
+    ///      `setSwapImpactForTest` sharpens the mock's linear price impact so a modest order clears
+    ///      the 600-tick anchor band. Mock-only, and another thing a canonical pool decides for
+    ///      itself from the curve.
+    function _tradeAndTurnFlywheel() private {
+        address trader = vm.addr(PK_RETAIL);
+        vm.broadcast(PK_DEPLOYER);
+        pool.setSwapImpactForTest(150e6, 600);
+
+        vm.startBroadcast(PK_RETAIL);
+        musd.faucet(trader, TRADE_SIZE);
+        musd.approve(address(market), TRADE_SIZE);
+        market.swapExactInput(address(musd), TRADE_SIZE, 0, block.timestamp + 1 hours);
+        vm.stopBroadcast();
+    }
+
+    /// @dev D-036: `slide` needs spot to have LEFT the anchor range on the upside — which the trade
+    ///      above just did, with an actual swap rather than `setOracleForTest`. The anchor must be
+    ///      emptied first (D-015 remove -> move -> remint).
     function _rebalance() private {
         (int24 anchorLower, int24 anchorUpper,,) =
             market.positions(AssetMarketManager.PositionKind.Anchor);
-        bool assetIsToken0 = market.assetIsToken0();
-        // 400 ticks clear of the band centre, ~4% in price terms and well inside the 20% spot/NAV
-        // guard. Direction resolves through the ordering: asset as token1 means price up is tick
-        // DOWN, which is why this is not a bare `+ 400`.
-        int24 oneDollarTick = assetIsToken0 ? int24(-276_324) : int24(276_324);
-        int24 abovePriceTick = assetIsToken0 ? oneDollarTick + 400 : oneDollarTick - 400;
-        int24 shift = assetIsToken0 ? int24(60) : int24(-60);
+        int24 shift = market.assetIsToken0() ? int24(60) : int24(-60);
 
         vm.startBroadcast(PK_DEPLOYER);
-        pool.setOracleForTest(abovePriceTick, abovePriceTick);
         market.removeLiquidity(
             AssetMarketManager.PositionKind.Anchor,
             POSITION_LIQUIDITY,
