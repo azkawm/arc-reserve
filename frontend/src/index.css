@@ -1,0 +1,140 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/**
+ * ArcReserve is a dark-only product surface, so the palette is declared once on `:root`
+ * rather than split into light and dark blocks. The hex values are carried over verbatim from
+ * the previous Next.js `globals.css` so the brand does not change when the build tool does.
+ *
+ * `index.html` still sets `class="dark"` so that any `dark:` variant inside a shadcn component
+ * resolves against this same palette instead of falling back to a light default.
+ */
+:root {
+  --radius: 0.625rem;
+
+  /* Brand primitives (previous globals.css) */
+  --arc-ink: #f1f4ec;
+  --arc-muted: #98a39b;
+  --arc-dim: #6e7a72;
+  --arc-bg: #090d0a;
+  --arc-surface: #111712;
+  --arc-surface-2: #171e18;
+  --arc-line: #2a342c;
+  --arc-line-soft: #202821;
+  --arc-green: #b7f765;
+  --arc-green-deep: #26391a;
+  --arc-blue: #8ea9ff;
+  --arc-gold: #ffb36b;
+  --arc-danger: #ff8e83;
+
+  /* shadcn/ui token contract, mapped onto the brand primitives */
+  --background: var(--arc-bg);
+  --foreground: var(--arc-ink);
+  --card: var(--arc-surface);
+  --card-foreground: var(--arc-ink);
+  --popover: var(--arc-surface);
+  --popover-foreground: var(--arc-ink);
+  --primary: var(--arc-green);
+  --primary-foreground: #11170d;
+  --secondary: var(--arc-surface-2);
+  --secondary-foreground: var(--arc-ink);
+  --muted: var(--arc-surface-2);
+  --muted-foreground: var(--arc-muted);
+  --accent: var(--arc-surface-2);
+  --accent-foreground: var(--arc-ink);
+  --destructive: var(--arc-danger);
+  --destructive-foreground: #1a0c0a;
+  --border: var(--arc-line);
+  --input: var(--arc-line-soft);
+  --ring: #51683f;
+
+  /* Provenance (D-019). Live, derived, and mock must never look alike. */
+  --provenance-live: var(--arc-green);
+  --provenance-derived: var(--arc-blue);
+  --provenance-mock: var(--arc-gold);
+
+  --chart-1: var(--arc-green);
+  --chart-2: var(--arc-blue);
+  --chart-3: var(--arc-gold);
+  --chart-4: #5aa58f;
+  --chart-5: var(--arc-danger);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-dim: var(--arc-dim);
+  --color-provenance-live: var(--provenance-live);
+  --color-provenance-derived: var(--provenance-derived);
+  --color-provenance-mock: var(--provenance-mock);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* The brand's top-left glow, preserved from globals.css. */
+    background-image: radial-gradient(
+      circle at 70% -10%,
+      rgb(88 119 54 / 0.18) 0,
+      transparent 27%
+    );
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-normal tracking-tight;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

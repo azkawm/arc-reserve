@@ -4,17 +4,17 @@ const zero = "0x0000000000000000000000000000000000000000" as Address;
 const address = (value?: string) => (value?.startsWith("0x") ? (value as Address) : zero);
 
 export const addresses = {
-  musd: address(process.env.NEXT_PUBLIC_MUSD_ADDRESS),
-  registry: address(process.env.NEXT_PUBLIC_REGISTRY_ADDRESS),
-  token: address(process.env.NEXT_PUBLIC_TOKEN_ADDRESS),
-  vault: address(process.env.NEXT_PUBLIC_VAULT_ADDRESS),
-  offering: address(process.env.NEXT_PUBLIC_OFFERING_ADDRESS),
-  market: address(process.env.NEXT_PUBLIC_MARKET_MANAGER_ADDRESS),
-  revenue: address(process.env.NEXT_PUBLIC_REVENUE_DISTRIBUTOR_ADDRESS),
-  redemption: address(process.env.NEXT_PUBLIC_REDEMPTION_CONTROLLER_ADDRESS),
+  musd: address(import.meta.env.VITE_MUSD_ADDRESS),
+  registry: address(import.meta.env.VITE_REGISTRY_ADDRESS),
+  token: address(import.meta.env.VITE_TOKEN_ADDRESS),
+  vault: address(import.meta.env.VITE_VAULT_ADDRESS),
+  offering: address(import.meta.env.VITE_OFFERING_ADDRESS),
+  market: address(import.meta.env.VITE_MARKET_MANAGER_ADDRESS),
+  revenue: address(import.meta.env.VITE_REVENUE_DISTRIBUTOR_ADDRESS),
+  redemption: address(import.meta.env.VITE_REDEMPTION_CONTROLLER_ADDRESS),
 };
 
-export const assetId = (process.env.NEXT_PUBLIC_ASSET_ID ?? `0x${"0".repeat(64)}`) as `0x${string}`;
+export const assetId = (import.meta.env.VITE_ASSET_ID ?? `0x${"0".repeat(64)}`) as `0x${string}`;
 export const contractsConfigured = Object.values(addresses).every((item) => item !== zero);
 
 export const erc20Abi = parseAbi([
