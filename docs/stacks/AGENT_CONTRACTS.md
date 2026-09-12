@@ -141,6 +141,17 @@ with the TWAP redeploy, the expensive half should not be rushed into it.
    controller is unset; never revert the caller.
 5. Deploy scripts drop the three stepped `increaseObservationCardinalityNext` calls.
 6. `DeployLocal` keeps its `require(block.chainid == 31337)` guard.
+7. **Rebalance cooldown becomes configurable to zero, but is configured to 1 second** (owner,
+   2026-09-12). `setSafetyPolicy` currently rejects `cooldown_ == 0`; drop that clause from the
+   guard — you are editing the function anyway, since `twapWindow_` becomes dead. Then set the
+   deploy scripts to **1 second**, not 0. Reason: at 1s, two rebalances in the same block still
+   trip `SafetyCheckFailed(Cooldown)` (`block.timestamp < lastRebalanceAt + 1` holds when equal),
+   so the refusal stays demonstrable — it is one of the very few guards that bites instantly on a
+   public chain, with no time-warping — while a demo sequence one second apart runs freely. Setting
+   0 would buy the same speed and throw the demo away.
+   The **floor** level-up cooldown needs no code: `setFloorLevelCooldown` already accepts zero and
+   the owner holds admin on the live controller, so it is a configuration call on the deployed
+   contract.
 
 **Phase B — the flywheel proper (needs new math and new test infrastructure):**
 7. `AssetVault.creditMarketSurplus(uint256)` — market-manager only, one-way, realised surplus only.
