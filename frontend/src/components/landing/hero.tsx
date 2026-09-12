@@ -22,10 +22,10 @@ export function Hero() {
       <div className="relative z-10" />
 
       <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center gap-6 text-center">
-        <span className="border-mist bg-paper/85 text-charcoal inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[11px] font-medium tracking-wide uppercase shadow-sm backdrop-blur-md">
+        {/* <span className="border-mist bg-paper/85 text-charcoal inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[11px] font-medium tracking-wide uppercase shadow-sm backdrop-blur-md">
           <span className="bg-signal-blue h-2 w-2 rounded-full" aria-hidden="true" />
           ERC-3643 Institutional Protocol • Concept Preview — Base Sepolia
-        </span>
+        </span> */}
 
         <h1 className="text-4xl leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
           Real assets.

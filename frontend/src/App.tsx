@@ -27,7 +27,7 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       <div className="sticky top-0 z-50">
-        <ConceptBanner />
+        {/* <ConceptBanner /> */}
         <LandingHeader />
       </div>
 
