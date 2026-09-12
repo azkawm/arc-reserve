@@ -4,7 +4,7 @@ Hackathon demo deployment, not a production release process. This deploys the co
 page container in `frontend/` to a single VPS behind host nginx with a Let's Encrypt certificate.
 It does not deploy `contracts/` or `backend/`.
 
-**Target:** `azka@202.10.42.3`, repo checked out at `~/arc-reserve`, public domain
+**Target:** `ubuntu@52.77.221.104`, repo checked out at `~/arc-reserve`, public domain
 `https://arc-reserve.talentor.tech`.
 
 ## Architecture
@@ -17,30 +17,38 @@ Browser --https--> host nginx (443, Let's Encrypt) --http--> 127.0.0.1:3000 --> 
 The container is `frontend/docker-compose.yml`'s `frontend` service: a multi-stage build that
 typechecks, bundles with Vite, and serves the static output from an nginx:alpine image on
 container port 8080, published only to `127.0.0.1:3000` on the host. Host nginx is the only thing
-with a public listener; it terminates TLS and reverse-proxies to that loopback port. This mirrors
-the other sites already running on this host (`hara-demo`, `azka`, etc.) — see
-`/etc/nginx/sites-available/hara-demo` there for the pattern.
+with a public listener; it terminates TLS and reverse-proxies to that loopback port.
 
-## What's already true on this host
+## Prerequisites to check on this host
 
-Confirmed before writing this doc — skip re-checking these unless something changed:
+Not yet verified on `ubuntu@52.77.221.104` — confirm these before or during the first deploy
+rather than assuming them (they were true of a previous, since-replaced target host, but this is a
+different machine):
 
-- Docker + the `docker compose` v2 plugin are installed; `azka` is in the `docker` group, so
-  `docker`/`docker compose` need no `sudo`.
-- `certbot` (nginx plugin) and `nginx` are installed and already managing several other
-  `server_name`s on this box.
-- This machine's SSH public key is already authorized for `azka@202.10.42.3`.
-- DNS for `arc-reserve.talentor.tech` already resolves to `202.10.42.3`.
-- `~/arc-reserve` on the server is already a clone of `github.com/azkawm/arc-reserve`, on `main`.
-- Host port `3000` is free; `80`/`443` are owned by the host nginx that fronts every site here.
-- `sudo` on this host needs an interactive password — there is no passwordless sudo. That means
-  the nginx vhost + certbot step below must be run by a human at a real terminal, not scripted
-  over a non-interactive SSH session.
+- Docker + the `docker compose` v2 plugin are installed; `ubuntu` is in the `docker` group, so
+  `docker`/`docker compose` need no `sudo` (`groups` to check; `sudo usermod -aG docker ubuntu`
+  plus a re-login if not).
+- `certbot` (nginx plugin) and `nginx` are installed (`certbot --version`, `nginx -v`; on Ubuntu:
+  `sudo apt-get install -y nginx certbot python3-certbot-nginx` if missing).
+- This machine's SSH public key is authorized for `ubuntu@52.77.221.104`.
+- DNS for `arc-reserve.talentor.tech` resolves to `52.77.221.104` (it previously pointed at the
+  old host — update the A record if it hasn't been repointed yet).
+- `~/arc-reserve` on the server is a clone of `github.com/azkawm/arc-reserve`, on `main`. If it
+  doesn't exist yet: `git clone https://github.com/azkawm/arc-reserve ~/arc-reserve`.
+- Host port `3000` is free (`ss -tln | grep 3000`); `80`/`443` are free for host nginx to bind.
+- Available disk space (`df -h /`). This project's `node_modules` is large (~800MB, mostly wagmi
+  connector dependencies), and the Dockerfile's multi-stage build copies it more than once during
+  the build — budget at least **2-3GB free** before building, or `npm ci`/the build's `COPY
+  --from=deps` step can fail with `ENOSPC` partway through. If space is tight, `docker system df`
+  and `docker image prune -a -f` / `docker builder prune -a -f` show and reclaim what Docker can
+  give back — but check what you're removing first if the host runs other projects too.
+- Whether `sudo` needs an interactive password on this host. If it does, the nginx vhost + certbot
+  step below needs a human at a real terminal, not a non-interactive SSH one-liner.
 
 ## One-time setup (nginx + TLS)
 
 Only needed once per host, before the first deploy makes the site reachable publicly. Run these
-as `azka` on the server (`ssh azka@202.10.42.3`), from `~/arc-reserve`:
+as `ubuntu` on the server (`ssh ubuntu@52.77.221.104`), from `~/arc-reserve`:
 
 ```bash
 sudo cp frontend/deploy/nginx.arc-reserve.talentor.tech.conf \
@@ -52,10 +60,9 @@ sudo certbot --nginx -d arc-reserve.talentor.tech
 ```
 
 `certbot --nginx` obtains the certificate and rewrites the site file in place to add the
-301-to-HTTPS redirect and the `443 ssl` server block (backing up the pre-edit file as
-`arc-reserve.talentor.tech.save`, the same pattern already used for the other sites on this box).
-Renewal is already automatic — this host has both a `certbot.timer` and a
-`snap.certbot.renew.timer` running.
+301-to-HTTPS redirect and the `443 ssl` server block. Confirm renewal is automatic afterwards
+(`systemctl list-timers | grep certbot`, or add one if this is a fresh certbot install:
+`sudo systemctl enable --now certbot.timer`).
 
 Do this **after** the container is up at least once (next section), since the container doesn't
 need to exist for certbot to succeed, but there's no point serving TLS for a backend that isn't
@@ -68,7 +75,7 @@ every later redeploy. It's self-contained — it pulls the repo itself, then reb
 only the `frontend/` compose project.
 
 ```bash
-ssh azka@202.10.42.3
+ssh ubuntu@52.77.221.104
 ~/arc-reserve/frontend/deploy/deploy.sh
 ```
 
@@ -110,7 +117,7 @@ There's no image versioning here (`docker-compose.yml` always builds `arcreserve
 from the current checkout) — a hackathon-scope limitation. To roll back:
 
 ```bash
-ssh azka@202.10.42.3
+ssh ubuntu@52.77.221.104
 cd ~/arc-reserve
 git checkout <previous-sha>
 cd frontend && ./deploy/deploy.sh

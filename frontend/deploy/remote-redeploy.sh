@@ -9,7 +9,7 @@ set -euo pipefail
 # Usage: ./frontend/deploy/remote-redeploy.sh
 # Override target with: ARC_DEPLOY_HOST=user@host ARC_DEPLOY_PATH=~/other-path ./frontend/deploy/remote-redeploy.sh
 
-REMOTE="${ARC_DEPLOY_HOST:-azka@202.10.42.3}"
+REMOTE="${ARC_DEPLOY_HOST:-ubuntu@52.77.221.104}"
 REMOTE_REPO="${ARC_DEPLOY_PATH:-~/arc-reserve}"
 
 ssh "$REMOTE" "$REMOTE_REPO/frontend/deploy/deploy.sh"
