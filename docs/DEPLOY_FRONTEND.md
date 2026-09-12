@@ -47,22 +47,26 @@ different machine):
 
 ## One-time setup (nginx + TLS)
 
-Only needed once per host, before the first deploy makes the site reachable publicly. Run these
-as `ubuntu` on the server (`ssh ubuntu@52.77.221.104`), from `~/arc-reserve`:
+Only needed once per host, before the first deploy makes the site reachable publicly. Run this
+interactively as `ubuntu` on the server (`ssh ubuntu@52.77.221.104`), from `~/arc-reserve`:
 
 ```bash
-sudo cp frontend/deploy/nginx.arc-reserve.talentor.tech.conf \
-  /etc/nginx/sites-available/arc-reserve.talentor.tech
-sudo ln -s /etc/nginx/sites-available/arc-reserve.talentor.tech /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-sudo certbot --nginx -d arc-reserve.talentor.tech
+./frontend/deploy/setup-nginx-tls.sh
 ```
 
-`certbot --nginx` obtains the certificate and rewrites the site file in place to add the
-301-to-HTTPS redirect and the `443 ssl` server block. Confirm renewal is automatic afterwards
-(`systemctl list-timers | grep certbot`, or add one if this is a fresh certbot install:
-`sudo systemctl enable --now certbot.timer`).
+It's interactive by design (certbot's ACME flow and, on hosts without passwordless sudo, the
+`sudo` prompts need a real terminal), so this is not something to script over a non-interactive
+SSH session. It defaults to `arc-reserve.talentor.tech` proxying to `127.0.0.1:3000`; pass a
+different domain and/or port as arguments if needed (`./frontend/deploy/setup-nginx-tls.sh
+other.domain 3001`). It's idempotent — safe to re-run if a step fails partway, e.g. if certbot
+can't reach the ACME challenge because DNS isn't pointed at this host yet.
+
+What it does, in order: installs `frontend/deploy/nginx.arc-reserve.talentor.tech.conf` to
+`/etc/nginx/sites-available/<domain>` (skipped if that file already exists — it assumes certbot
+already owns it), symlinks it into `sites-enabled`, `nginx -t` + reload, then `sudo certbot
+--nginx -d <domain>`, which obtains the certificate and rewrites the site file in place to add the
+301-to-HTTPS redirect and the `443 ssl` server block — don't hand-edit that file afterwards, let
+certbot own it. It finishes by checking a renewal timer is active.
 
 Do this **after** the container is up at least once (next section), since the container doesn't
 need to exist for certbot to succeed, but there's no point serving TLS for a backend that isn't
