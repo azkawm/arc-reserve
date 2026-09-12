@@ -650,33 +650,19 @@ zero expiry, which made the kill switch illusory).
   be used through this contract to verify a third party.
 - Registering as **retail** means the D-028 5,000 mUSD cap applies to judges, which demonstrates
   class-based caps rather than hiding them.
-- **Claims expire after 7 days**, never `0`. Rationale: `isVerified` is
-  `registered && (expiresAt == 0 || expiresAt > now)`, so a zero expiry verifies every
-  self-registered wallet *permanently*. Revoking the registrar's role would then stop new
-  registrations while un-verifying nobody, and unwinding would mean `deleteIdentity` one wallet at a
-  time — by someone still holding the role just revoked. A finite expiry makes the permissionless
-  surface time-bounded by construction, turns role revocation into a real wind-down, and exercises
-  the claim-expiry path on a deployed system rather than only in tests. 7 days, not 90 (owner,
-  2026-09-12): an expiry that outlasts the judging window by an order of magnitude leaves the kill
-  switch exactly as decorative as a zero expiry did.
-- **The second call renews; it does not early-return.** These two properties must land together —
-  separately they compose into a permanent lockout. Verified against `IdentityRegistry` source:
-  `registerIdentity` reverts `AlreadyRegistered` on the `registered` flag **alone**, ignoring
-  expiry, and expiry never clears that flag. So an expired judge is simultaneously unverified and
-  unregisterable, and an early-returning registrar would refuse to help them — with no self-service
-  path, permanently. Required shape:
-  ```text
-  not registered -> registerIdentity(msg.sender, msg.sender, 360, 1, now + 7 days)
-  already present -> updateClaimExpiry(msg.sender, now + 7 days)
-  ```
-  Both calls are inside `REGISTRY_AGENT_ROLE`, which the registrar holds. This is idempotent for a
-  double-click, renewable for a judge returning next week, and keeps the kill switch honest: revoke
-  the role and every claim lapses within 7 days with no way to renew. **A short expiry is only
-  costless because renewal exists.**
-- **The renewal branch must call `updateClaimExpiry` only — never `updateInvestorClass`.**
-  Otherwise the owner's deployer wallet, registered `institutional`, silently demotes itself to
-  `retail` the first time it presses the demo button and inherits the D-028 5,000 mUSD cap on a live
-  system. This is a deliberate property, not an oversight; do not "tidy" the branches together.
+- **No expiry: `expiresAt = 0`** (owner, 2026-09-12 — "remove the timeframes, for now we are
+  planning it for hackathon only"). Self-registered claims do not lapse. Idempotency is therefore a
+  plain early return when `contains(msg.sender)` — no renewal branch, and nothing that touches
+  investor class.
+  *Rejected alternative, recorded because the reasoning matters if this ever outlives the
+  hackathon:* a finite expiry (7 days was proposed) would bound the permissionless surface by
+  construction. It was dropped because under D-027 this deployment is disposable, and an expiry
+  exists to bound a *long-lived* permissionless surface — there isn't one here. Note that an expiry
+  cannot be added alone: `registerIdentity` reverts `AlreadyRegistered` on the `registered` flag
+  **alone**, ignoring expiry, and expiry never clears that flag — so an expired wallet is both
+  unverified and unregisterable. Any future expiry must ship together with a renewal branch calling
+  `updateClaimExpiry` (and that branch must never call `updateInvestorClass`, or the institutional
+  deployer demotes itself to retail on first use).
 - Chain-guarded to the D-027 testnet ids (31337, 84532, 296), checked **inside `selfRegister()`**
   rather than captured in the constructor, so a fork cannot inherit a stale permission.
 - Idempotent for an already-registered wallet: `registerIdentity` reverts `AlreadyRegistered`, so
@@ -685,9 +671,12 @@ zero expiry, which made the kill switch illusory).
 - **No `tx.origin` or EOA check.** `msg.sender` may be a smart-account wallet, and an EOA check
   would lock out exactly the judges most likely to have one. `onchainId` is then meaningless; note
   it in NatSpec rather than blocking.
-- The protocol admin can revoke the registrar's `REGISTRY_AGENT_ROLE` at any time; combined with the
-  90-day expiry this is a genuine wind-down, and it is the production migration path (a real KYC
-  provider replaces the stub wholesale).
+- The protocol admin can revoke the registrar's `REGISTRY_AGENT_ROLE` at any time. **Describe this
+  accurately: it stops further self-registration. It is not a kill switch and not a rollback.**
+  With no expiry, every wallet already self-registered stays verified forever, and there is no bulk
+  undo — unwinding would mean `deleteIdentity` per wallet, by someone still holding the role just
+  revoked. That is acceptable for a chain thrown away after judging, and unacceptable to describe as
+  reversible. Replacing the stub with a real KYC provider is the production path.
 
 **Scope and boundary notes.**
 - **Blast radius is protocol-wide, not per asset.** `IdentityRegistry` is shared by every asset
