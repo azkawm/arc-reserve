@@ -70,8 +70,14 @@ export interface RebuildResult {
   logsUnknown: number;
 }
 
-export async function clearProjections(tx: Queryable, chainId: number): Promise<void> {
+export async function clearProjections(
+  tx: Queryable,
+  chainId: number,
+  options: { keepWatched?: boolean } = {},
+): Promise<void> {
   for (const table of PROJECTION_TABLES) {
+    // A later replay pass keeps what earlier passes discovered; everything else starts over.
+    if (options.keepWatched === true && table === 'watched_addresses') continue;
     // Table names come from the const tuple above, never from input.
     await tx.query(`DELETE FROM ${table} WHERE chain_id = $1`, [chainId]);
   }
@@ -86,13 +92,13 @@ export async function rebuildProjections(
   config: Config,
   logger?: Logger,
 ): Promise<RebuildResult> {
-  const result: RebuildResult = { logsReplayed: 0, logsProjected: 0, logsUnknown: 0 };
+  let result: RebuildResult = { logsReplayed: 0, logsProjected: 0, logsUnknown: 0 };
 
   await db.withTransaction(async (tx) => {
     await clearProjections(tx, config.CHAIN_ID);
     await seedRootAddresses(tx, config);
 
-    const watched: WatchedSet = await loadWatchedSet(tx, config.CHAIN_ID);
+    let watched: WatchedSet = await loadWatchedSet(tx, config.CHAIN_ID);
 
     const { rows } = await tx.query<StoredLogRow>(
       `SELECT rl.transaction_hash, rl.log_index, rl.block_number, rl.transaction_index,
@@ -105,25 +111,49 @@ export async function rebuildProjections(
       [config.CHAIN_ID],
     );
 
-    for (const row of rows) {
-      result.logsReplayed += 1;
-      const entry = watched.get(row.address);
-      // An address that is no longer discovered in this replay: its logs were captured under
-      // a discovery that the rollback undid. Skipped, not guessed at.
-      if (entry === undefined) continue;
+    // A component routinely emits BEFORE the event that announces it: the token's
+    // IdentityRegistryAdded fires in its constructor, blocks before AssetSystemDeployed names
+    // the token, and compliance's ModuleAdded precedes ComplianceAdded because setCompliance
+    // requires the binding first. That is contract structure, not a deploy-script accident, and
+    // every binder can be re-called on a live system. A single in-order replay therefore skips
+    // those logs, and silently loses the addresses they would have discovered.
+    //
+    // So the replay runs to a fixed point, as live ingestion already does for a block range:
+    // when a pass grows the watched set, projections are cleared (discoveries kept) and the
+    // logs are replayed with every address known from the first log. It converges, because the
+    // set only grows.
+    for (let pass = 0; pass < 5; pass += 1) {
+      const sizeBefore = watched.size();
+      result = { logsReplayed: 0, logsProjected: 0, logsUnknown: 0 };
 
-      const topics = [row.topic0, row.topic1, row.topic2, row.topic3].filter(
-        (topic): topic is `0x${string}` => topic !== null,
-      );
-      const decoded = decodeLog(entry.kind, { topics, data: row.data as `0x${string}` });
+      for (const row of rows) {
+        result.logsReplayed += 1;
+        const entry = watched.get(row.address);
+        // Not discovered in this pass (yet). A later pass picks it up if anything discovers it.
+        if (entry === undefined) continue;
 
-      if (decoded.eventName === null || decoded.args === null) {
-        result.logsUnknown += 1;
-        continue;
+        const topics = [row.topic0, row.topic1, row.topic2, row.topic3].filter(
+          (topic): topic is `0x${string}` => topic !== null,
+        );
+        const decoded = decodeLog(entry.kind, { topics, data: row.data as `0x${string}` });
+
+        if (decoded.eventName === null || decoded.args === null) {
+          result.logsUnknown += 1;
+          continue;
+        }
+
+        const projected = await projectDecodedLog(tx, config.CHAIN_ID, watched, entry, row, decoded, logger);
+        if (projected) result.logsProjected += 1;
       }
 
-      const projected = await projectDecodedLog(tx, config.CHAIN_ID, watched, entry, row, decoded, logger);
-      if (projected) result.logsProjected += 1;
+      if (watched.size() === sizeBefore) break;
+
+      logger?.info(
+        { pass, discovered: watched.size() - sizeBefore },
+        'replay discovered components that emitted before their announcement; replaying again',
+      );
+      await clearProjections(tx, config.CHAIN_ID, { keepWatched: true });
+      watched = await loadWatchedSet(tx, config.CHAIN_ID);
     }
   });
 

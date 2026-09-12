@@ -11,6 +11,7 @@ import {
 import { createChainClient } from '../../src/chain/client.js';
 import { createLogger } from '../../src/observability/logger.js';
 import { Indexer } from '../../src/indexer/runner.js';
+import { rebuildProjections } from '../../src/indexer/rebuild.js';
 import { loadAbi } from '../../src/chain/abis.js';
 import type { Database } from '../../src/db/client.js';
 import type { Config } from '../../src/config.js';
@@ -474,5 +475,29 @@ describe('components discovered outside AssetSystemDeployed', () => {
       [deployment.assetId],
     );
     expect(row.terms_hash).toBe(onChain.toLowerCase());
+  });
+});
+
+describe('rebuilding from stored logs', () => {
+  it('rediscovers every address that live ingestion discovered', async () => {
+    // A rebuild must reach the same read model as live ingestion, and the watched set is the
+    // part that silently diverged. Under the two-phase deploy the token emits
+    // IdentityRegistryAdded before AssetSystemDeployed names it, and compliance emits ModuleAdded
+    // before ComplianceAdded binds it — so a single in-order replay skipped those logs and lost
+    // the identity registry and both compliance modules, taking a visitor's own verification
+    // out of the timeline with them. This chain uses that deploy, so it reproduces the defect.
+    const snapshot = async () =>
+      (
+        await db.query<{ address: string; kind: string; asset_id: string | null }>(
+          'SELECT address, kind, asset_id FROM watched_addresses ORDER BY kind, address',
+        )
+      ).rows;
+
+    const before = await snapshot();
+    expect(before.some((row) => row.kind === 'identityRegistry')).toBe(true);
+
+    await rebuildProjections(db, config);
+
+    expect(await snapshot()).toEqual(before);
   });
 });

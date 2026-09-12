@@ -23,6 +23,8 @@ export function testConfig(overrides: NodeJS.ProcessEnv = {}): Config {
 export interface StubChain {
   chainId?: number;
   latestBlock?: bigint;
+  /** Successive answers to getBlockNumber, last one repeating — a relay node falling behind. */
+  latestBlocks?: bigint[];
   /** Lowercase address -> has code. Anything absent is treated as deployed. */
   code?: Record<string, boolean>;
   /** Lowercase address -> exact bytecode, for tests that inspect code (e.g. the mock-pool check). */
@@ -43,6 +45,7 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
   const {
     chainId = 31337,
     latestBlock = 100n,
+    latestBlocks,
     code = {},
     bytecode = {},
     blocks = {},
@@ -57,6 +60,9 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
     },
     async getBlockNumber() {
       if (failWith) throw failWith;
+      if (latestBlocks !== undefined && latestBlocks.length > 0) {
+        return latestBlocks.length > 1 ? latestBlocks.shift()! : latestBlocks[0]!;
+      }
       return latestBlock;
     },
     async getCode({ address }: { address: string }) {

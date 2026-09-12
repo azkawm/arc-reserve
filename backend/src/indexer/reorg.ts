@@ -25,6 +25,30 @@ export interface ReorgResult {
   depth: number;
 }
 
+/**
+ * What reading a block's hash actually told us. The distinction is the whole fix: before it,
+ * all three failure shapes collapsed into `null`, and `null` was read as "the hash differs".
+ *
+ * - `found`: the chain answered; compare it.
+ * - `beyond-head`: the chain is shorter than this height — genuine divergence evidence, as
+ *   after an Anvil `evm_revert`.
+ * - `unavailable`: the block should exist and the read failed. A rate-limited relay does this
+ *   routinely, and on Hedera — which has no reorgs at all — it produced two "rollbacks" that
+ *   each rebuilt every projection. It is evidence of nothing, so it must never cause a rollback.
+ */
+type HashRead =
+  | { kind: 'found'; hash: string }
+  | { kind: 'beyond-head' }
+  | { kind: 'unavailable' };
+
+/** Raised when a hash read fails mid-walk: the walk stops rather than guessing further back. */
+export class BlockHashUnavailableError extends Error {
+  constructor(readonly blockNumber: bigint) {
+    super(`could not read the hash of block ${blockNumber}; not treating an unreadable block as a reorg`);
+    this.name = 'BlockHashUnavailableError';
+  }
+}
+
 export interface RollbackCounts {
   blocks: number;
   logs: number;
@@ -44,6 +68,8 @@ export async function findCommonAncestor(
   fromBlock: bigint,
   maxDepth = 256,
 ): Promise<bigint | null> {
+  const head = await chainHead(client);
+
   for (let depth = 0; depth <= maxDepth; depth += 1) {
     const candidate = fromBlock - BigInt(depth);
     if (candidate < 0n) return null;
@@ -57,8 +83,12 @@ export async function findCommonAncestor(
     // back as a rollback needs to reach.
     if (stored === null) return candidate;
 
-    const onChain = await blockHash(client, candidate);
-    if (onChain !== null && onChain === stored.hash) return candidate;
+    const read = await readHash(client, candidate, head);
+    if (read.kind === 'found' && read.hash === stored.hash) return candidate;
+    // A failed read is not a mismatch. Stepping back past it would deepen the rollback beyond
+    // the real divergence, and enough consecutive failures would exhaust the window and halt
+    // the indexer on nothing but relay jitter. Stop, and let the next pass try again.
+    if (read.kind === 'unavailable') throw new BlockHashUnavailableError(candidate);
   }
 
   return null;
@@ -143,10 +173,28 @@ export async function reconcileCursor(
   );
   if (cursor === null) return null;
 
-  const onChain = await blockHash(client, cursor.block_number);
-  if (onChain !== null && onChain === cursor.block_hash) return null;
+  const read = await readHash(client, cursor.block_number, await chainHead(client));
+  if (read.kind === 'found' && read.hash === cursor.block_hash) return null;
+  if (read.kind === 'unavailable') {
+    // Said out loud: this used to fall through into a rollback and a full rebuild, silently.
+    logger?.warn(
+      { blockNumber: cursor.block_number.toString() },
+      'could not read the cursor block hash; skipping the reorg check this pass rather than guessing',
+    );
+    return null;
+  }
 
-  const ancestor = await findCommonAncestor(db, client, chainId, cursor.block_number);
+  let ancestor: bigint | null;
+  try {
+    ancestor = await findCommonAncestor(db, client, chainId, cursor.block_number);
+  } catch (error) {
+    if (!(error instanceof BlockHashUnavailableError)) throw error;
+    logger?.warn(
+      { blockNumber: error.blockNumber.toString() },
+      'a block hash became unreadable while locating the common ancestor; retrying next pass',
+    );
+    return null;
+  }
   if (ancestor === null) {
     throw new Error(
       `reorg deeper than the search window at block ${cursor.block_number}: refusing to rewrite history`,
@@ -165,12 +213,33 @@ export async function reconcileCursor(
   return { commonAncestor: ancestor, depth: blocks };
 }
 
-async function blockHash(client: ArcPublicClient, blockNumber: bigint): Promise<string | null> {
+async function readHash(
+  client: ArcPublicClient,
+  blockNumber: bigint,
+  head: bigint | null,
+): Promise<HashRead> {
   try {
     const block = await client.getBlock({ blockNumber, includeTransactions: false });
-    return block.hash.toLowerCase();
+    return { kind: 'found', hash: block.hash.toLowerCase() };
   } catch {
-    // Past the head after a restart, or pruned.
+    // Only a head we actually read can say the block is gone. With no head, or a head at or
+    // above this height, the block should exist and we simply failed to read it.
+    if (head === null || blockNumber <= head) return { kind: 'unavailable' };
+
+    // A load-balanced relay (Hashio, dRPC) can route this read to a backend a few blocks
+    // behind its peers: that node fails the tip block and reports a head below it, which
+    // reads exactly like a shorter chain — and the cursor lives at the tip, which is precisely
+    // the window where it happens. Ask again. A chain that really got shorter still says so;
+    // a lagging node usually does not, and one disagreement is enough to call it unknown.
+    const second = await chainHead(client);
+    return second !== null && blockNumber > second ? { kind: 'beyond-head' } : { kind: 'unavailable' };
+  }
+}
+
+async function chainHead(client: ArcPublicClient): Promise<bigint | null> {
+  try {
+    return await client.getBlockNumber();
+  } catch {
     return null;
   }
 }
