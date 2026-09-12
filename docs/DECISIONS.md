@@ -644,17 +644,44 @@ was never "our KYC is strict"; it is "the token cannot move to an unverified wal
 remains true and demonstrable. It must be labelled as a demo stub in the contract NatSpec, in the
 UI, and in `SECURITY.md`.
 
-**Required properties.**
+**Required properties** (amended 2026-09-12 after contracts review — the original draft specified a
+zero expiry, which made the kill switch illusory).
 - Only `selfRegister()` is exposed — never arbitrary-address registration, so the agent role cannot
   be used through this contract to verify a third party.
 - Registering as **retail** means the D-028 5,000 mUSD cap applies to judges, which demonstrates
   class-based caps rather than hiding them.
-- Chain-guarded to the D-027 testnet ids (31337, 84532, 296); it must be impossible to deploy or
-  use on a mainnet.
-- Idempotent or clearly-reverting for an already-registered wallet.
-- The protocol admin can revoke the registrar's `REGISTRY_AGENT_ROLE` at any time, which is the kill
-  switch if it is ever abused; this is the intended production path (a real KYC provider replaces
-  it wholesale).
+- **Claims expire.** `selfRegister()` sets `expiresAt = block.timestamp + 90 days`, never `0`.
+  Rationale: `isVerified` is `registered && (expiresAt == 0 || expiresAt > now)`, so a zero expiry
+  verifies every self-registered wallet *permanently*. Revoking the registrar's role would then stop
+  new registrations while un-verifying nobody, and unwinding would mean `deleteIdentity` one wallet
+  at a time — by someone still holding the role just revoked. A finite expiry makes the
+  permissionless surface time-bounded by construction, turns role revocation into a real wind-down,
+  and exercises the claim-expiry path on a deployed system rather than only in tests.
+- Chain-guarded to the D-027 testnet ids (31337, 84532, 296), checked **inside `selfRegister()`**
+  rather than captured in the constructor, so a fork cannot inherit a stale permission.
+- Idempotent for an already-registered wallet: `registerIdentity` reverts `AlreadyRegistered`, so
+  the registrar early-returns instead of letting a double-click revert. A previously deleted wallet
+  re-registers cleanly with no special handling.
+- **No `tx.origin` or EOA check.** `msg.sender` may be a smart-account wallet, and an EOA check
+  would lock out exactly the judges most likely to have one. `onchainId` is then meaningless; note
+  it in NatSpec rather than blocking.
+- The protocol admin can revoke the registrar's `REGISTRY_AGENT_ROLE` at any time; combined with the
+  90-day expiry this is a genuine wind-down, and it is the production migration path (a real KYC
+  provider replaces the stub wholesale).
+
+**Scope and boundary notes.**
+- **Blast radius is protocol-wide, not per asset.** `IdentityRegistry` is shared by every asset
+  series, so granting this role makes verification permissionless for every present and future asset
+  on that registry. Acceptable on a testnet; the labelling must therefore say plainly *"anyone can
+  self-verify on this testnet"* rather than anything implying a gate.
+- **D-026 is unaffected.** `DemoRegistrar` is not part of `DeploymentParams`, so the approved terms
+  hash does not cover it and no rebinding is needed.
+- `deployments/<chainId>.json` gains a `demoRegistrar` key — a boundary change requiring `CHANGED`
+  rows in both boundary docs. The backend should expect unbounded `IdentityRegistered` growth.
+- Deployment shape: a separate chain-guarded idempotent script deploys the registrar and grants the
+  role on the **live** registry (the existing deployment is good; redeploying would discard verified
+  state and move every address), and `DeployTestnet` folds it in so a fresh chain gets it
+  automatically.
 
 **Consequence for the UI.** The task-0 honest refusal stays, but gains a path out: an unverified
 wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
