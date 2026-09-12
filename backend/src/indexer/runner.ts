@@ -3,8 +3,15 @@ import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
 import type { ArcPublicClient } from '../chain/client.js';
 import { loadWatchedSet, seedRootAddresses, type WatchedSet } from './watched.js';
-import { ingestBlocks, ARC_EVENTS_WORKER, type ChainBlock, type ChainLog } from './ingest.js';
+import { advanceCursor, ingestBlocks, ARC_EVENTS_WORKER, type ChainBlock, type ChainLog } from './ingest.js';
 import { reconcileCursor } from './reorg.js';
+
+/**
+ * Replay passes allowed for one range before it is treated as an anomaly. Each pass happens only
+ * because the previous one discovered a component, so real growth stops at the number of
+ * components deployed; a two-phase deploy with compliance modules needs a handful.
+ */
+const MAX_DISCOVERY_PASSES = 16;
 
 /**
  * The indexer loop.
@@ -148,7 +155,23 @@ export class Indexer {
     const { client, db, config, logger } = this.deps;
     const totals = { blocksIngested: 0, logsStored: 0, logsProjected: 0, logsUnknown: 0 };
 
-    for (let pass = 0; pass < 5; pass += 1) {
+    // Replaying a range is idempotent, so every pass may ingest. Only the CURSOR must wait: it moves
+    // once, after the last pass, never while a later pass may still fetch logs for components this
+    // one discovered. Before this, the first pass walked the cursor across the whole range block by
+    // block; a replay pass that then failed (a relay refusing a batch, on Arc) left the cursor past
+    // logs it had never fetched — the next run resumed after them, and they were lost for good,
+    // under a cursor that looked exactly like a healthy sync.
+    //
+    // Replay passes also change the ORDER in which logs are projected: a component discovered in a
+    // later pass has its earlier logs projected after other contracts' later ones. That is safe only
+    // while no projector reads state written by a component discovered in a LATER pass. Today none
+    // does. Four projectors read projected state: token.ts and vault.ts read their own contract's rows;
+    // lifecycle.ts and pool.ts (poolContext) read asset_deployments, which the factory — a root,
+    // watched from the first pass — writes before any pool or component enters the filter. If that
+    // ever broke, poolContext would find no row, and its Swap projector flags swap_without_deployment
+    // rather than dropping the swap silently. Identities and compliance state, the late-discovered
+    // ones, are read by the API only. Keep it that way, or make the reader tolerate a later write.
+    for (let pass = 0; pass < MAX_DISCOVERY_PASSES; pass += 1) {
       const sizeBefore = watched.size();
 
       const logs = (await client.getLogs({
@@ -173,6 +196,7 @@ export class Indexer {
         blocks,
         logsByBlock,
         logger,
+        { advanceCursor: false },
       );
 
       if (pass === 0) {
@@ -182,7 +206,16 @@ export class Indexer {
       totals.logsProjected += result.logsProjected;
       totals.logsUnknown += result.logsUnknown;
 
-      if (watched.size() === sizeBefore) return totals;
+      if (watched.size() === sizeBefore) {
+        // Converged: every component this range could reveal is known and its logs are ingested.
+        // Now, and only now, the range is done.
+        const endBlock = blocks.find((block) => block.number === toBlock);
+        if (endBlock === undefined) {
+          throw new Error(`range ${fromBlock}-${toBlock} converged without its end block; not advancing`);
+        }
+        await advanceCursor(db, config.CHAIN_ID, endBlock);
+        return totals;
+      }
 
       logger.debug(
         { fromBlock: fromBlock.toString(), discovered: watched.size() - sizeBefore },
@@ -190,7 +223,12 @@ export class Indexer {
       );
     }
 
-    return totals;
+    // Growth is bounded by the number of components that exist, so a set still growing after this
+    // many passes is an anomaly. It used to return here with the cursor already advanced; now the
+    // range is left unfinished and retried, rather than marked done over logs it may not have.
+    throw new Error(
+      `watched set still growing after ${MAX_DISCOVERY_PASSES} replay passes over blocks ${fromBlock}-${toBlock}; not advancing the cursor`,
+    );
   }
 
   /**

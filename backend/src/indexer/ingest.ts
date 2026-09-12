@@ -76,9 +76,16 @@ export interface IngestResult {
 export const ARC_EVENTS_WORKER = 'arc-events';
 
 /**
- * Ingest a contiguous, already-ordered batch of blocks and their logs. Each block commits
- * separately: a failure part-way through leaves the cursor at the last fully-written block
- * rather than losing the whole range.
+ * Ingest a contiguous, already-ordered batch of blocks and their logs. Each block's logs commit
+ * in their own transaction, and re-ingesting a block is a no-op: raw_logs is keyed by
+ * (chain, transaction, log index) and a log is projected only when it is newly stored.
+ *
+ * The cursor used to advance in that same per-block transaction, which was described here as a
+ * safety property — "a failure part-way through leaves the cursor at the last fully-written block".
+ * It was the opposite for the runner: a range that discovers components is ingested in several
+ * passes, and a block being fully written in an early pass says nothing about the logs a later
+ * pass has yet to fetch. The runner therefore passes `advanceCursor: false` and moves the cursor
+ * once the range has converged (runner.ts, syncRange). Direct callers keep the per-block write.
  */
 export async function ingestBlocks(
   db: Database,
@@ -87,6 +94,11 @@ export async function ingestBlocks(
   blocks: ChainBlock[],
   logsByBlock: Map<string, ChainLog[]>,
   logger?: Logger,
+  /**
+   * False while a range is still converging on its watched set. The runner then advances the cursor
+   * once, after the last replay pass — see syncRange. Direct callers keep the old per-block write.
+   */
+  options: { advanceCursor?: boolean } = {},
 ): Promise<IngestResult> {
   const result: IngestResult = {
     blocksIngested: 0,
@@ -123,30 +135,46 @@ export async function ingestBlocks(
         if (stored) result.logsStored += 1;
       }
 
-      await tx.query(
-        `INSERT INTO indexer_cursors (chain_id, worker, block_number, block_hash, block_timestamp)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (chain_id, worker)
-         DO UPDATE SET block_number = EXCLUDED.block_number,
-                       block_hash = EXCLUDED.block_hash,
-                       block_timestamp = EXCLUDED.block_timestamp,
-                       reorg_depth = 0,
-                       last_error = NULL,
-                       updated_at = now()`,
-        [
-          chainId,
-          ARC_EVENTS_WORKER,
-          block.number.toString(),
-          block.hash.toLowerCase(),
-          block.timestamp.toString(),
-        ],
-      );
+      if (options.advanceCursor !== false) await writeCursor(tx, chainId, block);
     });
 
     result.blocksIngested += 1;
   }
 
   return result;
+}
+
+/**
+ * Move the cursor onto a block. Its own export so a range can advance only after the range is
+ * genuinely complete, rather than block by block while it may still be missing logs.
+ */
+export async function advanceCursor(db: Database, chainId: number, block: ChainBlock): Promise<void> {
+  await writeCursor(db, chainId, block);
+}
+
+async function writeCursor(
+  queryable: Pick<Database, 'query'>,
+  chainId: number,
+  block: ChainBlock,
+): Promise<void> {
+  await queryable.query(
+    `INSERT INTO indexer_cursors (chain_id, worker, block_number, block_hash, block_timestamp)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (chain_id, worker)
+     DO UPDATE SET block_number = EXCLUDED.block_number,
+                   block_hash = EXCLUDED.block_hash,
+                   block_timestamp = EXCLUDED.block_timestamp,
+                   reorg_depth = 0,
+                   last_error = NULL,
+                   updated_at = now()`,
+    [
+      chainId,
+      ARC_EVENTS_WORKER,
+      block.number.toString(),
+      block.hash.toLowerCase(),
+      block.timestamp.toString(),
+    ],
+  );
 }
 
 async function ingestLog(
