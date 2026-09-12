@@ -64,20 +64,21 @@ listening yet.
 ## First deploy / every redeploy
 
 `frontend/deploy/deploy.sh` runs on the server and is the one script for both: first deploy and
-every later redeploy. It always builds+starts from the `frontend/` directory next to itself
-(never the caller's `$PWD`), so it can't be run against the wrong compose project by accident.
+every later redeploy. It's self-contained — it pulls the repo itself, then rebuilds and restarts
+only the `frontend/` compose project.
 
 ```bash
 ssh azka@202.10.42.3
-cd ~/arc-reserve/frontend
-./deploy/deploy.sh
+~/arc-reserve/frontend/deploy/deploy.sh
 ```
 
-What it does, in order: `docker compose build`, `docker compose up -d --wait` (blocks until the
-image's own `HEALTHCHECK` reports healthy, or fails loudly), a `curl` against `/healthz` to
-confirm, `docker image prune -f` to drop the now-dangling previous image (this is a small demo
-VPS shared with other projects — don't let old layers accumulate), then prints `docker compose ps`.
-On failure it prints the last 80 lines of the container's logs before exiting non-zero.
+What it does, in order: `git pull` at the repo root, `cd frontend`, `docker compose down`,
+`docker compose up -d --build --remove-orphans`, then prints `docker compose ps`. `contracts/` and
+`backend/` in the same checkout are untouched even though `git pull` updates the whole repo.
+
+This is `down` then `up`, not a rolling recreate — the container is briefly unavailable during
+each redeploy (a few seconds for a static-file image). Acceptable for a hackathon demo; not a
+zero-downtime deploy.
 
 ## Redeploying from your laptop
 
@@ -87,13 +88,8 @@ Day to day, don't SSH in by hand — run this from your local machine instead:
 ./frontend/deploy/remote-redeploy.sh
 ```
 
-It SSHes in, fast-forwards `~/arc-reserve` to `origin/main` (`git merge --ff-only`, so it refuses
-rather than discarding anything if the server's checkout has diverged), then runs
-`frontend/deploy/deploy.sh` on the server. It touches only the `frontend/` directory on the
-server-side deploy step — `contracts/` and `backend/` there are untouched even though `git pull`
-updates the whole checkout.
-
-Override the target if needed: `ARC_DEPLOY_HOST=user@host ARC_DEPLOY_PATH=~/other-path
+It SSHes in and runs `frontend/deploy/deploy.sh` on the server (which does the `git pull` and the
+rebuild). Override the target if needed: `ARC_DEPLOY_HOST=user@host ARC_DEPLOY_PATH=~/other-path
 ./frontend/deploy/remote-redeploy.sh`.
 
 ## Configuration (VITE_* build args)
