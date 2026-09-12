@@ -728,6 +728,25 @@ the value self-describing, because a price of zero never occurs legitimately, an
 visibly rather than plausibly**. Recorded because the reasoning generalises: when removing a
 capability, the vacated field must carry an impossible value, not a plausible one.
 
+**The pattern this decision kept producing, and the rule that follows.** Three instances surfaced
+during Phase A, each caught by a different session and none by the compiler or the tests:
+`marketPrices()`'s twap slot (backend and frontend, independently), `Rebalanced.twapPrice` (contracts
+— the same bug one layer down, already being indexed into `market_rebalances`), and
+`/v1/.../positions.currentTick`, which was fed by `meanTick` and would have reported the market at
+tick 0 while the configured ranges sit near ±276,000 — served with `onchain` provenance, on a panel
+whose whole job is showing where price sits relative to those ranges.
+
+The backend session's statement of it: *"a field whose meaning was carried by a contract value, where
+the contract's meaning changed and the type did not."* Nothing was type-unsafe; everything was
+semantically wrong, so no signature and no test complained.
+
+**Rule for future capability removals: audit every consumer of every value the capability fed, not
+just the call sites of the functions being deleted.** The type system cannot help here, and a passing
+suite is not evidence. Note also that the fix belongs where the name is honest —
+`AssetMarketManager.meanTick` correctly returns 0 (it was the mean over the TWAP window, which no
+longer exists), while the backend reads `pool.slot0().tick` for a field actually named
+`currentTick`.
+
 **Consumer obligations.** Backend: `/metrics.twap` becomes `null`, never an echo of spot;
 `marketStatus` keys on spot alone, or every deployment reports `warming_up` once twap is null.
 Frontend: delete the TWAP overlay, legend and the spot/TWAP gate row rather than re-point them;
