@@ -85,6 +85,19 @@
   },
   {
     "type": "function",
+    "name": "abandonAssetSystem",
+    "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "approvedPoolFactories",
     "inputs": [
       {
@@ -104,46 +117,166 @@
   },
   {
     "type": "function",
-    "name": "componentDeployers",
-    "inputs": [],
-    "outputs": [
+    "name": "beginAssetSystem",
+    "inputs": [
       {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "vault",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "offering",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "revenue",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "redemption",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "market",
-        "type": "address",
-        "internalType": "address"
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct AssetFactory.DeploymentParams",
+        "components": [
+          {
+            "name": "assetId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "tokenName",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "tokenSymbol",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "maximumSupply",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimumReserveRatioBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "offeringStartsAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "offeringEndsAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "tokenPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fundraisingCap",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "walletPurchaseLimit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "offeringInventory",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimumPurchase",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "redemptionPeriodDuration",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "redemptionPeriodLimitTokens",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "operator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "revenueDepositor",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "poolFactory",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "poolFee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "initialSqrtPriceX96",
+            "type": "uint160",
+            "internalType": "uint160"
+          },
+          {
+            "name": "identityRegistry",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
       }
     ],
-    "stateMutability": "view"
+    "outputs": [
+      {
+        "name": "pending",
+        "type": "tuple",
+        "internalType": "struct AssetFactory.PendingDeployment",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "vault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "offering",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "revenueDistributor",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "initiator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "termsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
-    "name": "deployAssetSystem",
+    "name": "completeAssetSystem",
     "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
       {
         "name": "params",
         "type": "tuple",
@@ -300,6 +433,44 @@
   },
   {
     "type": "function",
+    "name": "componentDeployers",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "offering",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "revenue",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "redemption",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "market",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "deployments",
     "inputs": [
       {
@@ -404,6 +575,69 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isPending",
+    "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingDeployments",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "offering",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "revenueDistributor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "initiator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "termsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -519,6 +753,68 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AssetSystemAbandoned",
+    "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AssetSystemBegun",
+    "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "issuer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "offering",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "revenueDistributor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -699,7 +995,17 @@
   },
   {
     "type": "error",
+    "name": "AlreadyBegun",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AlreadyDeployed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AssetIdMismatch",
     "inputs": []
   },
   {
@@ -715,6 +1021,11 @@
   {
     "type": "error",
     "name": "InvalidConfiguration",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotBegun",
     "inputs": []
   },
   {

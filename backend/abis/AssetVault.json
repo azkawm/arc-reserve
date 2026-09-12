@@ -1490,6 +1490,11 @@
   },
   {
     "type": "error",
+    "name": "SystemNotActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UnauthorizedIssuer",
     "inputs": []
   }

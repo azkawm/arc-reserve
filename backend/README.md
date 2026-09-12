@@ -96,6 +96,24 @@ at zero.
 and `twap`. `source` answers "where did the events come from"; `provenance` answers "is this price
 market data" (D-019). Boundary C has the CHANGED row, dated 2026-09-11.
 
+### A public testnet RPC is a rate limit, not a database
+
+Base Sepolia's public endpoint answers "over rate limit" long before it answers slowly. Two
+things keep the API inside it. The client batches `eth_call` through Multicall3 on chains that
+have one (`chain/client.ts`), which turns an asset page's reads into a single call; Anvil has no
+Multicall3, so this is per chain. And `poolIsCanonical` caches its answer per chain and address,
+because deployed bytecode does not change — without the cache every candle request re-learned the
+same fact with an `eth_getCode`. An address with no code is not cached: it may be deployed later.
+
+### Token ordering is per deployment, never cached across chains
+
+A Uniswap V3 pool sorts its tokens by address, and the two live deployments sort differently: on
+Anvil mUSD is token0, on Base Sepolia the SOLAR01 address sorts below mUSD, so the asset is token0
+there. The same human price is therefore tick `t` on one chain and `-t` on the other, and "the
+tick went up" means opposite things. The swap projector derives the ordering per swap by comparing
+that chain's own token and stablecoin addresses, so no value is shared between chains;
+`test/unit/tick.test.ts` pins both orderings to the same price.
+
 ### Ticks are converted with integer math
 
 `priceLower` / `priceUpper` come from a port of Uniswap's `TickMath.getSqrtRatioAtTick`

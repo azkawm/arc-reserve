@@ -189,11 +189,29 @@ export interface AssetSnapshot {
  */
 const MOCK_POOL_MARKERS = ['setOracleForTest', 'setSwapOutputBpsForTest'] as const;
 
+/**
+ * Deployed bytecode never changes, so this is asked once per pool per process. Without the cache
+ * every candle request and every asset page spends an `eth_getCode` re-learning the same fact,
+ * which is what exhausts a public testnet endpoint's rate limit. An address with no code yet is
+ * not cached: it may be deployed later in the same process's life.
+ */
+const canonicalPools = new Map<string, boolean>();
+
+/** Tests reuse one pool address with different bytecode; the cache has to be droppable. */
+export function resetPoolCanonicalCache(): void {
+  canonicalPools.clear();
+}
+
 export async function poolIsCanonical(
   client: ArcPublicClient,
   pool: `0x${string}`,
 ): Promise<boolean> {
-  const code = await client.getCode({ address: getAddress(pool) });
+  const address = getAddress(pool);
+  const key = `${client.chain?.id ?? 'unknown'}:${address.toLowerCase()}`;
+  const cached = canonicalPools.get(key);
+  if (cached !== undefined) return cached;
+
+  const code = await client.getCode({ address });
   if (code === undefined || code === '0x') return false;
 
   const mockAbi = loadAbi('MockUniswapV3Pool');
@@ -202,7 +220,9 @@ export async function poolIsCanonical(
     return item === undefined ? null : toFunctionSelector(item as never).slice(2);
   }).filter((selector): selector is string => selector !== null);
 
-  return !markers.some((selector) => code.includes(selector));
+  const canonical = !markers.some((selector) => code.includes(selector));
+  canonicalPools.set(key, canonical);
+  return canonical;
 }
 
 interface ReadOptions {

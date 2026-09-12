@@ -36,6 +36,35 @@ describe('getSqrtRatioAtTick', () => {
   });
 });
 
+describe('token ordering across chains', () => {
+  // The two live deployments sort the pair differently: on Anvil mUSD is token0, on Base Sepolia
+  // the SOLAR01 address sorts below mUSD, so the asset is token0 there. The same human price is
+  // then a tick and its negation, and "higher tick" means the opposite thing on each chain.
+  // Ordering is read per deployment (the swap projector compares the two addresses), so nothing
+  // may cache it across chains — these assertions are what "the same price" has to mean.
+  it('prices a tick and its negation identically under opposite orderings', () => {
+    // Reading a price near 1 mUSD is tick t on one ordering and -t on the other, and both
+    // branches land on the same base units exactly. (The mirrored direction — the same ticks
+    // read the other way round — prices an asset at ~1e24 mUSD, where the two branches divide
+    // in opposite orders and the last few base units differ. Nothing is served from there.)
+    for (const tick of [276_324, 276_325, 100_000, 1, 0]) {
+      expect(priceAtTick(-tick, SOLAR)).toBe(priceAtTick(tick, FLIPPED));
+    }
+  });
+
+  it('reads about 1 mUSD at the anchor tick of either chain', () => {
+    // Base Sepolia: asset is token0, anchor tick -276325. Anvil: asset is token1, +276324.
+    expect(formatFixed(priceAtTick(-276_325, SOLAR), STABLE_DECIMALS)).toBe('0.999902');
+    expect(formatFixed(priceAtTick(276_324, FLIPPED), STABLE_DECIMALS)).toBe('1.000002');
+  });
+
+  it('reverses the direction of the price with the ordering', () => {
+    // One chain's "tick went up, asset got dearer" is the other's "asset got cheaper".
+    expect(priceAtTick(276_400, SOLAR)).toBeGreaterThan(priceAtTick(276_300, SOLAR));
+    expect(priceAtTick(276_400, FLIPPED)).toBeLessThan(priceAtTick(276_300, FLIPPED));
+  });
+});
+
 describe('priceAtTick', () => {
   it('prices the seeded anchor range at roughly 1 mUSD per SOLAR01', () => {
     // DeployLocal seeds the anchor at [-276600, -276000] with the asset as token0. With

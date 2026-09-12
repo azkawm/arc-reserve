@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { toFunctionSelector } from 'viem';
 import { closeTestDatabase, testDatabase, truncateAll } from '../helpers/database.js';
 import { stubClient, testConfig } from '../helpers/chain.js';
+import { resetPoolCanonicalCache } from '../../src/chain/snapshot.js';
 import { buildServer } from '../../src/server.js';
 import { createLogger } from '../../src/observability/logger.js';
 import { applySwapToCandles } from '../../src/candles/aggregate.js';
@@ -48,6 +49,7 @@ let db: Database;
 let app: FastifyInstance | null = null;
 
 beforeEach(async () => {
+  resetPoolCanonicalCache();
   db = await testDatabase();
   await truncateAll(db);
 
