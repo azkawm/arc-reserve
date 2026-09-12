@@ -189,7 +189,9 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         (int24 discoveryLower, int24 discoveryUpper,,) =
             market.positions(AssetMarketManager.PositionKind.Discovery);
 
-        _setOneDollarOracle(10);
+        // D-036: the direction signal must be satisfied first, otherwise these revert on the signal
+        // rather than on the liquidity check this test is about.
+        _movePriceOutsideAnchor(true);
         vm.expectRevert(AssetMarketManager.PositionHasLiquidity.selector);
         market.slide(anchorLower + 60, anchorUpper + 60);
 
@@ -199,7 +201,7 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         vm.expectRevert(AssetMarketManager.PositionHasLiquidity.selector);
         market.refreshDiscovery(discoveryLower + 60, discoveryUpper + 60);
 
-        _setOneDollarOracle(-10);
+        _movePriceOutsideAnchor(false);
         vm.expectRevert(AssetMarketManager.PositionHasLiquidity.selector);
         market.sweep(anchorLower - 60, anchorUpper - 60);
 
@@ -211,14 +213,25 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         (int24 anchorLower, int24 anchorUpper,,) =
             market.positions(AssetMarketManager.PositionKind.Anchor);
 
-        _setOneDollarOracle(-10);
+        // D-036 direction: while spot sits INSIDE the anchor range the position is working, so
+        // neither move is permitted.
+        _setOneDollarOracle(0);
         vm.expectRevert(AssetMarketManager.InvalidRange.selector);
         market.slide(anchorLower + 60, anchorUpper + 60);
-
-        _setOneDollarOracle(10);
         vm.expectRevert(AssetMarketManager.InvalidRange.selector);
         market.sweep(anchorLower - 60, anchorUpper - 60);
 
+        // Price left on the downside: an upward slide is still refused.
+        _movePriceOutsideAnchor(false);
+        vm.expectRevert(AssetMarketManager.InvalidRange.selector);
+        market.slide(anchorLower + 60, anchorUpper + 60);
+
+        // Price left on the upside: a downward sweep is refused.
+        _movePriceOutsideAnchor(true);
+        vm.expectRevert(AssetMarketManager.InvalidRange.selector);
+        market.sweep(anchorLower - 60, anchorUpper - 60);
+
+        // Signal satisfied, so the shift ceiling and tick alignment are what bite now.
         vm.expectRevert(AssetMarketManager.InvalidRange.selector);
         market.slide(anchorLower + 1_260, anchorUpper + 1_260);
 
@@ -301,13 +314,7 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 1_500, 600);
 
         vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
-        market.setSafetyPolicy(0, 10 minutes, 200, 1_500, 600);
-
-        vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
         market.setSafetyPolicy(15 minutes, 0, 200, 1_500, 600);
-
-        vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
-        market.setSafetyPolicy(15 minutes, 10 minutes, 10_001, 1_500, 600);
 
         vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 10_001, 600);
@@ -315,12 +322,39 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 1_500, 0);
 
+        // D-036: the first and third arguments are dead. Their validation is deliberately gone, so
+        // a caller may pass 0 and mean "not applicable" rather than inventing a plausible number
+        // for a knob that configures nothing - and an out-of-range basis-point value is accepted
+        // too, because nothing reads it.
+        market.setSafetyPolicy(0, 10 minutes, 10_001, 1_500, 600);
+
+        // They are also emitted as 0, so no indexer records a policy that was never set.
+        vm.expectEmit(false, false, false, true, address(market));
+        emit AssetMarketManager.SafetyPolicyUpdated(0, 10 minutes, 0, 1_500, 600);
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 1_500, 600);
-        assertEq(market.twapWindow(), 15 minutes);
+
         assertEq(market.rebalanceCooldown(), 10 minutes);
-        assertEq(market.maxSpotTwapDeviationBps(), 200);
         assertEq(market.maxMarketNAVDeviationBps(), 1_500);
         assertEq(market.maxTickShift(), 600);
+    }
+
+    /// @notice D-036 demo pacing: a 1-second cooldown still refuses two rebalances in the same
+    ///         block, so the refusal stays demonstrable while a demo a second apart runs freely.
+    function testOneSecondCooldownStillRefusesTwoRebalancesInOneBlock() public {
+        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+
+        market.rebalanceToNAV(lower + 60, upper + 60);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AssetMarketManager.SafetyCheckFailed.selector,
+                AssetMarketManager.SafetyFailure.Cooldown
+            )
+        );
+        market.rebalanceToNAV(lower + 120, upper + 120);
+
+        vm.warp(block.timestamp + 2);
+        market.rebalanceToNAV(lower + 120, upper + 120);
     }
 
     function testSafetyRejectsInactiveAssetBeforeMarketAction() public {
@@ -341,13 +375,15 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         _assertSafetyFailure(AssetMarketManager.SafetyFailure.Matured);
     }
 
-    function testSafetyRejectsMarketNAVDeviationWithAlignedSpotAndTwap() public {
+    /// @dev D-036: the guard now reads SPOT against NAV, and `safetyState`'s third return value is
+    ///      permanently 0 rather than a time-weighted price.
+    function testSafetyRejectsMarketNAVDeviationOnSpot() public {
         _setFlatMarketOffset(3_000);
         (AssetMarketManager.SafetyFailure failure, uint256 spot, uint256 twap, uint256 nav) =
             market.safetyState(false);
 
         assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation));
-        assertEq(spot, twap, "spot and TWAP should agree in this scenario");
+        assertEq(twap, 0, "the retired TWAP slot must report 0");
         assertGt(spot, nav, "market should be above NAV");
     }
 

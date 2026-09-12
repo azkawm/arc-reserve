@@ -16,12 +16,25 @@ contract AssetMarketManagerTest is ArcReserveTestBase {
         vm.stopPrank();
     }
 
-    function testSpotTwapAndNAVRemainSeparateInputs() public view {
-        (uint256 spot, uint256 twap,) = market.marketPrices();
+    /// @notice D-036: the engine publishes no time-weighted price. The three-value shape is kept
+    ///         for ABI stability, but the second and third slots are always 0 - never spot, because
+    ///         a plausible number under a wrong label is the one failure a consumer cannot detect.
+    function testMarketPricesPublishesSpotAndZeroForTheRetiredTwapSlots() public view {
+        (uint256 spot, uint256 twap, int24 meanTick) = market.marketPrices();
         (uint256 nav,) = registry.navOf(assetId);
         assertApproxEqRel(spot, 1e6, 0.001e18);
-        assertApproxEqRel(twap, 1e6, 0.001e18);
+        assertEq(twap, 0, "twapPrice slot must be 0, not spot");
+        assertEq(meanTick, 0, "meanTick slot must be 0");
         assertEq(nav, 1e6);
+    }
+
+    /// @notice Spot and NAV remain separate inputs; only the TWAP was retired.
+    function testSpotAndNAVRemainSeparateInputs() public {
+        _setOneDollarOracle(600);
+        (uint256 spot,,) = market.marketPrices();
+        (uint256 nav,) = registry.navOf(assetId);
+        assertGt(spot, nav, "spot must move independently of NAV");
+        assertEq(nav, 1e6, "NAV is verifier-set and unmoved by trading");
     }
 
     function testAnchorAndReservePositionsMintAndRemoveLiquidity() public {
@@ -71,7 +84,10 @@ contract AssetMarketManagerTest is ArcReserveTestBase {
         market.addLiquidity(_liquidityParams(10, 9, 10, 0, 0, block.timestamp));
     }
 
-    function testStaleNAVAndSpotTwapDeviationStopRebalancing() public {
+    /// @dev D-036: the spot/TWAP gate is gone, so the second half now exercises the only remaining
+    ///      market guard - spot against NAV, which reads spot directly and so trips on a single
+    ///      move rather than waiting for a half-hour average to drift.
+    function testStaleNAVAndMarketNAVDeviationStopRebalancing() public {
         vm.warp(block.timestamp + 2 days + 1);
         (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(false);
         assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.StaleNAV));
@@ -81,13 +97,38 @@ contract AssetMarketManagerTest is ArcReserveTestBase {
         market.rebalanceToNAV(lower + 60, upper + 60);
 
         registry.publishNAV(assetId, 1e6);
+        // ~10.5% in price terms: inside the 20% guard, so this must NOT trip.
         _setOneDollarOracle(1_000);
         (failure,,,) = market.safetyState(false);
-        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.SpotTwapDeviation));
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.None));
+
+        // ~22%: outside it.
+        _setOneDollarOracle(2_000);
+        (failure,,,) = market.safetyState(false);
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation));
+    }
+
+    /// @notice D-036: value 5 is reserved for the retired spot/TWAP failure and must never be
+    ///         returned, so no consumer's failure-code mapping shifts underneath it.
+    function testSpotTwapDeviationIsReservedAndNeverReturned() public {
+        assertEq(uint8(AssetMarketManager.SafetyFailure.SpotTwapDeviation), 5);
+        assertEq(uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation), 6);
+        assertEq(uint8(AssetMarketManager.SafetyFailure.ReserveBelowMinimum), 7);
+        assertEq(uint8(AssetMarketManager.SafetyFailure.Cooldown), 8);
+
+        int24[5] memory offsets = [int24(0), int24(600), int24(-600), int24(3_000), int24(-3_000)];
+        for (uint256 i = 0; i < offsets.length; i++) {
+            _setOneDollarOracle(offsets[i]);
+            (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
+            assertTrue(
+                failure != AssetMarketManager.SafetyFailure.SpotTwapDeviation,
+                "reserved failure code was returned"
+            );
+        }
     }
 
     function testSlideIsRateLimitedAndRequiresRemovedLiquidity() public {
-        _setOneDollarOracle(10);
+        _movePriceOutsideAnchor(true);
         int24 firstLower = _anchorLower() + 60;
         int24 firstUpper = _anchorUpper() + 60;
         market.slide(firstLower, firstUpper);

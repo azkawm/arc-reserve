@@ -121,3 +121,75 @@ lower for touched files, boundary doc updated, `docs/SYSTEM_SPEC.md` updated if 
 ## Hand-off artifact
 A message to the other agents containing: changed signatures/events, new `deployments/31337.json`,
 and the `CHANGED` rows you added.
+
+## To-do: the market flywheel (D-035) — core feature, not yet built
+
+Recorded 2026-09-12 from the owner's design session. Build order matters; the cheap half can ship
+with the TWAP redeploy, the expensive half should not be rushed into it.
+
+**Phase A — rides with the TWAP redeploy (deletions and small additions, mock-testable):**
+1. Remove TWAP (D-036). `marketPrices()` keeps its 3-tuple but returns **0** in the twap slot —
+   never spot, which would publish a real number under a false label. Remove `twapWindow()` too.
+   The 3-tuple shape itself is pinned in both boundary
+   docs. Re-signal `slide`/`sweep` from **NAV** (slide when spot > NAV, sweep when spot < NAV),
+   otherwise they are the same function with different labels.
+2. `SafetyFailure.SpotTwapDeviation` **stays at value 5, reserved and never returned.** Deleting it
+   shifts `MarketNAVDeviation`/`ReserveBelowMinimum`/`Cooldown` down one and both stacks silently
+   mislabel every failure.
+3. `maxMarketNAVDeviationBps` now compares **spot** to NAV — the only market guard left, and more
+   sensitive than before.
+   **`setSafetyPolicy` reduces to three parameters, and `SafetyPolicyUpdated` to three fields**
+   (decided 2026-09-12). Keeping five with two ignored would leave a `twapWindow` parameter that
+   accepts 1800 and silently does nothing — the same plausible-but-false surface D-036 condemns, and
+   worse in a setter, where there is no "impossible value" option. It is a real ABI break on the
+   setter and the event; the Contract → Backend → Frontend sequencing exists to absorb exactly this.
+   There is no zero-break path regardless: removing `twapWindow()` already breaks
+   `CONTRACTS_TO_FRONTEND` §4, which pins it in the Policy row.
+3b. **The `Rebalanced` event carries `twapPrice` and must emit 0**, for the same reason as the
+   `marketPrices()` slot — the backend builds `market_rebalances` from it, so a plausible number
+   under a wrong label would be indexed and stored. **Keep the field**: dropping it changes the event
+   signature and forces a decoder change for what is now a constant. The CHANGED row must say so.
+4. Opportunistic `levelUp()` on the rebalance path — skip silently if `canLevelUp()` is false or the
+   controller is unset; never revert the caller.
+   **Reentrancy (caught in review 2026-09-12):** this introduces an external call into an
+   admin-settable contract, and `slide`, `sweep`, `rebalanceToNAV`, `refreshDiscovery` and
+   `rebalanceToFloor` currently carry **no `nonReentrant` modifier**. If this item lands, those entry
+   points need one and the `levelUp()` call must be wrapped in `try/catch`. Do not ship it without
+   both.
+5. Deploy scripts drop the three stepped `increaseObservationCardinalityNext` calls.
+6. `DeployLocal` keeps its `require(block.chainid == 31337)` guard.
+7. **Rebalance cooldown is configured to 1 second** (owner, 2026-09-12).
+   ~~Drop the `cooldown_ == 0` clause from the guard.~~ **Withdrawn 2026-09-12** — the guard rejects
+   only zero, and 1 already passes, so removing it would weaken a check to enable something that
+   already works. Leave the zero-rejection in place. Reason for 1s: at 1s, two rebalances in the same block still
+   trip `SafetyCheckFailed(Cooldown)` (`block.timestamp < lastRebalanceAt + 1` holds when equal),
+   so the refusal stays demonstrable — it is one of the very few guards that bites instantly on a
+   public chain, with no time-warping — while a demo sequence one second apart runs freely. Setting
+   0 would buy the same speed and throw the demo away.
+   The **floor** level-up cooldown needs no code: `setFloorLevelCooldown` already accepts zero and
+   the owner holds admin on the live controller, so it is a configuration call on the deployed
+   contract.
+
+**Phase B — the flywheel proper (needs new math and new test infrastructure):**
+7. `AssetVault.creditMarketSurplus(uint256)` — market-manager only, one-way, realised surplus only.
+   See D-035 for why each property is load-bearing.
+8. Atomic `slide`/`sweep`: burn → collect → move ticks → re-mint in one transaction; anchor never
+   observably empty; triggerable from `executeSwap`.
+9. `LiquidityAmounts` / `SqrtPriceMath` (or equivalent) to compute `L'` from recovered amounts at the
+   new range. The repo has only `TickPriceMath.getSqrtRatioAtTick` today.
+10. Anchor top-up from idle inventory, degrading to single-sided when inventory is exhausted;
+    `RebalanceSkipped(reason)` on every skip path.
+11. Discovery proceeds routed to the protected reserve via (7), closing the loop into `levelUp()` and
+    the existing `rebalanceToFloor`.
+12. **Uniswap V3 fork tests.** Non-negotiable for phase B: the mock pool's `amount = liquidity ×
+    constant` cannot validate `L'`, and wrong liquidity math under-deploys capital silently instead
+    of reverting. This is the repo's first fork test and is the real cost of the feature.
+
+**Explicitly out of scope** (owner, D-035): timelocks, multisig, approval delays, maker-checker.
+Existing role gates stay — they are free, already built, and are themselves demo material.
+
+**Known sequencing traps:** a redeploy creates a new `IdentityRegistry`, so `DemoRegistrar` must be
+deployed after it and against it; token ordering may flip again and both stacks must re-read
+`assetIsToken0()`; backend `START_BLOCK` and both running API instances need repointing;
+`SECURITY.md`'s risk register names the spot/TWAP gate as *the* spot-manipulation mitigation and must
+be rewritten rather than quietly become false.

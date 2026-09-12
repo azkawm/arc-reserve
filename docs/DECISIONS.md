@@ -696,88 +696,164 @@ zero expiry, which made the kill switch illusory).
 wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
 that a real deployment verifies identity offchain through a licensed provider.
 
-## D-035: The frontend is a React + Vite SPA; Next.js is retired
+## D-036: TWAP is removed from the market engine
 
-Status: accepted 2026-09-12 (owner instruction). Scaffold landed; route porting outstanding.
+Status: accepted 2026-09-12 (owner). Build authorised as Phase A of D-035's to-do.
 
-**The decision.** `frontend/` is rebuilt as a React + Vite single-page app with Tailwind CSS v4,
-shadcn/ui, Vitest, and a Docker image. The Next.js 15 App Router implementation is removed from the
-working tree and remains in git history.
+**The decision.** `AssetMarketManager` stops reading `pool.observe()`. The time-weighted price, the
+`twapWindow` / `maxSpotTwapDeviationBps` policy, and the spot/TWAP deviation gate are all removed.
+Owner's reasoning: "only ticks is sufficient for MVP" under hackathon scope (D-027).
 
-**What carried over unchanged.** The backend client and the provenance contract, because they are
-the part of the frontend that encodes financial rules rather than framework choices:
-`lib/api.ts` (the `{ data, meta }` envelope and the `ApiError` codes), `lib/queries.ts` (the
-`["api", route, ...]` key namespace and the sub-backend `staleTime`), `lib/fixtures.ts`,
-`lib/data.ts`, `lib/format.ts` (exact decimal display, no float arithmetic on money),
-`lib/contracts.ts`, `lib/wagmi.ts`, and the `DataSourceBadge` / `DataPanel` components that make
-D-019 unavoidable. The visual identity (palette, Georgia display face) is carried into the Tailwind
-theme tokens rather than restyled. **Superseded by D-036**: the concept landing page adopts a new
-light palette and Newsreader display face; this sentence describes the state as of D-035 only.
+**What replaces the mitigation — stated plainly because it is a reduction.** `SECURITY.md`'s risk
+register named the spot/TWAP deviation gate as *the* mitigation for spot-price manipulation. After
+this change the only remaining market guard is `maxMarketNAVDeviationBps`, comparing **spot** to
+verified NAV. That bounds manipulation to the NAV deviation band but no longer detects a
+single-transaction spot move inside it. It is also **more sensitive**, because spot is noisier than
+a 30-minute average, so `MarketNAVDeviation` will fire more often — expected, not a regression.
+This entry must be rewritten in `SECURITY.md` rather than left to quietly become false.
 
-**What was deliberately not ported, and is therefore currently absent from the product.** The
-marketplace, asset, issuer, verifier, and engine routes; the candle and engine charts; and every
-live wallet write — buy, claim, redeem, issuer deposits, verifier NAV and status actions, and keeper
-range calls. Those were working before this change and are not working now. `docs/FRONTEND.md`
-sections 1 and 3 onward are retained as the porting specification, not as a description of the
-current app.
+**Consequence for non-negotiable #4.** `CLAUDE.md` listed five values that must remain distinct.
+After this there are **four**: NAV, market spot, protected floor reference, redemption price. The
+principle is unchanged and the remaining four must still never be collapsed; only TWAP leaves the
+list. `AI_COMPREHENSION_CHECK.md` Q3 and its key inherit the same amendment.
 
-**Deliberate mechanical consequences.**
-- `NEXT_PUBLIC_*` becomes `VITE_*`, read through `import.meta.env` and typed in
-  `src/vite-env.d.ts`. `NEXT_PUBLIC_SITE_URL` is dropped; nothing read it.
-- Vite *inlines* `VITE_*` at build time, so they are Docker **build arguments**, not runtime
-  environment. Repointing the container at a different API means rebuilding it.
-- The dev and preview servers are pinned to port 3000 with `strictPort`, because the backend's
-  `CORS_ORIGIN` defaults to `http://localhost:3000`; a silently reassigned port would break every
-  `/v1` read in the browser.
-- wagmi's `ssr: true` is removed. There is no server render pass in a SPA, and claiming otherwise
-  would misdescribe how the app runs.
-- Routing is still absent, per the standing instruction in `docs/stacks/AGENT_FRONTEND.md`. The
-  routes return with the panels, not before them.
+**Interface shape, and the trap inside it.** `marketPrices()` keeps its 3-tuple so no ABI breaks,
+and returns **0** in the TWAP slot — never spot. `twapWindow()` is removed.
 
-**Why a rewrite was acceptable at this point.** The frontend held no financial logic of its own —
-the contracts enforce the rules, the backend computes the values, and the frontend's own
-contribution is the provenance discipline, which was ported verbatim. The cost is real and is
-recorded above: a working demo surface was traded for a test runner, a container, and a component
-system that the Next.js app never had.
+The architect's first instruction was "return spot in the twap slot", and both the backend and
+frontend sessions independently identified it as a silent mislabel: the API would have published
+the spot price with `windowSeconds: 1800` and provenance `onchain` — real number, honest
+provenance, false name, undetectable from values and caught by no existing test. Returning 0 makes
+the value self-describing, because a price of zero never occurs legitimately, and it **fails
+visibly rather than plausibly**. Recorded because the reasoning generalises: when removing a
+capability, the vacated field must carry an impossible value, not a plausible one.
 
-## D-036: The concept landing page adopts a light palette; D-035's palette-stability clause is superseded
+**The pattern this decision kept producing, and the rule that follows.** Three instances surfaced
+during Phase A, each caught by a different session and none by the compiler or the tests:
+`marketPrices()`'s twap slot (backend and frontend, independently), `Rebalanced.twapPrice` (contracts
+— the same bug one layer down, already being indexed into `market_rebalances`), and
+`/v1/.../positions.currentTick`, which was fed by `meanTick` and would have reported the market at
+tick 0 while the configured ranges sit near ±276,000 — served with `onchain` provenance, on a panel
+whose whole job is showing where price sits relative to those ranges.
 
-Status: accepted 2026-09-12 (owner instruction; implemented in `openspec/changes/concept-landing-page`).
+The backend session's statement of it: *"a field whose meaning was carried by a contract value, where
+the contract's meaning changed and the type did not."* Nothing was type-unsafe; everything was
+semantically wrong, so no signature and no test complained.
 
-**The decision.** The app-wide visual system is replaced: D-035's dark ground and lime accent
-(`--arc-bg: #090d0a`, `--arc-green: #b7f765`) give way to a parchment ground, ink-black text, and a
-cerulean accent, sourced from the Stitch reference design in `stitch-ui/`. This is a deliberate
-reversal of one specific sentence in D-035 — "The visual identity (palette, Georgia display face) is
-carried into the Tailwind theme tokens rather than restyled" — which is superseded, not merely
-extended. Every other part of D-035 (the framework choice, the ported data layer, the retired routes)
-stands unchanged.
+**Rule for future capability removals: audit every consumer of every value the capability fed, not
+just the call sites of the functions being deleted.** The type system cannot help here, and a passing
+suite is not evidence. Note also that the fix belongs where the name is honest —
+`AssetMarketManager.meanTick` correctly returns 0 (it was the mean over the TWAP window, which no
+longer exists), while the backend reads `pool.slot0().tick` for a field actually named
+`currentTick`.
 
-**Why a reversal is recorded rather than silently overwritten.** D-035's palette-stability clause had
-its own stated reason: so "the brand does not change because the build tool did." That reasoning does
-not carry over to a deliberate design decision made one commit later for an unrelated purpose (giving
-the landing page a considered visual system worth the name), and leaving the old clause unamended
-would read as a contradiction the next person has to resolve by re-deriving it from a git diff.
+**Consumer obligations.** Backend: `/metrics.twap` becomes `null`, never an echo of spot;
+`marketStatus` keys on spot alone, or every deployment reports `warming_up` once twap is null.
+Frontend: delete the TWAP overlay, legend and the spot/TWAP gate row rather than re-point them;
+`slide`/`sweep` are explained as "market above/below verified value", not "above its own average".
 
-**Consequences carried out in the same change:**
-- The three provenance colours (`--provenance-live/-derived/-mock`) are re-picked rather than
-  carried over. The previous "derived" blue sat close to the new cerulean brand accent, which would
-  have made "derived data" and "the brand colour" hard to tell apart. All three are verified at
-  `>=4.5:1` contrast on white and span distinct hues (142°/263°/26°), so the distinction holds under
-  red-green colour deficiency and not only for full colour vision.
-- `--radius` moves to `0.25rem`, chosen so Tailwind's derived `sm`/`md`/`lg`/`xl` scale lands on the
-  Stitch reference's own radius scale exactly (2/4/8px) rather than approximating it.
-- Newsreader replaces Georgia as the display serif (Georgia stays as the fallback), loaded from
-  Google Fonts.
-- The eight shadcn-generated components needed no code change — they are token-driven, so the
-  palette and radius changes apply to them automatically. A visual pass over all eight, plus a real
-  cross-viewport screenshot pass once Playwright landed in the same change, confirmed no component
-  broke under the tighter radius scale.
+**`SafetyFailure.SpotTwapDeviation` stays at value 5, reserved and never returned** — see D-035's
+to-do. Renumbering would silently shift every later code in both stacks.
 
-**What is unaffected.** `frontend/src/lib/` (the `/v1` client, react-query bindings, fixture adapter,
-formatters) and the wagmi + react-query providers — none of this depends on the palette, and none of
-it changed. The concept landing page itself is a separate decision, recorded in
-`openspec/changes/concept-landing-page/proposal.md` and `design.md`; this entry covers only the
-palette reversal's relationship to D-035.
+## D-035: The market flywheel — trading raises the floor
+
+Status: accepted 2026-09-12 (owner). **Phase B-1 built and proven on a canonical-Uniswap fork
+(2026-09-12); the atomic re-mint half is not built.** This is the core market feature, recorded
+with its full scope rather than discovered mid-build.
+
+**What shipped (B-1).** `AssetVault.creditMarketSurplus` with all three non-negotiable properties
+below; `AssetMarketManager.principalOutstanding` as the cost basis and `creditableSurplus()` as the
+cap; and a permissionless `swapExactInput(tokenIn, amountIn, minAmountOut, deadline)` that trades
+against the pool and then turns the crank — harvest discovery, credit the surplus, ratchet the
+floor — with every post-trade step skipping via `FlywheelSkipped(reason)` rather than reverting the
+trade. Measured on a Base Sepolia fork: reserve 24,000 → 24,630.32 mUSD, backing 0.300000 →
+0.307879, floor ratcheted, in one trade.
+
+**Cost basis, since D-035 as written did not define one.** "Proceeds above cost" has no arithmetic
+meaning for SOLAR01 that arrived through `fundTokenInventory` — a transfer in, with no mUSD cost
+basis at all. The implemented rule uses the one boundary the decision does give ("never the market
+allocation's principal"): `creditable = max(0, manager mUSD balance − principalOutstanding)`. It is
+conservative by construction — stable locked inside pool positions is not in the balance, so an
+under-water manager reads 0 rather than over-crediting — and it only goes positive once the market
+has genuinely returned more than was borrowed.
+
+**The vault does not police it.** It cannot see the manager's cost basis, so a check there would be
+theatre; the cap is manager-side. The funds are real and the direction is one-way, so the worst a
+buggy manager can do is misreport which bucket capital came from — never inflate the reserve.
+
+**What is NOT built:** the atomic burn → collect → move → re-mint, the `L'` liquidity maths it
+needs, and the anchor top-up. B-1 harvests without re-minting, so no `L'` is required; a keeper
+refills through the existing `addLiquidity`, where liquidity is supplied explicitly and guarded by
+its own slippage bounds. Degradation when inventory is exhausted is **skip and emit**, not a range
+shift — an anchor moved off spot is no longer an anchor, so shifting would sacrifice the model to
+save a transaction.
+
+**One trap found while building, worth keeping written down.** A swap that exhausts liquidity stops
+at the price limit and leaves input unspent in the manager. Left there it is indistinguishable from
+market surplus and would be credited to the reserve on the next crank — quietly converting a
+trader's own money into protected backing. `swapExactInput` refunds the unspent remainder, and
+`test_swapExactInputRefundsInputItCouldNotSpend` pins it.
+
+**The loop.**
+```
+discovery sells SOLAR01 above market   →  mUSD proceeds
+proceeds credited to the PROTECTED RESERVE  →  backing per investor token rises
+higher backing → canLevelUp() true     →  levelUp() ratchets the published floor one spacing
+reserveFloor position moves up under the new level  →  rebalanceToFloor
+repeat
+```
+Why it matters: until now, **trading did nothing to backing**. The reserve only grew from issuer
+deposits, the revenue split, and yield. This closes the loop D-011 always described — realised
+market surplus becomes floor accretion — and it is the first mechanism in which `levelUp()` has a
+reason to fire on its own. It is the product thesis made mechanical, not a demo nicety.
+
+**What already exists.** `rebalanceToFloor` is implemented and already enforces that the floor
+position sits at or below the published floor tick (`RangeAboveFloor`), ordering-aware. `levelUp()`
+exists. The manager holds a **single token pot** (`collect` pays `address(this)`, the mint callback
+spends from the same balance), so moving value between positions needs no new accounting.
+
+**The missing piece — the only genuinely new vault surface.** No path exists from market proceeds
+into `redemptionReserve`. `returnStablecoinToVault` credits `marketMakingAllocation`, and all seven
+`redemptionReserve +=` sites are fed from issuer deposits, revenue, or yield — none reachable by the
+market manager. A new market-manager-only `creditMarketSurplus(uint256)` is required.
+
+**Non-negotiable properties of that crossing** (this is the first path letting market capital reach
+investor capital, so the rule in `CLAUDE.md` about bucket separation is bent deliberately, once,
+in one direction):
+- **One-way only.** Nothing may move reserve back out to fund trading, ever.
+- **Market-manager only.** Not a keeper action, not an admin action.
+- **Realised surplus only** — proceeds above cost, never the market allocation's principal.
+  Crossing principal would convert market-making capital into backing and flatter the numbers.
+
+**Atomic rebalance with a funded anchor** (the other half, also new):
+- `slide`/`sweep` become money movement rather than bookkeeping: burn → collect → move ticks →
+  re-mint, in one transaction, so the anchor is never observably empty and the path can be triggered
+  by a swap.
+- The recovered tokens support a **different** liquidity at the new range, so `L'` must be computed —
+  requiring `LiquidityAmounts`/`SqrtPriceMath`, which the repo does not have
+  (`src/libraries/` holds only `DecimalMath` and `TickPriceMath.getSqrtRatioAtTick`).
+- **Anchor top-up from the manager's idle inventory** (owner's choice): after a move the anchor holds
+  only the token the market left it with, and a straddling range needs both. Top up from inventory;
+  **degrade gracefully to single-sided when inventory is exhausted**, emitting the shortfall rather
+  than reverting. The manager cannot mint, so SOLAR01 inventory is finite and the flywheel has a
+  fuel gauge.
+- Every precondition failure **skips silently and never reverts the swap**, with a
+  `RebalanceSkipped(reason)` event so a skip is explainable on stage.
+- Tick source is `pool.slot0()` post-swap; re-centre preserving width, **floor-snap** to spacing
+  (negative ticks truncate toward zero in Solidity — the existing `meanTick--` correction shows the
+  pattern), clamp to `maxTickShift`.
+
+**Testing dependency.** The mock pool computes `amount = liquidity × constant` with no concept of
+range or price, so it **cannot validate `L'`**. This feature needs Uniswap V3 **fork tests**, which
+the repo has never had. Wrong liquidity math silently under-deploys capital rather than reverting,
+so shipping it without fork tests is not acceptable even under D-027.
+
+**Scope discipline (owner, 2026-09-12).** Build the *flow*; do not add governance ceremony around
+it. No timelocks, no multisig, no approval delays, no maker-checker — those are documented
+production paths (D-027, D-029) and demonstrating them is not required. The distinction that does
+hold: **existing role gates stay**, because they cost nothing, are already built, and are themselves
+demo material (the refusals). And the three properties of `creditMarketSurplus` above are
+load-bearing, not ceremony — without them the reserve is not a reserve.
 
 ## Open decisions
 

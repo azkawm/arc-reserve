@@ -148,6 +148,15 @@ abstract contract ArcReserveTestBase is Test {
         pool.setOracleForTest(oneDollarTick + directedOffset, oneDollarTick);
     }
 
+    /// @dev D-036: `slide` and `sweep` take their signal from the anchor's OWN range, so a test
+    ///      wanting either must first move spot outside it. 400 ticks clears the 600-tick anchor
+    ///      band from its centre, and is ~4% in price terms - comfortably inside the 20% spot-vs-NAV
+    ///      guard that is now the only market check. Expressed in price terms, so it holds for both
+    ///      token orderings: `_setOneDollarOracle` already redirects the offset by `assetIsToken0`.
+    function _movePriceOutsideAnchor(bool above) internal {
+        _setOneDollarOracle(above ? int24(400) : int24(-400));
+    }
+
     function _configurePositions() internal {
         if (market.assetIsToken0()) {
             market.configureCorePositions(-278_400, -276_600, -276_600, -276_000);

@@ -15,6 +15,7 @@ import { FloorController } from "../src/market/FloorController.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
+import { DemoRegistrar } from "../src/compliance/DemoRegistrar.sol";
 import { CountryAllowModule } from "../src/compliance/modules/CountryAllowModule.sol";
 import { TransferLockModule } from "../src/compliance/modules/TransferLockModule.sol";
 import { AssetFactory } from "../src/factory/AssetFactory.sol";
@@ -45,6 +46,7 @@ contract DeployLocal is Script {
     address private floorControllerAddress;
     address private registryAddress;
     address private factoryAddress;
+    address private demoRegistrarAddress;
     IdentityRegistry private identityRegistry;
     ModularCompliance private compliance;
     CountryAllowModule private countryModule;
@@ -95,6 +97,8 @@ contract DeployLocal is Script {
         identityRegistry.registerIdentity(
             DEFAULT_ANVIL_RETAIL, DEFAULT_ANVIL_RETAIL, COUNTRY_INDONESIA, CLASS_RETAIL, 0
         );
+
+        _deployDemoRegistrar();
 
         uint64 maturity = uint64(block.timestamp + 3 * 365 days);
         bytes32 assetId = registry.submitAsset(
@@ -192,6 +196,17 @@ contract DeployLocal is Script {
         console2.log("Compliance", address(compliance));
     }
 
+    /// @dev D-034 DEMO: the permissionless KYC stub, so a wallet that is not one of the three
+    ///      seeded above can still join the demo. **Anyone can self-verify on this chain from here
+    ///      on**, for every asset series sharing this registry - label it that way, never as a real
+    ///      gate. Extracted into its own function rather than inlined because `run()` is already at
+    ///      the stack limit and via-IR stays off.
+    function _deployDemoRegistrar() private {
+        DemoRegistrar demoRegistrar = new DemoRegistrar(address(identityRegistry));
+        demoRegistrarAddress = address(demoRegistrar);
+        identityRegistry.grantRole(identityRegistry.REGISTRY_AGENT_ROLE(), demoRegistrarAddress);
+    }
+
     function _configureMarket(AssetFactory.Deployment memory deployment) private {
         AssetMarketManager market = AssetMarketManager(deployment.marketManager);
         int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
@@ -209,6 +224,11 @@ contract DeployLocal is Script {
                 AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
+
+        // D-036 demo pacing: 1-second rebalance cooldown, not 0, so two rebalances in the same
+        // block still trip SafetyCheckFailed(Cooldown) and the refusal stays demonstrable. First
+        // and third arguments are the retired TWAP knobs: accepted, ignored, passed as 0.
+        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
     }
 
     /// @dev Modular compliance for the series: Indonesia-only recipients, and a resale hold
@@ -287,7 +307,10 @@ contract DeployLocal is Script {
             assetIsToken0,
             manager.tickSpacing(),
             assetIsToken0 ? int24(-288_420) : int24(288_420),
-            30 minutes,
+            // D-035 demo pacing: 5s, not the 30 minutes this used to be. The flywheel ratchets the
+            // floor one tick spacing per trade, so a half-hour cooldown would let it fire once and
+            // then emit NOT_ELIGIBLE for the rest of a demo. Matches the 1s rebalance cooldown.
+            5 seconds,
             deployer
         );
         floorControllerAddress = address(floorController);
@@ -303,6 +326,7 @@ contract DeployLocal is Script {
         vm.serializeAddress(root, "mockYieldSource", mockYieldSourceAddress);
         vm.serializeAddress(root, "floorController", floorControllerAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
+        vm.serializeAddress(root, "demoRegistrar", demoRegistrarAddress);
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));
         vm.serializeAddress(root, "transferLockModule", address(lockModule));

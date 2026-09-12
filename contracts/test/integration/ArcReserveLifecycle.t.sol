@@ -61,7 +61,9 @@ contract ArcReserveLifecycleIntegrationTest is ArcReserveTestBase {
         assertTrue(vault.isSolvent());
 
         market.removeLiquidity(AssetMarketManager.PositionKind.Anchor, 1e6, 0, 0, block.timestamp);
-        _setOneDollarOracle(10);
+        // D-036: slide now requires spot to have LEFT the anchor range, not merely to sit above a
+        // TWAP, so the price has to be moved clear of the band first.
+        _movePriceOutsideAnchor(true);
         int24 lower;
         int24 upper;
         (lower, upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);

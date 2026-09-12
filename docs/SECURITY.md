@@ -26,7 +26,7 @@
 
 The design considers unauthorized role use, token-supply inflation, accounting-category confusion,
 direct stablecoin transfers, reentrancy at financial entry points, stale or rapidly moving NAV,
-spot manipulation relative to TWAP, market/NAV divergence, malicious callbacks, wrong callback
+spot manipulation, market/NAV divergence, malicious callbacks, wrong callback
 tokens or direction, expired execution, slippage, rounding across 6 and 18 decimals, double revenue
 claims, incorrect yield eligibility, and reserve runs.
 
@@ -70,8 +70,8 @@ the equality between token supply and outstanding obligations across randomized 
 | Unauthorized issuance | Immutable cap and role-gated mint | Admin can grant roles; production governance/timelock required |
 | Reserve category theft | Separate ledgers and scoped vault roles | Admin/role compromise remains critical |
 | NAV manipulation | Verifier role, per-update movement bound, staleness | Central verifier remains trusted; evidence/oracle system required |
-| Spot manipulation | TWAP and spot/TWAP deviation gate | Window/cardinality and economic attack cost untested on canonical pool |
-| Market/NAV divergence | TWAP/NAV emergency threshold | NAV itself may be wrong or stale within threshold |
+| Spot manipulation | **None (D-036).** The TWAP and the spot/TWAP deviation gate were removed; there is no smoothed reference left to compare spot against | **Accepted, not mitigated.** A keeper can act on a price pushed seconds earlier, and demo-pool liquidity is thin enough to make pushing it cheap. Bounded only by `maxTickShift`, the spot/NAV gate, and the cooldown. Tolerable solely because D-027 means MockUSD and no real value; restoring a TWAP is a prerequisite for anything real |
+| Market/NAV divergence | **spot**/NAV emergency threshold (2,000 bps) | NAV itself may be wrong or stale within threshold. Now reads spot directly, so it trips on a single trade rather than a half-hour average — more sensitive, and more easily tripped by an ordinary large trade |
 | Malicious pool callback | Immutable pool, active payload hash, direction/input checks | Canonical pool/factory integration needs fork validation |
 | Reentrancy | Guards and checks/effects ordering at financial entries | Malicious-token matrix is incomplete |
 | Revenue capture by transfer | Pre-transfer checkpoint hook | Admin-controlled exclusion remains a governance risk |
@@ -85,10 +85,38 @@ the equality between token supply and outstanding obligations across randomized 
 
 ## Security-sensitive implementation details
 
-- `slide` and `sweep` enforce spot/TWAP signal direction but do not prove the proposed raw tick move
-  represents that economic direction for the current token ordering.
+- `slide` and `sweep` take their direction from the anchor position's own range (D-036), resolved in
+  price terms through `assetIsToken0`. They still do not prove the keeper's proposed raw tick move
+  represents that economic direction; the signal is checked, the proposed move is not.
+- **The opportunistic floor level-up on the rebalance path is not reentrancy-guarded** (D-036, owner
+  decision). `slide`, `sweep`, `rebalanceToNAV`, `refreshDiscovery` and `rebalanceToFloor` make an
+  external call into `floorController` without `nonReentrant`. This is an explicit **admin-trust
+  assumption**: `floorController` is set only by `DEFAULT_ADMIN_ROLE`, and an admin who can install a
+  hostile controller can already pause the market, rewrite the safety policy and grant roles, so it
+  confers no privilege they lack. A re-entering controller holds no role of its own and every
+  rebalance, funding and swap entry point is `KEEPER_ROLE` gated, so there is no productive re-entry;
+  `levelUp` also writes only the controller's own state, leaving no half-written manager state to
+  catch. Note too that `levelUp` is already permissionless, so bundling it grants nobody a capability
+  they did not have. The call is wrapped in `try`/`catch` so a failing controller cannot break a
+  rebalance. **If a future change lets a rebalance move value, this assumption must be revisited.**
 - `removeLiquidity`, `collectFees`, and `returnStablecoinToVault` intentionally lack the manager's
   pause gate for recovery.
+- `AssetVault.creditMarketSurplus` is the **only** path from market capital into investor capital
+  (D-035), and it is deliberately one-way: nothing moves the protected reserve back out to fund
+  trading, because `withdrawMarketAllocation` draws from a separate bucket. It is restricted to
+  `MARKET_MANAGER_ROLE` — not a keeper action and not an admin action. The vault does **not**
+  verify that the amount is surplus rather than principal: it cannot see the manager's cost basis,
+  so the cap is enforced manager-side by `creditableSurplus()`. The residual risk is bounded — the
+  funds transferred are real and the direction is one-way, so a buggy manager can misreport which
+  bucket capital came from but can never inflate the reserve.
+- `swapExactInput` refunds input the swap could not spend. Without that refund, a partially-filled
+  order leaves the trader's own money in the manager, where it is indistinguishable from market
+  surplus and would be credited to the protected reserve on the next crank.
+- `collectFees` pokes the position with a zero-liquidity burn before collecting, because a Uniswap
+  V3 pool only attributes accrued fees when the position is touched. The poke is **conditional on
+  the position holding liquidity**: v3 reverts `NP` on a zero-liquidity burn against an empty
+  position, so an unconditional poke would break collecting the fees a full removal left owed.
+  Both directions are covered on a fork (`test/fork/BaseSepoliaMarket.t.sol`).
 - `RevenueDistributor.setYieldExcluded` is an admin policy control and can materially change the
   holder-yield denominator.
 - The local script temporarily grants the deployer issuance authority to mint company vesting, then
@@ -145,6 +173,33 @@ exist but the system is not live. It is bounded deliberately:
 - **No TTL, by design.** An automatic expiry would either race a slow issuer into losing a
   half-paid deployment or be too long to matter. The factory admin can always clear a stale record.
 
+### The demo KYC stub (D-034, added 2026-09-12)
+
+`DemoRegistrar` holds `REGISTRY_AGENT_ROLE` on the protocol `IdentityRegistry` and exposes one
+permissionless function that registers **the caller only** as verified Indonesian retail.
+
+State this accurately or not at all: **anyone can self-verify on this testnet.** The enforcement is
+genuine and unchanged — an unregistered wallet still cannot hold, receive or buy SOLAR01, and the
+freeze, forced-transfer, country and hold-period machinery all behave as in production. What is
+permissive is the *provider policy*: the gate is "anyone who calls this" rather than "anyone a
+provider approved". Describing the deployment as KYC-gated would be false.
+
+- **The blast radius is the whole registry, not one asset.** `IdentityRegistry` is protocol-wide, so
+  this makes self-verification available for **every** asset series sharing it on that chain,
+  present and future — not only SOLAR01.
+- **Narrowed, not unconstrained.** The agent role can register, delete and re-classify any wallet;
+  the contract exposes none of that. There is deliberately no arbitrary-address entry point, so the
+  role cannot be borrowed to verify a third party, and an already-registered wallet returns early so
+  an existing classification is never overwritten.
+- **Revocation stops new sign-ups; it does not un-verify anyone.** There is no expiry and no bulk
+  undo — `deleteIdentity` is one wallet at a time. It is therefore **not a kill switch and must not
+  be called one.** Acceptable only because D-027 makes this chain disposable.
+- **Contracts may self-register.** `msg.sender` can be a contract and `onchainId` is then not
+  meaningful. A `tx.origin` check was rejected: it would lock out smart-account wallets and buy
+  nothing, since this grants no authority beyond holding a demo token.
+- **Production path:** revoke the stub and grant `REGISTRY_AGENT_ROLE` to a real provider. Nothing
+  else references it, so it detaches cleanly.
+
 ## Incident response outline
 
 This is a design outline, not a production runbook:
@@ -175,10 +230,21 @@ This is a design outline, not a production runbook:
   production deployment should restrict changes to verified vesting or protocol custody contracts
   through governance delay and public monitoring.
 - Fee collection in the generic interface cannot distinguish principal from fees without deeper
-  position accounting; events report actual collected amounts.
+  position accounting; events report actual collected amounts. (The separate question of whether
+  fees were *reachable at all* is resolved: `collectFees` pokes first, verified on a fork.)
 - The mock pool cannot validate production fee growth, tick crossing, price impact, liquidity
   exhaustion, or MEV behavior. Local swap and collection tests validate manager controls and token
-  accounting only.
+  accounting only. **Partly closed (2026-09-12):** `test/fork/BaseSepoliaMarket.t.sol` runs the
+  engine against the canonical Uniswap V3 on a pinned Base Sepolia fork and covers real liquidity
+  math, real fee accrual and collection, and a genuine swap driving the rebalance signal. MEV,
+  adversarial ordering and economic attack cost remain untested.
+- A fork does **not** enforce EIP-7825's per-transaction gas cap, nor Hedera's. A green fork run
+  proves logic, never that a transaction will be accepted for broadcast — an 18.4M-gas
+  `deployAssetSystem` passed every fork rehearsal before being refused at precheck on Base Sepolia.
+- Demo-pool liquidity is thin enough that a single oversized trade can exhaust every position and
+  pin the price at the tick boundary, which then trips the spot/NAV guard and blocks all keeper
+  actions until NAV is republished. Observed on the fork with a 40,000 mUSD order against ~1,350
+  mUSD of liquidity.
 - The frontend uses environment-configured local addresses and mixes selected live writes with many
   static fixtures. Some fallback values can look live and must be replaced with explicit error/stale
   states.

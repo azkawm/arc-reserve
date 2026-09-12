@@ -992,6 +992,267 @@ Needs: backend — re-run `npm run sync-abis`; `backend/abis/AssetFactory.json` 
 recommendation is unchanged: (a) fresh full redeploy, plus the two optional cleanup transactions
 (`registry.closeAsset(0x618d32ff…)`, `registry.revokeRole(FACTORY_ROLE, 0xFEb03CF0…)`).
 
+## 2026-09-12 — contracts — LIVE on Base Sepolia: independent verification of the two-phase deployment
+Branch: main   Commit: 4d6b555 (the split); this entry uncommitted
+The owner broadcast `DeployTestnet` to real Base Sepolia during my Anvil rehearsal. Recovery option (a)
+was taken — a fresh full redeploy, new registry `0x4E80dBDC…9386` and new factory `0xaFB2329C…908BB`,
+not a reuse of the orphaned pair. Verified against the chain, independently of the architect's read and
+of `deployments/84532.json`; we agree on every point.
+
+**The split worked on a real chain, with the canonical Uniswap pool.** Two distinct transactions, both
+successful, both from `0xE0Dc…1E61`, both in block 46703011:
+- phase 1 `0xd4fae5be…774f`, selector `0x96930be7`, **8,522,977 gas**
+- phase 2 `0x04975d21…2bf5`, selector `0x2f424ba5`, **10,322,215 gas**
+
+`AssetSystemBegun` ×1 and `AssetSystemDeployed` ×1, distinct transactions. Against Base's EIP-7825 cap
+of 16,777,216 that is 8,254,239 and 6,455,001 spare (38% headroom on the tighter phase); both are also
+under Hedera's 15,000,000, so Hedera needs no further work. Canonical-pool overhead measured at last:
+10,322,215 − 7,192,074 (Anvil mock) = **3,130,141**, so the ~4.3M estimate in D-033 was conservative by
+~1.2M. Combined 18,845,192 vs the old single transaction's 18,424,318 — the 420,874 delta is the second
+transaction's overhead, as predicted. Anvil rehearsal (8,522,905 / 7,192,074) matched the live phase-1
+figure to within 72 gas.
+
+**State:** `statusOf` = 2 (Active), `canIssue` true, `issuerOf` = `0xE0Dc…1E61`, all six `contracts_`
+registered and matching the JSON, `redemptionReserve` 20,000e6, `minimumReserveRatioBps` 2000. **D-032
+holds on the live system:** the factory holds neither `DEFAULT_ADMIN_ROLE` nor `PAUSER_ROLE` on any of
+the six. Pool `factory()` = `0x4752ba5D…2aD24` (canonical), fee 3000, `observationCardinalityNext` 900,
+unlocked. Corroboration that the live factory is this commit's build and not an older artifact: its
+runtime size is **19,561 bytes**, byte-identical to `forge build --sizes` for 4d6b555.
+
+**CORRECTION — token ordering flipped, and it is a live hazard.** `assetIsToken0()` = **true** here:
+token0 = SOLAR01 `0xA499D630…0549`, token1 = mUSD `0xc9B53F30…CaB0`. Earlier entries in this log
+establish `assetIsToken0 == false` on both Anvil and Base ("mUSD sorts first"); that was true of the old
+addresses and is **no longer true of this deployment** — the redeploy produced a SOLAR01 address sorting
+below mUSD. So tick −276325 ≈ 1.000000 mUSD is correct *for this ordering*, Base and Anvil now have
+**opposite** orderings, and the "higher tick = lower asset price" convention reverses between them. Any
+consumer caching the Anvil value renders Base prices inverted. Both stacks must call `assetIsToken0()`
+per chain and never carry it across chains. The Base market positions were configured through the
+negative-tick branch accordingly. One upside: `DeployTestnet`'s `computeCreateAddress` prediction was
+exercised on a real chain in the branch opposite to the rehearsal and its `require` passed, so the
+prediction is now proven in both orderings.
+
+**Method note, for anyone repeating this.** Alchemy's free tier caps `eth_getLogs` at a **10-block**
+range and the public `sepolia.base.org` at 10,000 — a too-wide request returns empty or 400, so a naive
+wide scan looks like "no events" rather than an error. Creation blocks here were pinned by binary search
+on historical `eth_getCode`, which has no range limit. Related: `broadcast/run-latest.json` mis-pairs
+`function` labels with `hash` when transactions are batched (Anvil packed 46 into 4 blocks and
+attributed 108,442 gas to `beginAssetSystem`); verify gas on-chain by recipient + selector, never from
+that file.
+
+Interface changes: none beyond 4d6b555.
+Needs: backend — `START_BLOCK = 46703010` for the Base Sepolia indexer (NOT the factory's 46703011;
+mUSD and the registry were created one block earlier and starting later would miss the registry's
+constructor grants); factory `0xaFB2329C2331b4E0DBfAd1B9784443ED8bA908BB`; and `npm run sync-abis`.
+Frontend + backend — read `assetIsToken0()` per chain; the Anvil and Base values now differ.
+
+## 2026-09-12 — contracts — Phase A: TWAP removed from the engine (D-036)
+Branch: main   Commit: (uncommitted — owner commits on request)
+Owner authorised Phase A in my window ("goooo"), contracts only. Built to the frozen scope; nothing
+deployed and nothing broadcast.
+
+**What changed.** `pool.observe` is never called. `marketPrices()` keeps its `(spot, twap, meanTick)`
+shape for ABI stability and returns **0** in the second and third slots — never spot, because a
+plausible number under a wrong label is the one failure a consumer cannot detect. `twapWindow()` and
+`maxSpotTwapDeviationBps()` are removed outright. `maxMarketNAVDeviationBps` now compares **spot** to
+NAV and is the only market guard left; it reads spot directly, so it trips on a single trade rather
+than on a half-hour average drifting — expect it more often, by design. `SafetyFailure.
+SpotTwapDeviation` keeps value **5**, reserved and never returned, so nothing downstream renumbers.
+`Rebalanced.twapPrice` and `SafetyPolicyUpdated`'s two dead fields stay in the event ABI and emit 0.
+
+**slide/sweep re-signalled from the anchor's own range.** While spot sits inside the band the
+position is working; once it leaves, the position is single-sided and the anchor must follow. No
+oracle, no stored reference. Two consequences worth carrying: it is **stricter** than the old signal
+(neither is callable mid-band, including on a fresh deployment), and it is resolved in **price**
+terms via `assetIsToken0`, since with the asset as token1 a higher price is a lower tick.
+
+**Both token orderings are tested, not pinned.** `test/unit/MarketSignalAndFloorLevelUp.t.sol` builds
+a manager against a pool whose token order it chooses outright, so the direction logic is proven
+under `assetIsToken0` both true and false. That was the architect's call and it is the right one:
+pinning protects a deployment, testing protects the logic — and this is exactly the code path where a
+one-sided suite passes while the other chain inverts. The ordering already flipped once.
+
+**Opportunistic floor level-up on the rebalance path**, try/catch, skip reasons `NO_CONTROLLER` /
+`NOT_ELIGIBLE` / `CAN_LEVEL_UP_REVERTED` / `LEVEL_UP_REVERTED`, never reverting the caller.
+Shipped **unguarded** at the owner's explicit instruction: no `nonReentrant` on the five rebalance
+entry points. I raised this as a real hole and the owner ruled; the residual is an admin-trust
+assumption and is now written into SECURITY.md rather than left implicit — `floorController` is
+admin-set, a re-entering controller holds no role, every entry point is KEEPER_ROLE gated, and
+`levelUp` is permissionless anyway so bundling it grants nobody anything new. **If a future change
+lets a rebalance move value, that assumption must be revisited.**
+
+**setSafetyPolicy keeps five parameters** (owner: "make it remain comply ya for everything and ensure
+the smoothness for the demo"), so no consumer re-encodes. The 1st and 3rd are accepted, ignored, and
+their validation dropped so a caller can pass 0 and mean "not applicable" rather than inventing a
+meaningful-looking number for a dead knob. I argued for reducing to three and the architect agreed;
+the owner chose ABI stability. Reversible later.
+
+**Deploy scripts:** the three `increaseObservationCardinalityNext` calls are gone (~20M gas, three
+transactions, bought nothing but the TWAP). A canonical pool now sits at observationCardinality 1
+permanently — correct and intended, and commented in the script so nobody "fixes" it. Both scripts
+configure a **1-second** cooldown: deliberately 1 and not 0, so two rebalances in the same block
+still trip `SafetyCheckFailed(Cooldown)` and the refusal stays demonstrable.
+
+Testing: **305 tests pass, 0 fail** (24 suites); `forge fmt --check` clean; via_ir still false.
+`AssetMarketManager` runtime shrank 16,709 → **15,437 bytes**. New coverage: both-ordering signal
+tests, floor level-up firing and each skip reason, a hostile controller proving a rebalance survives
+it, the reserved failure code never being returned, and the 1-second cooldown still refusing a
+same-block second rebalance.
+
+SECURITY.md's risk register is **rewritten, not patched**: "Spot manipulation" now reads mitigation
+**None**, accepted-not-mitigated, with the reason it is tolerable only under D-027. That row named the
+spot/TWAP gate as THE mitigation and would otherwise have become quietly false.
+
+Interface changes: **BREAKING rows filed in both boundary docs.** Backend: serve `twap` as `null`,
+never 0 and never an echo of spot; `marketStatus` must key on spot alone; keep code 5 reserved.
+Frontend: delete the TWAP overlay and the spot/TWAP gate row rather than re-pointing them; the value
+list drops from five to four; `slide`/`sweep` are correctly disabled mid-band.
+Needs: owner — commit, then the Phase A deployment decision (separate from this). Sequencing traps
+already recorded above still apply: DemoRegistrar AFTER the redeploy and against the NEW identity
+registry; cleanup transactions on the old system LAST, once the new one is proven serving.
+
+## 2026-09-12 — contracts — D-034 deployment scripts, rehearsed on Anvil
+Branch: main   Commit: (uncommitted — owner commits on request)
+Shipped the two remaining D-034 items: a standalone attach script, and the fold into both deploy
+scripts. Nothing deployed off Anvil.
+
+- **`script/DeployDemoRegistrar.s.sol`** (new) attaches the stub to an ALREADY DEPLOYED system:
+  deploy registrar, grant `REGISTRY_AGENT_ROLE`, record the address. Chain-guarded to
+  31337/84532/296, refuses the well-known Anvil key when broadcasting off Anvil, and fails early
+  with a clear message if the deployer does not hold `DEFAULT_ADMIN_ROLE` on the registry. Reads the
+  registry from `deployments/<chainId>.json` (the source of truth the other stacks use), overridable
+  with `IDENTITY_REGISTRY`. Idempotent: a registrar already attached to THAT registry is left alone
+  rather than joined by a second agent holding the same role — the standing-privilege smell D-032
+  exists to avoid.
+- **`DeployLocal` and `DeployTestnet`** now deploy and grant the registrar themselves, so a fresh
+  chain is usable by a visiting wallet immediately, and both write the new `demoRegistrar` JSON key.
+  `DeployLocal` needed the registrar extracted into `_deployDemoRegistrar()` — one extra local in
+  `run()` tipped it into stack-too-deep, and via-IR stays off.
+
+**Rehearsed against Anvil with `--broadcast`, both branches, because the script is new and leans on
+three JSON cheatcodes that compile fine and can still fail at runtime:**
+- fold: `DeployLocal` ran clean and wrote `demoRegistrar`.
+- idempotent branch: re-running `DeployDemoRegistrar` printed "already attached; nothing to do".
+- **fresh branch, which was the one worth testing** — with the key ABSENT, i.e. the live Base case.
+  `vm.writeJson` **does** create a missing key; it does not require the key to pre-exist. That was
+  the specific unknown, and the answer is the favourable one.
+- end to end: an unregistered Anvil wallet called `selfRegister()`, became `isVerified`, landed as
+  class 1 / country 360, `canSelfRegister` flipped to false, and a second call was a no-op.
+
+One false alarm worth recording so nobody re-derives it: the fresh-branch run first failed with
+`vm.parseJsonAddress: expected value at line 1 column 1`. That was **my tooling, not the script** —
+PowerShell 5.1's `-Encoding utf8` writes a BOM (`EF BB BF`) and forge's JSON parser rejects it.
+Anything editing `deployments/*.json` from PowerShell must write UTF-8 **without** BOM.
+
+`deployments/31337.json` was backed up before the rehearsal and restored afterwards; the modification
+in the tree is still another session's, untouched by me. Anvil stopped.
+
+Testing: 305 tests pass, `forge fmt --check` clean, via_ir false.
+Interface changes: **CHANGED rows filed in both boundary docs** for the new `demoRegistrar` JSON key.
+Backend needs no new decoding — a self-registration emits the registry's existing identity events —
+but `identityCount` now grows without bound, and a `RoleGranted(REGISTRY_AGENT_ROLE, …)` to a
+contract is expected rather than an anomaly. Frontend gets the "Verify me" button it needs to make
+the demo usable at all. `SECURITY.md` carries the labelling paragraph: **anyone can self-verify on
+this testnet**, enforcement genuine, provider policy open, revocation is not a kill switch.
+Needs: owner — commit. Deployment sequencing unchanged: this runs AFTER any Phase A redeploy and
+against the NEW registry, or the judges registered on the old one are stranded.
+
+## 2026-09-12 — contracts — Fork tests against canonical Uniswap; collectFees was broken, now fixed
+Branch: main   Commit: (uncommitted — owner commits on request)
+Added `test/fork/BaseSepoliaMarket.t.sol`: the engine deployed by the D-033 two-phase factory against
+the **real** Uniswap V3 factory on a pinned Base Sepolia fork (block 46,710,000). Excluded from
+`forge test` via `no_match_path`; run with `FOUNDRY_PROFILE=fork forge test`. Cached after the first
+fetch, so it takes ~0.4s. 7 tests.
+
+Context for why this was worth doing: until now NOTHING in the suite forked anything. `createSelectFork`
+appeared only in `DeployTestnet`'s setUp. Every market test ran against `MockUniswapV3Pool`, which is a
+callback harness — no curve, no tick crossing, no fee growth, and mint amounts of `liquidity x 1` on
+both sides regardless of range.
+
+**THREE FINDINGS.**
+
+1. **`collectFees` was broken on a real pool, and is now fixed.** A v3 pool only attributes accrued
+   fees when the position is *touched*. Measured: after real swaps, `collectFees` returned **0/0**;
+   after the position was burned the same call returned **491,447**. A keeper would have read 0 and
+   concluded there were no fees. Fixed by poking with a zero-liquidity burn before collecting.
+   The poke is **conditional on the position holding liquidity** — and that is not an optimisation:
+   v3 reverts `NP` on a zero-liquidity burn against an empty position, so an unconditional poke
+   would have broken collecting the fees a full `removeLiquidity` leaves owed, which is exactly when
+   a keeper reaches for it. Both directions are now regression-tested on the fork. This closes the
+   MEDIUM backlog item with a measurement rather than an opinion.
+
+2. **The range/token asymmetry is confirmed, and the claim I gave the architect holds.** Measured on
+   real v3: reserveFloor (below spot) took **0 asset / 848.85 mUSD**; discovery (above spot) took
+   **572.97 SOLAR01 / 0 mUSD**; anchor (straddling) took both. So the reserve floor really is the
+   cheapest first position — it needs no asset tokens at all, which sidesteps the "supply is 0 so
+   there is nothing to fund inventory with" lock in the funding sequence. The mock could never have
+   shown this and the claim was unverified until now.
+
+3. **A thin pool is more fragile than the mock suggests.** A 40,000 mUSD order against ~1,350 mUSD of
+   liquidity consumed every position and pinned the price at MIN_TICK (-887272), which tripped
+   `MarketNAVDeviation` and blocked **every** keeper action. That is D-036's spot-reading guard
+   behaving correctly, but it means one oversized trade can brick the engine until NAV is
+   republished. Recorded in SECURITY.md. The test now bounds its swap with a `sqrtPriceLimit` at a
+   target tick rather than by size — which also demonstrates the `executeSwap` sqrtPriceLimit
+   backlog item is real, since the mock ignores that parameter entirely.
+
+Also proven for the first time: a **genuine trade** driving the D-036 anchor signal. Everywhere else
+the price is moved with `setOracleForTest`, a mock-only setter; here a real swap moved the tick
+276324 -> 275880, out of the band, and `slide` then succeeded.
+
+Testing: fork 7/7, default 305/305, `forge fmt --check` clean, via_ir false.
+Interface changes: **CHANGED row filed in CONTRACTS_TO_BACKEND** — `FeesCollected` will now carry
+non-zero amounts on a canonical pool where it always reported 0/0 before. No ABI change. On the mock
+it stays 0, so a 0 on Anvil is not evidence of anything.
+Caveat to carry forward, now in TESTING.md and SECURITY.md: **a fork does not enforce EIP-7825 or
+Hedera's gas cap.** Green here proves logic and liquidity math, never that a transaction will be
+accepted for broadcast — that is exactly how the 18.4M `deployAssetSystem` passed every rehearsal.
+Needs: owner — commit.
+
+## 2026-09-12 — contracts — D-035 Phase B-1: the flywheel turns on a real pool
+Branch: main   Commit: (uncommitted — owner commits on request)
+Owner authorised Phase B ("Gooooo"). Built the surplus crossing and the public trading entry point;
+the atomic re-mint half is deliberately NOT built.
+
+**Measured on a canonical-Uniswap fork, one trade:** reserve **24,000 → 24,630.32 mUSD**, backing
+**0.300000 → 0.307879**, discovery harvested, floor ratcheted. Until now trading did nothing to
+backing at all — the reserve only grew from issuer deposits, the revenue split and yield. That is
+the product thesis, made mechanical.
+
+**Shipped.** `AssetVault.creditMarketSurplus` (MARKET_MANAGER_ROLE, one-way);
+`AssetMarketManager.principalOutstanding` + `creditableSurplus()`; permissionless
+`swapExactInput(tokenIn, amountIn, minAmountOut, deadline)` that trades and then harvests discovery,
+credits the surplus and pokes the floor — each step skipping with `FlywheelSkipped(reason)` rather
+than reverting the trade. Floor cooldown dropped 30 minutes → 5 seconds in both deploy scripts, so
+the ratchet can visibly repeat instead of firing once and emitting NOT_ELIGIBLE for the rest of a demo.
+
+**D-035 did not define a cost basis, so I had to.** "Proceeds above cost" has no arithmetic meaning
+for SOLAR01 that arrived via `fundTokenInventory` — a transfer in, no mUSD cost at all. Used the one
+boundary the decision does give: `creditable = max(0, manager mUSD balance − principalOutstanding)`.
+Conservative by construction — stable locked inside positions is not in the balance, so an
+under-water manager reads 0 rather than over-crediting. Recorded in D-035.
+
+**A trap found while building, and the reason the refund exists.** A swap that exhausts liquidity
+stops at the price limit and leaves input unspent in the manager. Left there it is
+indistinguishable from market surplus and would be credited to the reserve on the next crank —
+**quietly converting a trader's own money into protected backing.** `swapExactInput` refunds the
+remainder; `test_swapExactInputRefundsInputItCouldNotSpend` pins it and also asserts
+`creditableSurplus() == 0` afterwards, so a regression cannot pass silently.
+
+**Not built, deliberately:** atomic burn → collect → move → re-mint, the `L'` liquidity maths, and
+the anchor top-up. B-1 harvests without re-minting, so no `L'` is needed; a keeper refills through
+`addLiquidity`, where liquidity is explicit and slippage-guarded. When inventory runs out the
+behaviour is **skip and emit**, not a range shift — an anchor moved off spot is not an anchor, so
+shifting would sacrifice the model to save one transaction.
+
+Testing: default **314/314**, fork **9/9**, `forge fmt --check` clean, via_ir false.
+`AssetMarketManager` 15,625 → **18,289 B** (6,287 margin), `AssetVault` → 12,486 B.
+Interface changes: **CHANGED rows in both boundary docs.** Frontend gets a genuinely new user action
+— `swapExactInput` is the Sell/Trade path §7 previously listed as NOT provided; that line is retired.
+Backend: `redemptionReserve` now has a **fourth** growth source, so a projection driven only by
+deposits/revenue/yield will drift, and `SwapExactInput.amountIn` is the amount *requested* — a
+partial fill refunds the rest, so actual spend comes from the pool's own `Swap` event.
+Needs: owner — commit.
+
 ## 2026-09-12 — architect — LIVE on Base Sepolia (84532): deployment record committed
 Branch: main   Commit: (this commit)
 What: the owner broadcast DeployTestnet against real Base Sepolia after the D-033 split landed, and

@@ -16,6 +16,7 @@ import { FloorController } from "../src/market/FloorController.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
+import { DemoRegistrar } from "../src/compliance/DemoRegistrar.sol";
 import { CountryAllowModule } from "../src/compliance/modules/CountryAllowModule.sol";
 import { TransferLockModule } from "../src/compliance/modules/TransferLockModule.sol";
 import { AssetFactory } from "../src/factory/AssetFactory.sol";
@@ -73,6 +74,7 @@ contract DeployTestnet is Script {
     address private registryAddress;
     address private factoryAddress;
     address private poolFactoryAddress;
+    address private demoRegistrarAddress;
     bool private poolIsCanonical;
     bool private predictedAssetIsToken0;
     uint64 private maturity;
@@ -183,6 +185,18 @@ contract DeployTestnet is Script {
         if (retail != address(0)) {
             identityRegistry.registerIdentity(retail, retail, COUNTRY_INDONESIA, CLASS_RETAIL, 0);
         }
+
+        // D-034 DEMO: the permissionless KYC stub. Without it only `deployer` (and whatever
+        // DEMO_INVESTOR / DEMO_RETAIL name) can hold SOLAR01, so a judge connecting a fresh wallet
+        // could not touch the demo at all. **Anyone can self-verify on this chain from here on**,
+        // for every asset series sharing this registry — label it that way, never as a real gate.
+        //
+        // Deployed here rather than bolted on afterwards so a fresh chain is usable immediately.
+        // `DeployDemoRegistrar` exists for the other case: attaching this to a system that is
+        // already live, without redeploying it and discarding its verified wallets.
+        DemoRegistrar demoRegistrar = new DemoRegistrar(address(identityRegistry));
+        demoRegistrarAddress = address(demoRegistrar);
+        identityRegistry.grantRole(identityRegistry.REGISTRY_AGENT_ROLE(), demoRegistrarAddress);
     }
 
     function _buildParams() private returns (AssetFactory.DeploymentParams memory params) {
@@ -255,28 +269,22 @@ contract DeployTestnet is Script {
                 AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
-        if (poolIsCanonical) {
-            // Real pool: no test oracle. Grow the observation ring so the 30-minute TWAP can
-            // accumulate; the manager's TWAP-gated paths stay dormant until it has. 900 slots
-            // keep the 30-minute window covered even through a burst of ~2s blocks touching the
-            // pool every block. Grown in three steps because each fresh slot writes a storage
-            // word (~22.1k gas): a single 900-slot call is ~19.9M gas, over EIP-7825's 2^24
-            // per-transaction cap that Base Sepolia enforces (review 2026-09-12). Each 300-slot
-            // step is ~6.6M, safely under both Base's 16,777,216 and Hedera's 15,000,000.
-            // Growth is monotonic, so the calls are idempotent on retry.
-            for (uint16 target = 300; target <= 900; target += 300) {
-                (bool ok,) = deployment.pool
-                    .call(
-                        abi.encodeWithSignature(
-                            "increaseObservationCardinalityNext(uint16)", target
-                        )
-                    );
-                require(ok, "DeployTestnet: increaseObservationCardinalityNext failed");
-            }
-        } else {
+        // D-036: the engine no longer reads a TWAP, so the three stepped
+        // `increaseObservationCardinalityNext` calls that used to run here are GONE. A canonical
+        // pool therefore sits at observationCardinality 1 for the life of the deployment. That is
+        // correct and intended, not a misconfiguration - there is no consumer of the oracle to
+        // observe for. Do not "fix" it by re-adding the ring growth; it cost ~20M gas across three
+        // transactions and bought nothing but the TWAP that D-036 removed.
+        if (!poolIsCanonical) {
             int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
             MockUniswapV3Pool(deployment.pool).setOracleForTest(oneDollarTick, oneDollarTick);
         }
+
+        // D-036 demo pacing: a 1-second rebalance cooldown. Deliberately 1 and not 0 - two
+        // rebalances in the same block still trip SafetyCheckFailed(Cooldown), so the refusal stays
+        // demonstrable on a public chain, while a demo one second apart runs freely. The first and
+        // third arguments are the retired TWAP knobs: accepted, ignored, and passed as 0 to say so.
+        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
     }
 
     /// @dev D-023 / D-022 / D-028 policies: identical to the local demo configuration.
@@ -316,7 +324,9 @@ contract DeployTestnet is Script {
             assetIsToken0,
             market.tickSpacing(),
             assetIsToken0 ? int24(-288_420) : int24(288_420),
-            30 minutes,
+            // D-035 demo pacing: 5s. The flywheel advances the floor one tick spacing per trade,
+            // so a 30-minute cooldown would let it fire once and then skip for the rest of a demo.
+            5 seconds,
             deployer
         );
         floorControllerAddress = address(floorController);
@@ -367,6 +377,7 @@ contract DeployTestnet is Script {
         vm.serializeAddress(root, "mockYieldSource", mockYieldSourceAddress);
         vm.serializeAddress(root, "floorController", floorControllerAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
+        vm.serializeAddress(root, "demoRegistrar", demoRegistrarAddress);
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));
         vm.serializeAddress(root, "transferLockModule", address(lockModule));
@@ -393,7 +404,9 @@ contract DeployTestnet is Script {
         console2.log("Pool factory", poolFactoryAddress);
         console2.log("Pool is canonical", poolIsCanonical);
         console2.log("Identity registry", address(identityRegistry));
+        console2.log("Demo registrar", demoRegistrarAddress);
         console2.log("Compliance", address(compliance));
+        console2.log("DEMO: anyone can self-verify on this chain via DemoRegistrar.selfRegister()");
     }
 
     /// @dev The ten dev keys of Anvil's default mnemonic ("test test ... junk"). Publicly known;
