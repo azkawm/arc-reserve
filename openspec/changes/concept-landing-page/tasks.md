@@ -15,8 +15,8 @@
 
 ## 3. Story sections
 
-- [ ] 3.1 Hero section: headline, supporting copy, calls to action, and the status pill
-- [ ] 3.2 Telemetry band: four stat cards, each carrying a concept marker, with no "live" vocabulary in the heading or the cards
+- [x] 3.1 Hero section: headline, supporting copy, calls to action, and the status pill
+- [x] 3.2 Telemetry band: four stat cards, each carrying a concept marker, with no "live" vocabulary in the heading or the cards
 - [ ] 3.3 Dual Participant Engine section: the investor and issuer pathway cards
 - [ ] 3.4 Five Independent Value References section, keeping market spot, TWAP, verified NAV, published floor and redemption price as five distinct entries
 - [ ] 3.5 Four-Stage Safety Escalation Ladder section, preserving the real stage order and triggers
