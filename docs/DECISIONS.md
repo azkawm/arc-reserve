@@ -620,6 +620,46 @@ its existing shape, and component discovery must stay on it rather than on the n
 `AssetSystemBegun` (which announces components for a system that may be abandoned). `DeployLocal`
 also gained the `require(block.chainid == 31337)` guard it never had.
 
+## D-034: Testnet self-registration through a labelled DemoRegistrar
+
+Status: accepted 2026-09-12 (owner chose option C). Not yet built — contracts work.
+
+**The problem.** `IdentityRegistry.registerIdentity` is `onlyRole(REGISTRY_AGENT_ROLE)`, so on the
+live Base Sepolia deployment only the deployer is verified. A judge connecting their own wallet is
+permanently refused: they can hold mUSD but never buy SOLAR01. The compliance layer working
+exactly as designed makes the public deployment unusable by anyone but its operator.
+
+**The decision.** Deploy a `DemoRegistrar` contract holding `REGISTRY_AGENT_ROLE`, exposing a
+single permissionless `selfRegister()` that registers `msg.sender` as country 360 (Indonesia — the
+only jurisdiction `CountryAllowModule` allows) with investor class 1 (retail). Rejected
+alternatives: an operator-run registration page (requires the operator present, so the deployment
+is not self-serve) and pre-registered wallets with distributed private keys (bad practice even on
+testnet).
+
+**Why this is honest rather than a hole in the compliance story.** The enforcement mechanism is
+unchanged and fully real — every transfer still checks the identity registry, the country module,
+freezes, and the modular compliance rules. What is permissive is the *KYC provider's policy*, and a
+testnet KYC provider that approves all comers is exactly what a stub provider is. The product claim
+was never "our KYC is strict"; it is "the token cannot move to an unverified wallet", and that
+remains true and demonstrable. It must be labelled as a demo stub in the contract NatSpec, in the
+UI, and in `SECURITY.md`.
+
+**Required properties.**
+- Only `selfRegister()` is exposed — never arbitrary-address registration, so the agent role cannot
+  be used through this contract to verify a third party.
+- Registering as **retail** means the D-028 5,000 mUSD cap applies to judges, which demonstrates
+  class-based caps rather than hiding them.
+- Chain-guarded to the D-027 testnet ids (31337, 84532, 296); it must be impossible to deploy or
+  use on a mainnet.
+- Idempotent or clearly-reverting for an already-registered wallet.
+- The protocol admin can revoke the registrar's `REGISTRY_AGENT_ROLE` at any time, which is the kill
+  switch if it is ever abused; this is the intended production path (a real KYC provider replaces
+  it wholesale).
+
+**Consequence for the UI.** The task-0 honest refusal stays, but gains a path out: an unverified
+wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
+that a real deployment verifies identity offchain through a licensed provider.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:
