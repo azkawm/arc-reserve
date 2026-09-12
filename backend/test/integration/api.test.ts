@@ -10,6 +10,8 @@ import { Indexer } from '../../src/indexer/runner.js';
 import { buildServer } from '../../src/server.js';
 import { loadAbi } from '../../src/chain/abis.js';
 import { envelopeSchema } from '../../src/api/envelope.js';
+import { priceAtTick } from '../../src/lib/tick.js';
+import { parseFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../src/lib/decimal.js';
 import {
   activitySchema,
   assetDetailSchema,
@@ -261,6 +263,50 @@ describe('GET /v1/assets/:assetId/metrics', () => {
     expect(expiresAt).not.toBeNull();
     expect(expiresAt).toBe(body.data.nav.timestamp + Number(staleAfter));
     expect(body.data.nav.stale).toBe((expiresAt ?? 0) <= Math.floor(Date.now() / 1000));
+  });
+
+  it('serves no TWAP when the manager publishes none, rather than a price of zero', async () => {
+    // D-036 removed the time-weighted price and the manager now returns 0 in that slot, meaning
+    // "not published". Serving it verbatim would print a price of zero — the same silent
+    // substitution D-019 forbids, inverted. Asserted as an equivalence in BOTH directions so
+    // this keeps working if a TWAP ever returns: null exactly when the manager says nothing.
+    const prices = await view<readonly [bigint, bigint, number]>(
+      deployment.marketManager,
+      'AssetMarketManager',
+      'marketPrices',
+    );
+    const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+
+    expect(body.data.twap === null).toBe(prices[1] === 0n);
+  });
+
+  it('publishes a tick that prices to the spot the manager reports', async () => {
+    // The cross-check, not a non-zero check. currentTick used to come from the manager's
+    // meanTick, which is 0 since D-036 — and "not 0" would still pass a sign error or an
+    // ordering inversion, both live failure modes now that assetIsToken0 differs across the
+    // three chains. Two independent sources agreeing on one price is what proves it.
+    const positions = await get(`/v1/assets/${deployment.assetId}/positions`, positionsSchema);
+    const metrics = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+
+    const tick = positions.data.currentTick;
+    expect(tick).not.toBeNull();
+    expect(metrics.data.spot).not.toBeNull();
+
+    const options = {
+      assetIsToken0: positions.data.assetIsToken0,
+      assetDecimals: TOKEN_DECIMALS,
+      stableDecimals: STABLE_DECIMALS,
+    };
+    // A tick is a bucket: the exact price sits between this tick and the next. Which of the two
+    // is the upper bound depends on the token ordering, which is the inversion being guarded.
+    const here = priceAtTick(tick!, options);
+    const next = priceAtTick(tick! + 1, options);
+    const low = here <= next ? here : next;
+    const high = here <= next ? next : here;
+
+    const spot = parseFixed(metrics.data.spot!.value.value, STABLE_DECIMALS);
+    expect(spot).toBeGreaterThanOrEqual(low);
+    expect(spot).toBeLessThanOrEqual(high);
   });
 
   it('says the market is ready rather than merely not broken', async () => {
