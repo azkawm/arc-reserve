@@ -31,8 +31,7 @@ const MULTICALL3: Partial<
   Record<SupportedChainId, { address: `0x${string}`; blockCreated: number }>
 > = {
   84532: { address: '0xca11bde05977b3631167028862be2a173976ca11', blockCreated: 1_059_647 },
-  // A genesis predeploy on Arc: code is already present at block 1. The dRPC endpoint also accepts
-  // JSON-RPC batches, so Arc keeps the default transport batching that Hedera's relay cannot take.
+  // A genesis predeploy on Arc: code is already present at block 1.
   5042002: { address: '0xca11bde05977b3631167028862be2a173976ca11', blockCreated: 1 },
 };
 
@@ -77,9 +76,26 @@ export function createChainClientFor(
       retryCount: 3,
       retryDelay: 250,
       timeout: 15_000,
-      batch: chainId === 296 ? false : { wait: 16 },
+      batch: transportBatch(chainId),
     }),
   }) as ArcPublicClient;
+}
+
+/**
+ * JSON-RPC batching per chain, from what each relay actually accepts.
+ *
+ * Hedera's Hashio takes no batches at all. Arc's dRPC free plan caps them: an unbounded batch of
+ * block fetches after any window with logs is refused with HTTP 500 and "Batch of more than 3
+ * requests are not allowed on free plan", which failed every indexer pass after the first on
+ * 2026-09-13. Measured: batches of 3, 4 and 5 were accepted in full and 30 was rejected, so the
+ * text is not the enforced threshold — the same shape as dRPC's eth_getLogs error, whose "10000"
+ * is not the real range cap either. This follows the STATED limit rather than the headroom seen on
+ * one afternoon: the provider can enforce its own policy at any time, and three is cheap.
+ */
+function transportBatch(chainId: SupportedChainId): false | { batchSize: number; wait: number } {
+  if (chainId === 296) return false;
+  if (chainId === 5042002) return { batchSize: 3, wait: 16 };
+  return { batchSize: 1_000, wait: 16 };
 }
 
 export function createChainClient(config: Config): ArcPublicClient {
