@@ -20,7 +20,7 @@
 - [x] 3.3 Dual Participant Engine section: the investor and issuer pathway cards
 - [x] 3.4 Five Independent Value References section, keeping market spot, TWAP, verified NAV, published floor and redemption price as five distinct entries
 - [x] 3.5 Four-Stage Safety Escalation Ladder section, preserving the real stage order and triggers
-- [ ] 3.6 Closing call to action and footer, with every audit and attestation attribution removed
+- [x] 3.6 Closing call to action and footer, with every audit and attestation attribution removed
 
 ## 4. Motion
 
@@ -28,7 +28,7 @@
 - [x] 4.2 Short-circuit the frame loop in script when reduced motion is requested, rendering the static background instead
 - [x] 4.3 Suspend the frame loop when the hero is off-screen or the tab is hidden, and cap the device pixel ratio
 - [x] 4.4 Fall back to the static background when WebGL is unavailable or the context is lost
-- [ ] 4.5 Add section scroll-reveals and hover and focus micro-interactions, all suppressed under reduced motion
+- [x] 4.5 Add section scroll-reveals and hover and focus micro-interactions, all suppressed under reduced motion
 
 ## 5. Unit tests
 
