@@ -137,10 +137,25 @@ with the TWAP redeploy, the expensive half should not be rushed into it.
    shifts `MarketNAVDeviation`/`ReserveBelowMinimum`/`Cooldown` down one and both stacks silently
    mislabel every failure.
 3. `maxMarketNAVDeviationBps` now compares **spot** to NAV — the only market guard left, and more
-   sensitive than before. `twapWindow` and `maxSpotTwapDeviationBps` become dead; changing
-   `setSafetyPolicy`'s signature is cheap (only tests call it) but must be deliberate.
+   sensitive than before.
+   **`setSafetyPolicy` reduces to three parameters, and `SafetyPolicyUpdated` to three fields**
+   (decided 2026-09-12). Keeping five with two ignored would leave a `twapWindow` parameter that
+   accepts 1800 and silently does nothing — the same plausible-but-false surface D-036 condemns, and
+   worse in a setter, where there is no "impossible value" option. It is a real ABI break on the
+   setter and the event; the Contract → Backend → Frontend sequencing exists to absorb exactly this.
+   There is no zero-break path regardless: removing `twapWindow()` already breaks
+   `CONTRACTS_TO_FRONTEND` §4, which pins it in the Policy row.
+3b. **The `Rebalanced` event carries `twapPrice` and must emit 0**, for the same reason as the
+   `marketPrices()` slot — the backend builds `market_rebalances` from it, so a plausible number
+   under a wrong label would be indexed and stored. **Keep the field**: dropping it changes the event
+   signature and forces a decoder change for what is now a constant. The CHANGED row must say so.
 4. Opportunistic `levelUp()` on the rebalance path — skip silently if `canLevelUp()` is false or the
    controller is unset; never revert the caller.
+   **Reentrancy (caught in review 2026-09-12):** this introduces an external call into an
+   admin-settable contract, and `slide`, `sweep`, `rebalanceToNAV`, `refreshDiscovery` and
+   `rebalanceToFloor` currently carry **no `nonReentrant` modifier**. If this item lands, those entry
+   points need one and the `levelUp()` call must be wrapped in `try/catch`. Do not ship it without
+   both.
 5. Deploy scripts drop the three stepped `increaseObservationCardinalityNext` calls.
 6. `DeployLocal` keeps its `require(block.chainid == 31337)` guard.
 7. **Rebalance cooldown is configured to 1 second** (owner, 2026-09-12).
