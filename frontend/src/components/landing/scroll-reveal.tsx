@@ -19,6 +19,15 @@ import { cn } from "@/lib/utils";
  *
  * The reveal is one-way: once shown, an element does not re-hide on scrolling away. Content
  * that vanishes again on a small scroll wobble reads as broken, not as polish.
+ *
+ * Screenshot gotcha, confirmed while visually checking this page: a naive full-page screenshot
+ * (resize the viewport to the full document height, then capture once, with no real scroll in
+ * between) can catch every below-the-fold `ScrollReveal` still at `opacity-0`, because the
+ * resize itself does not reliably give `IntersectionObserver` a chance to fire and React a
+ * chance to re-render before the capture happens. This is a property of that capture method,
+ * not a rendering bug — confirmed by both a normal incremental scroll and a direct anchor-nav
+ * jump, each of which reveals every section within one CSS transition (700ms). A tool that
+ * screenshots this page (a PR preview, a design review) should scroll through it first.
  */
 export function ScrollReveal({ children, className }: { children: ReactNode; className?: string }) {
   const prefersReducedMotion = usePrefersReducedMotion();

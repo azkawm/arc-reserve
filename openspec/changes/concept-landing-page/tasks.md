@@ -43,11 +43,11 @@
 
 ## 6. Responsive tests
 
-- [ ] 6.1 Add the Playwright dev dependency and a config defining phone, tablet and desktop viewport projects
-- [ ] 6.2 Assert no horizontal document overflow at all three viewports
-- [ ] 6.3 Assert the desktop navigation is replaced by a reachable equivalent below the desktop breakpoint
-- [ ] 6.4 Assert wide content scrolls inside its own container rather than widening the document
-- [ ] 6.5 Add the npm scripts for the browser suite and document that nothing runs them automatically
+- [x] 6.1 Add the Playwright dev dependency and a config defining phone, tablet and desktop viewport projects
+- [x] 6.2 Assert no horizontal document overflow at all three viewports
+- [x] 6.3 Assert the desktop navigation is replaced by a reachable equivalent below the desktop breakpoint
+- [x] 6.4 Assert wide content scrolls inside its own container rather than widening the document
+- [x] 6.5 Add the npm scripts for the browser suite and document that nothing runs them automatically
 
 ## 7. Documentation and verification
 

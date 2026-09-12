@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /**
  * Port 3000 is not a preference. The backend's `CORS_ORIGIN` defaults to
@@ -20,6 +20,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     css: false,
+    // e2e/**/*.spec.ts are Playwright tests (playwright.config.ts), not Vitest's — both use a
+    // *.spec.ts naming convention, and Vitest's default include glob would otherwise try to run
+    // them itself and fail on Playwright's own test()/expect(). Extending configDefaults.exclude
+    // rather than replacing it, so Vitest's own default excludes (node_modules, .git) still hold.
+    exclude: [...configDefaults.exclude, "e2e/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

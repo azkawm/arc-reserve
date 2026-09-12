@@ -9,6 +9,9 @@ frontend/.env.local
 frontend/coverage/
 frontend/*.tsbuildinfo
 frontend/dev-server*.log
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 .DS_Store
 .runtime/
 backend/node_modules/
