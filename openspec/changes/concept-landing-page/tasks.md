@@ -1,10 +1,10 @@
 ## 1. Design system foundation
 
-- [ ] 1.1 Transcribe the Stitch colour, type, spacing and radius scales into the app's theme tokens, replacing the dark palette in place
-- [ ] 1.2 Re-choose the three provenance colours for the light ground so each is distinguishable from the other two and meets AA contrast, and give each a non-colour cue
-- [ ] 1.3 Add the serif display face with a real fallback stack and wire the sans and serif font tokens
-- [ ] 1.4 Visual pass over the eight generated UI components under the new palette and the tighter radius scale
-- [ ] 1.5 Confirm the application-wide reduced-motion rule still applies after the token replacement
+- [x] 1.1 Transcribe the Stitch colour, type, spacing and radius scales into the app's theme tokens, replacing the dark palette in place
+- [x] 1.2 Re-choose the three provenance colours for the light ground so each is distinguishable from the other two and meets AA contrast, and give each a non-colour cue
+- [x] 1.3 Add the serif display face with a real fallback stack and wire the sans and serif font tokens
+- [x] 1.4 Visual pass over the eight generated UI components under the new palette and the tighter radius scale
+- [x] 1.5 Confirm the application-wide reduced-motion rule still applies after the token replacement
 
 ## 2. Page shell and concept framing
 
