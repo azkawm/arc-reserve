@@ -3,7 +3,7 @@ import { getAddress } from 'viem';
 import { ApiError } from '../../lib/errors.js';
 import { formatFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../lib/decimal.js';
 import { buildMeta, respond } from '../envelope.js';
-import { accountParamsSchema, displayAddress } from '../schemas/common.js';
+import { accountParamsSchema, chainQuerySchema, displayAddress } from '../schemas/common.js';
 import { accountPositionSchema } from '../schemas/assets.js';
 import { toActivityItem } from '../activity.js';
 import * as repo from '../repository.js';
@@ -22,33 +22,37 @@ const token = (raw: bigint | string): string => formatFixed(BigInt(raw), TOKEN_D
  * how a user ends up with a reverted transaction.
  */
 export async function registerAccountRoutes(app: FastifyInstance, deps: ApiDeps): Promise<void> {
-  const { db, client, config } = deps;
+  const { db, config, chains } = deps;
 
   app.get('/v1/accounts/:address/assets/:assetId', async (request, reply) => {
+    const chainQuery = chainQuerySchema.safeParse(request.query);
+    if (!chainQuery.success) throw ApiError.badRequest('invalid chainId', chainQuery.error.issues);
+    // The chain is per request (Boundary C `?chainId=`), and so is the client that reads it.
+    const { chainId, client } = await chains.resolve(chainQuery.data.chainId);
     const params = accountParamsSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid parameters', params.error.issues);
 
     const address = params.data.address.toLowerCase() as `0x${string}`;
     const assetId = params.data.assetId.toLowerCase();
 
-    const asset = await repo.getAssetRow(db, config.CHAIN_ID, assetId);
-    if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${config.CHAIN_ID}`);
+    const asset = await repo.getAssetRow(db, chainId, assetId);
+    if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${chainId}`);
 
-    const deployment = await repo.getDeployment(db, config.CHAIN_ID, assetId);
+    const deployment = await repo.getDeployment(db, chainId, assetId);
     if (deployment === null) throw ApiError.notFound('asset has no deployed system yet');
 
-    const cursor = await repo.loadCursor(db, config.CHAIN_ID);
+    const cursor = await repo.loadCursor(db, chainId);
     if (cursor === null) throw new ApiError('INDEXER_BEHIND', 'nothing has been indexed yet');
 
     const latestBlock = await client.getBlockNumber().catch(() => null);
 
     const [holder, identity, purchased, logs] = await Promise.all([
-      repo.getHolder(db, config.CHAIN_ID, deployment.token, address),
-      repo.getIdentity(db, config.CHAIN_ID, address),
-      repo.getPurchasedByWallet(db, config.CHAIN_ID, assetId, address),
+      repo.getHolder(db, chainId, deployment.token, address),
+      repo.getIdentity(db, chainId, address),
+      repo.getPurchasedByWallet(db, chainId, assetId, address),
       repo.getAssetLogs(
         db,
-        config.CHAIN_ID,
+        chainId,
         [
           deployment.token,
           deployment.offering,
@@ -156,7 +160,7 @@ export async function registerAccountRoutes(app: FastifyInstance, deps: ApiDeps)
       accountPositionSchema,
       payload,
       buildMeta({
-        chainId: config.CHAIN_ID,
+        chainId: chainId,
         provenance: 'onchain',
         staleAfterSeconds: config.STALE_AFTER_SECONDS,
         cursor,

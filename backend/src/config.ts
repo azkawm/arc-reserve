@@ -105,6 +105,13 @@ export interface Config extends Omit<RawEnv, 'CHAIN_ID'> {
     stablecoin: `0x${string}`;
     companyVesting?: `0x${string}`;
   };
+  /**
+   * RPC per chain. The process indexes `CHAIN_ID` with `RPC_HTTP_URL`; the API can also serve
+   * other chains already in the database (`?chainId=`), and reading their live contract state
+   * needs their own endpoint, given as `RPC_HTTP_URL_<chainId>`. A chain with rows but no URL
+   * is reported as unavailable, never served from the configured chain's RPC.
+   */
+  rpcUrls: Partial<Record<SupportedChainId, string>>;
   corsOrigins: string[] | true;
   isProduction: boolean;
 }
@@ -123,6 +130,22 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
 
   const env = parsed.data;
   const chainId = env.CHAIN_ID as SupportedChainId;
+
+  const rpcUrls: Partial<Record<SupportedChainId, string>> = {};
+  for (const id of SUPPORTED_CHAIN_IDS) {
+    const raw = source[`RPC_HTTP_URL_${id}`];
+    if (raw === undefined || raw.trim() === '') continue;
+    const url = httpUrlSchema.safeParse(raw);
+    if (!url.success) {
+      throw new StartupError(
+        `invalid RPC_HTTP_URL_${id}: ${url.error.issues.map((issue) => issue.message).join(', ')}`,
+        'it must be an http(s) URL for that chain, or unset',
+      );
+    }
+    rpcUrls[id] = url.data;
+  }
+  // The indexed chain's own endpoint wins: it is the one this process is verified against.
+  rpcUrls[chainId] = env.RPC_HTTP_URL;
   const corsOrigins =
     env.CORS_ORIGIN.trim() === '*'
       ? true
@@ -142,6 +165,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
         ? { companyVesting: env.COMPANY_VESTING_ADDRESS.toLowerCase() as `0x${string}` }
         : {}),
     },
+    rpcUrls,
     corsOrigins,
     isProduction: env.NODE_ENV === 'production',
   };

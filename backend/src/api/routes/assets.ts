@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from '../../lib/errors.js';
 import { formatFixed, mulDiv, parseFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../lib/decimal.js';
@@ -14,6 +14,7 @@ import {
   statusName,
   ASSET_STATUS,
   assetIdParamSchema,
+  chainQuerySchema,
 } from '../schemas/common.js';
 import {
   activitySchema,
@@ -34,94 +35,109 @@ const stable = (raw: bigint | string): string => formatFixed(BigInt(raw), STABLE
 const token = (raw: bigint | string): string => formatFixed(BigInt(raw), TOKEN_DECIMALS);
 
 export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): Promise<void> {
-  const { db, client, config } = deps;
-
-  /** Cursor and head, shared by every response envelope on this router. */
-  async function envelopeInputs() {
-    const cursor = await repo.loadCursor(db, config.CHAIN_ID);
-    const latestBlock = await client.getBlockNumber().catch(() => null);
-    return { cursor, latestBlock };
-  }
-
-  function meta(
-    inputs: Awaited<ReturnType<typeof envelopeInputs>>,
-    provenance: Provenance,
-  ): ReturnType<typeof buildMeta> {
-    return buildMeta({
-      chainId: config.CHAIN_ID,
-      provenance,
-      staleAfterSeconds: config.STALE_AFTER_SECONDS,
-      cursor: inputs.cursor,
-      latestBlock: inputs.latestBlock,
-    });
-  }
+  const { db, config, chains } = deps;
 
   /**
-   * Resolve an asset and read its contract state at the **indexed** block, so projections and
-   * views in one response describe the same moment.
+   * Everything a handler needs, resolved per request, because the chain is per request:
+   * `?chainId=` picks it (Boundary C section 2) and the client, the registry address and every
+   * projection query follow from it. Nothing here is cached across requests — a value read for
+   * one chain must never be reachable from another.
    */
-  async function resolve(assetId: string) {
-    const asset = await repo.getAssetRow(db, config.CHAIN_ID, assetId.toLowerCase());
-    if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${config.CHAIN_ID}`);
+  async function forRequest(request: FastifyRequest) {
+    const query = chainQuerySchema.safeParse(request.query);
+    if (!query.success) throw ApiError.badRequest('invalid chainId', query.error.issues);
+    const { chainId, client, registry } = await chains.resolve(query.data.chainId);
 
-    const deployment = await repo.getDeployment(db, config.CHAIN_ID, asset.asset_id);
-    const cursor = await repo.loadCursor(db, config.CHAIN_ID);
-    if (cursor === null) {
-      throw new ApiError('INDEXER_BEHIND', 'nothing has been indexed yet');
+    /** Cursor and head, shared by every response envelope on this router. */
+    async function envelopeInputs() {
+      const cursor = await repo.loadCursor(db, chainId);
+      const latestBlock = await client.getBlockNumber().catch(() => null);
+      return { cursor, latestBlock };
     }
 
-    return { asset, deployment, cursor };
-  }
+    function meta(
+      inputs: Awaited<ReturnType<typeof envelopeInputs>>,
+      provenance: Provenance,
+    ): ReturnType<typeof buildMeta> {
+      return buildMeta({
+        chainId,
+        provenance,
+        staleAfterSeconds: config.STALE_AFTER_SECONDS,
+        cursor: inputs.cursor,
+        latestBlock: inputs.latestBlock,
+      });
+    }
 
-  /**
-   * Signed percent change against the hourly close 24 hours ago.
-   *
-   * Null — not zero — whenever it cannot be computed: no pool, no candle that old, or a spot
-   * price we would not vouch for. "Unchanged" and "unknown" are different statements, and a
-   * dash is the honest rendering of the second.
-   */
-  async function change24h(
-    deployment: repo.DeploymentRow | null,
-    spot: { value: string; provenance: Provenance } | null,
-  ): Promise<string | null> {
-    if (deployment?.pool == null || spot === null) return null;
+    /**
+     * Resolve an asset and read its contract state at the **indexed** block, so projections and
+     * views in one response describe the same moment.
+     */
+    async function resolve(assetId: string) {
+      const asset = await repo.getAssetRow(db, chainId, assetId.toLowerCase());
+      if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${chainId}`);
 
-    const dayAgo = Math.floor(Date.now() / 1000) - 86_400;
-    const previous = await repo.getCloseAt(db, config.CHAIN_ID, deployment.pool, 3600, dayAgo);
-    if (previous === null || previous === 0n) return null;
+      const deployment = await repo.getDeployment(db, chainId, asset.asset_id);
+      const cursor = await repo.loadCursor(db, chainId);
+      if (cursor === null) {
+        throw new ApiError('INDEXER_BEHIND', 'nothing has been indexed yet');
+      }
 
-    const current = parseFixed(spot.value, STABLE_DECIMALS);
-    // Two decimal places of percent, computed in integers: (current - previous) / previous.
-    const scaled = mulDiv(current - previous, 10_000n, previous);
-    return formatFixed(scaled, 2);
-  }
+      return { asset, deployment, cursor };
+    }
 
-  async function snapshotFor(
-    deployment: repo.DeploymentRow,
-    assetId: string,
-    blockNumber: bigint,
-  ): Promise<AssetSnapshot> {
-    return readAssetSnapshot(
-      client,
-      config.addresses.registry,
-      {
-        assetId,
-        token: deployment.token as `0x${string}`,
-        vault: deployment.vault as `0x${string}`,
-        offering: deployment.offering as `0x${string}`,
-        marketManager: deployment.market_manager as `0x${string}`,
-        revenueDistributor: deployment.revenue_distributor as `0x${string}`,
-        redemptionController: deployment.redemption_controller as `0x${string}`,
-        pool: deployment.pool as `0x${string}` | null,
-        floorController: deployment.floor_controller as `0x${string}` | null,
-      },
-      blockNumber,
-    );
+    /**
+     * Signed percent change against the hourly close 24 hours ago.
+     *
+     * Null — not zero — whenever it cannot be computed: no pool, no candle that old, or a spot
+     * price we would not vouch for. "Unchanged" and "unknown" are different statements, and a
+     * dash is the honest rendering of the second.
+     */
+    async function change24h(
+      deployment: repo.DeploymentRow | null,
+      spot: { value: string; provenance: Provenance } | null,
+    ): Promise<string | null> {
+      if (deployment?.pool == null || spot === null) return null;
+
+      const dayAgo = Math.floor(Date.now() / 1000) - 86_400;
+      const previous = await repo.getCloseAt(db, chainId, deployment.pool, 3600, dayAgo);
+      if (previous === null || previous === 0n) return null;
+
+      const current = parseFixed(spot.value, STABLE_DECIMALS);
+      // Two decimal places of percent, computed in integers: (current - previous) / previous.
+      const scaled = mulDiv(current - previous, 10_000n, previous);
+      return formatFixed(scaled, 2);
+    }
+
+    async function snapshotFor(
+      deployment: repo.DeploymentRow,
+      assetId: string,
+      blockNumber: bigint,
+    ): Promise<AssetSnapshot> {
+      return readAssetSnapshot(
+        client,
+        registry,
+        {
+          assetId,
+          token: deployment.token as `0x${string}`,
+          vault: deployment.vault as `0x${string}`,
+          offering: deployment.offering as `0x${string}`,
+          marketManager: deployment.market_manager as `0x${string}`,
+          revenueDistributor: deployment.revenue_distributor as `0x${string}`,
+          redemptionController: deployment.redemption_controller as `0x${string}`,
+          pool: deployment.pool as `0x${string}` | null,
+          floorController: deployment.floor_controller as `0x${string}` | null,
+        },
+        blockNumber,
+      );
+    }
+
+    return { chainId, registry, envelopeInputs, meta, resolve, change24h, snapshotFor };
   }
 
   // --- GET /v1/assets ------------------------------------------------------
 
   app.get('/v1/assets', async (request, reply) => {
+    const ctx = await forRequest(request);
     const query = paginationSchema
       .extend({ status: z.enum(ASSET_STATUS).optional() })
       .safeParse(request.query);
@@ -130,16 +146,16 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
     const statusIndex =
       query.data.status === undefined ? undefined : ASSET_STATUS.indexOf(query.data.status);
 
-    const rows = await repo.listAssetRows(db, config.CHAIN_ID, {
+    const rows = await repo.listAssetRows(db, ctx.chainId, {
       ...(statusIndex === undefined ? {} : { status: statusIndex }),
       limit: query.data.limit,
       ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
     });
 
-    const inputs = await envelopeInputs();
+    const inputs = await ctx.envelopeInputs();
     const deployments = await repo.getDeployments(
       db,
-      config.CHAIN_ID,
+      ctx.chainId,
       rows.map((row) => row.asset_id),
     );
 
@@ -149,14 +165,14 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         const balances =
           deployment === null
             ? null
-            : await repo.getVaultBalances(db, config.CHAIN_ID, deployment.vault);
+            : await repo.getVaultBalances(db, ctx.chainId, deployment.vault);
 
         let spot: { value: string; provenance: Provenance } | null = null;
         let floor: string | null = null;
         let symbol = row.symbol ?? '';
 
         if (deployment !== null && inputs.cursor !== null) {
-          const snapshot = await snapshotFor(deployment, row.asset_id, inputs.cursor.blockNumber);
+          const snapshot = await ctx.snapshotFor(deployment, row.asset_id, inputs.cursor.blockNumber);
           symbol = snapshot.token.symbol;
           floor = snapshot.redemption.normalPrice === null
             ? null
@@ -175,27 +191,28 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
           spot,
           floor,
           reserve: balances === null ? null : stable(balances.redemption_reserve ?? '0'),
-          change24h: await change24h(deployment, spot),
+          change24h: await ctx.change24h(deployment, spot),
           contracts: deployment === null ? null : contractsOf(deployment),
         };
       }),
     );
 
-    return respond(reply, assetListSchema, items, meta(inputs, 'onchain'));
+    return respond(reply, assetListSchema, items, ctx.meta(inputs, 'onchain'));
   });
 
   // --- GET /v1/assets/:assetId --------------------------------------------
 
   app.get('/v1/assets/:assetId', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
-    const { asset, deployment } = await resolve(params.data.assetId);
-    const inputs = await envelopeInputs();
+    const { asset, deployment } = await ctx.resolve(params.data.assetId);
+    const inputs = await ctx.envelopeInputs();
 
     let symbol = asset.symbol ?? '';
     if (deployment !== null && inputs.cursor !== null) {
-      const snapshot = await snapshotFor(deployment, asset.asset_id, inputs.cursor.blockNumber);
+      const snapshot = await ctx.snapshotFor(deployment, asset.asset_id, inputs.cursor.blockNumber);
       symbol = snapshot.token.symbol;
     }
 
@@ -217,23 +234,24 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         termsHash: asset.terms_hash,
         contracts: deployment === null ? null : contractsOf(deployment),
       },
-      meta(inputs, 'onchain'),
+      ctx.meta(inputs, 'onchain'),
     );
   });
 
   // --- GET /v1/assets/:assetId/metrics ------------------------------------
 
   app.get('/v1/assets/:assetId/metrics', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
-    const { asset, deployment, cursor } = await resolve(params.data.assetId);
+    const { asset, deployment, cursor } = await ctx.resolve(params.data.assetId);
     if (deployment === null) {
       throw ApiError.notFound(`asset ${asset.asset_id} has no deployed system yet`);
     }
 
-    const inputs = await envelopeInputs();
-    const snapshot = await snapshotFor(deployment, asset.asset_id, cursor.blockNumber);
+    const inputs = await ctx.envelopeInputs();
+    const snapshot = await ctx.snapshotFor(deployment, asset.asset_id, cursor.blockNumber);
     const now = Math.floor(Date.now() / 1000);
 
     const floorRaw =
@@ -356,12 +374,13 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
             },
     };
 
-    return respond(reply, metricsSchema, payload, meta(inputs, 'onchain'));
+    return respond(reply, metricsSchema, payload, ctx.meta(inputs, 'onchain'));
   });
 
   // --- GET /v1/assets/:assetId/nav-history --------------------------------
 
   app.get('/v1/assets/:assetId/nav-history', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
@@ -374,10 +393,10 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       .safeParse(request.query);
     if (!query.success) throw ApiError.badRequest('invalid query', query.error.issues);
 
-    const { asset } = await resolve(params.data.assetId);
-    const inputs = await envelopeInputs();
+    const { asset } = await ctx.resolve(params.data.assetId);
+    const inputs = await ctx.envelopeInputs();
 
-    const rows = await repo.getNavHistory(db, config.CHAIN_ID, asset.asset_id, {
+    const rows = await repo.getNavHistory(db, ctx.chainId, asset.asset_id, {
       ...(query.data.from === undefined ? {} : { from: query.data.from }),
       ...(query.data.to === undefined ? {} : { to: query.data.to }),
       limit: query.data.limit,
@@ -392,24 +411,25 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         previousNav: stable(row.previous_nav),
         txHash: row.transaction_hash,
       })),
-      meta(inputs, 'onchain'),
+      ctx.meta(inputs, 'onchain'),
     );
   });
 
   // --- GET /v1/assets/:assetId/positions ----------------------------------
 
   app.get('/v1/assets/:assetId/positions', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
-    const { asset, deployment, cursor } = await resolve(params.data.assetId);
+    const { asset, deployment, cursor } = await ctx.resolve(params.data.assetId);
     if (deployment === null) throw ApiError.notFound('asset has no deployed system yet');
 
-    const inputs = await envelopeInputs();
-    const snapshot = await snapshotFor(deployment, asset.asset_id, cursor.blockNumber);
+    const inputs = await ctx.envelopeInputs();
+    const snapshot = await ctx.snapshotFor(deployment, asset.asset_id, cursor.blockNumber);
     const lastActions = await repo.getLastPositionActions(
       db,
-      config.CHAIN_ID,
+      ctx.chainId,
       deployment.market_manager,
     );
 
@@ -458,13 +478,14 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         currentTick: market.meanTick,
         positions,
       },
-      meta(inputs, 'onchain'),
+      ctx.meta(inputs, 'onchain'),
     );
   });
 
   // --- GET /v1/assets/:assetId/activity -----------------------------------
 
   app.get('/v1/assets/:assetId/activity', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
@@ -473,14 +494,14 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       .safeParse(request.query);
     if (!query.success) throw ApiError.badRequest('invalid query', query.error.issues);
 
-    const { asset, deployment } = await resolve(params.data.assetId);
-    const inputs = await envelopeInputs();
+    const { asset, deployment } = await ctx.resolve(params.data.assetId);
+    const inputs = await ctx.envelopeInputs();
 
     const addresses =
       deployment === null
-        ? [config.addresses.registry]
+        ? [ctx.registry]
         : [
-            config.addresses.registry,
+            ctx.registry,
             deployment.token,
             deployment.vault,
             deployment.offering,
@@ -489,7 +510,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
             deployment.redemption_controller,
           ];
 
-    const rows = await repo.getAssetLogs(db, config.CHAIN_ID, addresses, {
+    const rows = await repo.getAssetLogs(db, ctx.chainId, addresses, {
       // Over-fetch: registry logs cover every asset and some events map to no activity type.
       limit: query.data.limit * 4,
     });
@@ -505,23 +526,24 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       .filter((item) => query.data.type === undefined || item.type === query.data.type)
       .slice(0, query.data.limit);
 
-    return respond(reply, activitySchema, items, meta(inputs, 'onchain'));
+    return respond(reply, activitySchema, items, ctx.meta(inputs, 'onchain'));
   });
 
   // --- GET /v1/assets/:assetId/revenue ------------------------------------
 
   app.get('/v1/assets/:assetId/revenue', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
-    const { asset, deployment, cursor } = await resolve(params.data.assetId);
+    const { asset, deployment, cursor } = await ctx.resolve(params.data.assetId);
     if (deployment === null) throw ApiError.notFound('asset has no deployed system yet');
 
-    const inputs = await envelopeInputs();
+    const inputs = await ctx.envelopeInputs();
     const [totals, deposits, snapshot] = await Promise.all([
-      repo.getRevenueTotals(db, config.CHAIN_ID, asset.asset_id),
-      repo.getRevenueDeposits(db, config.CHAIN_ID, asset.asset_id, 200),
-      snapshotFor(deployment, asset.asset_id, cursor.blockNumber),
+      repo.getRevenueTotals(db, ctx.chainId, asset.asset_id),
+      repo.getRevenueDeposits(db, ctx.chainId, asset.asset_id, 200),
+      ctx.snapshotFor(deployment, asset.asset_id, cursor.blockNumber),
     ]);
 
     return respond(
@@ -548,23 +570,24 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
           protocol: stable(row.protocol_amount),
         })),
       },
-      meta(inputs, 'onchain'),
+      ctx.meta(inputs, 'onchain'),
     );
   });
 
   // --- GET /v1/assets/:assetId/redemptions --------------------------------
 
   app.get('/v1/assets/:assetId/redemptions', async (request, reply) => {
+    const ctx = await forRequest(request);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
-    const { asset, deployment, cursor } = await resolve(params.data.assetId);
+    const { asset, deployment, cursor } = await ctx.resolve(params.data.assetId);
     if (deployment === null) throw ApiError.notFound('asset has no deployed system yet');
 
-    const inputs = await envelopeInputs();
+    const inputs = await ctx.envelopeInputs();
     const [history, snapshot] = await Promise.all([
-      repo.getRedemptions(db, config.CHAIN_ID, asset.asset_id, 200),
-      snapshotFor(deployment, asset.asset_id, cursor.blockNumber),
+      repo.getRedemptions(db, ctx.chainId, asset.asset_id, 200),
+      ctx.snapshotFor(deployment, asset.asset_id, cursor.blockNumber),
     ]);
 
     const remaining =
@@ -597,7 +620,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
           price: stable(row.redemption_price),
         })),
       },
-      meta(inputs, 'onchain'),
+      ctx.meta(inputs, 'onchain'),
     );
   });
 }

@@ -10,6 +10,7 @@ import { registerHealthRoute } from './api/routes/health.js';
 import { registerAssetRoutes } from './api/routes/assets.js';
 import { registerAccountRoutes } from './api/routes/accounts.js';
 import { registerCandleRoutes } from './api/routes/candles.js';
+import { ChainRegistry } from './api/chain-context.js';
 
 export interface ServerDeps {
   config: Config;
@@ -85,7 +86,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     version: deps.version,
   });
 
-  const apiDeps = { config, db: deps.db, client: deps.client, logger };
+  const chains = new ChainRegistry(config, deps.db, deps.client);
+  const apiDeps = { config, db: deps.db, client: deps.client, chains, logger };
   await registerAssetRoutes(app, apiDeps);
   await registerAccountRoutes(app, apiDeps);
   await registerCandleRoutes(app, apiDeps);

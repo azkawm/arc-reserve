@@ -96,6 +96,19 @@ at zero.
 and `twap`. `source` answers "where did the events come from"; `provenance` answers "is this price
 market data" (D-019). Boundary C has the CHANGED row, dated 2026-09-11.
 
+### One process indexes one chain, but serves several
+
+Every row carries `chain_id` (D-030), so the read model already holds every chain that any
+indexer has written. `?chainId=` on an asset route selects which one to answer about: the route
+resolves the chain per request (`api/chain-context.ts`), and the client, the registry address and
+every projection query follow from that resolution rather than from `CHAIN_ID`. Live contract
+state still needs that chain's own endpoint, given as `RPC_HTTP_URL_<chainId>`; a chain that is
+indexed but has no endpoint here answers `503 CHAIN_UNAVAILABLE`. It is never read through
+another chain's RPC — that would answer about Anvil while `meta.chainId` said Base Sepolia.
+
+The indexer is unchanged: one process still indexes exactly the chain it was configured and
+verified against.
+
 ### A public testnet RPC is a rate limit, not a database
 
 Base Sepolia's public endpoint answers "over rate limit" long before it answers slowly. Two

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ApiError } from '../../lib/errors.js';
 import { formatFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from '../../lib/decimal.js';
 import { buildMeta, respond } from '../envelope.js';
-import { assetIdParamSchema } from '../schemas/common.js';
+import { assetIdParamSchema, chainQuerySchema } from '../schemas/common.js';
 import { candlesSchema } from '../schemas/assets.js';
 import * as repo from '../repository.js';
 import { CANDLE_INTERVALS } from '../../candles/aggregate.js';
@@ -23,9 +23,13 @@ import type { ApiDeps } from './context.js';
  * traded", and a chart would draw that as a flat line at zero.
  */
 export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps): Promise<void> {
-  const { db, client, config } = deps;
+  const { db, config, chains } = deps;
 
   app.get('/v1/assets/:assetId/candles', async (request, reply) => {
+    const chainQuery = chainQuerySchema.safeParse(request.query);
+    if (!chainQuery.success) throw ApiError.badRequest('invalid chainId', chainQuery.error.issues);
+    // The chain is per request (Boundary C `?chainId=`), and so is the client that reads it.
+    const { chainId, client, registry } = await chains.resolve(chainQuery.data.chainId);
     const params = assetIdParamSchema.safeParse(request.params);
     if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
 
@@ -47,20 +51,20 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
     if (!query.success) throw ApiError.badRequest('invalid query', query.error.issues);
 
     const assetId = params.data.assetId.toLowerCase();
-    const asset = await repo.getAssetRow(db, config.CHAIN_ID, assetId);
-    if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${config.CHAIN_ID}`);
+    const asset = await repo.getAssetRow(db, chainId, assetId);
+    if (asset === null) throw ApiError.notFound(`no asset ${assetId} on chain ${chainId}`);
 
-    const deployment = await repo.getDeployment(db, config.CHAIN_ID, assetId);
+    const deployment = await repo.getDeployment(db, chainId, assetId);
     if (deployment === null || deployment.pool === null) {
       throw ApiError.notFound('asset has no pool');
     }
 
-    const cursor = await repo.loadCursor(db, config.CHAIN_ID);
+    const cursor = await repo.loadCursor(db, chainId);
     if (cursor === null) throw new ApiError('INDEXER_BEHIND', 'nothing has been indexed yet');
 
     const pool = deployment.pool;
     const canonicalPool = await poolIsCanonical(client, pool as `0x${string}`);
-    let source = await repo.getCandleSource(db, config.CHAIN_ID, pool, query.data.interval);
+    let source = await repo.getCandleSource(db, chainId, pool, query.data.interval);
 
     if (source === null || source === 'mock') {
       if (!config.ALLOW_MOCK_MARKET_DATA) {
@@ -74,7 +78,7 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
       // Refresh the demo series against the current reference price.
       const snapshot = await readAssetSnapshot(
         client,
-        config.addresses.registry,
+        registry,
         {
           assetId,
           token: deployment.token as `0x${string}`,
@@ -92,7 +96,7 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
 
       await db.withTransaction((tx) =>
         storeSyntheticCandles(tx, {
-          chainId: config.CHAIN_ID,
+          chainId: chainId,
           pool,
           referencePrice: reference,
           interval: query.data.interval as (typeof CANDLE_INTERVALS)[number],
@@ -102,7 +106,7 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
       source = 'mock';
     }
 
-    const rows = await repo.getCandles(db, config.CHAIN_ID, pool, {
+    const rows = await repo.getCandles(db, chainId, pool, {
       interval: query.data.interval,
       ...(query.data.from === undefined ? {} : { from: query.data.from }),
       ...(query.data.to === undefined ? {} : { to: query.data.to }),
@@ -130,7 +134,7 @@ export async function registerCandleRoutes(app: FastifyInstance, deps: ApiDeps):
       candlesSchema,
       payload,
       buildMeta({
-        chainId: config.CHAIN_ID,
+        chainId: chainId,
         // `source` and `provenance` answer different questions. `source` says where the candle's
         // events came from; `provenance` says whether the price is market data. Real `Swap` events
         // from the demo pool are priced by a linear stand-in, so they stay `canonical_swap` but are
