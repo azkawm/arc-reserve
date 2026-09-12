@@ -11,7 +11,7 @@
 - [x] 2.1 Build the persistent, non-dismissible concept statement and place it so it survives scrolling at every viewport
 - [x] 2.2 Build the concept marker component for data-bearing panels, separate from the provenance badge
 - [x] 2.3 Port the monogram wordmark as a local asset so the page loads no third-party image
-- [ ] 2.4 Replace the current landing page with the new shell: header, anchor navigation, main region, footer
+- [x] 2.4 Replace the current landing page with the new shell: header, anchor navigation, main region, footer
 
 ## 3. Story sections
 
@@ -32,14 +32,14 @@
 
 ## 5. Unit tests
 
-- [ ] 5.1 Negative test: the rendered page contains no named audit firm and no audit vocabulary
-- [ ] 5.2 Negative test: the page never describes its own figures as live, real-time or synced
-- [ ] 5.3 Positive test: the concept statement is present, names what the page is not, and exposes no dismiss control
-- [ ] 5.4 Positive test: every data-bearing panel carries a concept marker
-- [ ] 5.5 Positive test: all eight sections render in the specified order and anchor navigation targets resolve
-- [ ] 5.6 Edge test: reduced motion starts no frame loop, and a missing WebGL context still renders the static background
-- [ ] 5.7 Edge test: mounting the page issues no backend request
-- [ ] 5.8 Rewrite the existing landing-page test against the new page, retiring the assertions that referenced the retired data panel
+- [x] 5.1 Negative test: the rendered page contains no named audit firm and no audit vocabulary
+- [x] 5.2 Negative test: the page never describes its own figures as live, real-time or synced
+- [x] 5.3 Positive test: the concept statement is present, names what the page is not, and exposes no dismiss control
+- [x] 5.4 Positive test: every data-bearing panel carries a concept marker
+- [x] 5.5 Positive test: all eight sections render in the specified order and anchor navigation targets resolve
+- [x] 5.6 Edge test: reduced motion starts no frame loop, and a missing WebGL context still renders the static background
+- [x] 5.7 Edge test: mounting the page issues no backend request
+- [x] 5.8 Rewrite the existing landing-page test against the new page, retiring the assertions that referenced the retired data panel
 
 ## 6. Responsive tests
 
