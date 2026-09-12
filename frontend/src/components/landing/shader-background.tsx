@@ -163,7 +163,14 @@ export function ShaderBackground({ className }: { className?: string }) {
       window.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
-      context.getExtension("WEBGL_lose_context")?.loseContext();
+      // Release owned resources rather than forcing context loss: under StrictMode's
+      // dev-only double-invoke (mount -> cleanup -> mount), an explicit
+      // WEBGL_lose_context.loseContext() call here would leave the canvas's one-and-only
+      // WebGL context permanently lost for the immediately following remount, since a
+      // canvas can never get a second context. That made the shader silently fail to
+      // (re)compile and fall back to the static gradient in every dev run.
+      context.deleteProgram(program);
+      context.deleteBuffer(positionBuffer);
     };
   }, [prefersReducedMotion]);
 
