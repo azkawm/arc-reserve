@@ -246,6 +246,7 @@ arc-reserve/
     |-- MARKET_MAKING.md              ARC liquidity engine and Hikari mapping
     |-- BACKEND_INDEXER.md            Planned API, indexer, and OHLC design
     |-- FRONTEND.md                    Current UI behavior and integration plan
+    |-- DEPLOY_FRONTEND.md             Frontend demo-host deploy runbook (nginx + certbot + Docker)
     |-- TESTING.md                     Test map, commands, coverage, and gaps
     |-- DECISIONS.md                   Accepted decisions and open questions
     |-- AI_COMPREHENSION_CHECK.md      Pre-implementation questions and answer key

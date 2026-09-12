@@ -97,6 +97,9 @@ not at a compose service name.
 The image was not built and run during scaffolding — no Docker daemon was available on the
 machine it was authored on. `docker compose config` validates.
 
+For deploying this image to the demo host (nginx + certbot in front of the container), see
+`docs/DEPLOY_FRONTEND.md` and the scripts in `deploy/`.
+
 ## Dependency notes
 
 `package.json` carries one `overrides` entry:
