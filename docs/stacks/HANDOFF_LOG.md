@@ -991,3 +991,35 @@ Needs: backend — re-run `npm run sync-abis`; `backend/abis/AssetFactory.json` 
 `deployAssetSystem`. Owner — the Base Sepolia broadcast hold can lift once this is committed; recovery
 recommendation is unchanged: (a) fresh full redeploy, plus the two optional cleanup transactions
 (`registry.closeAsset(0x618d32ff…)`, `registry.revokeRole(FACTORY_ROLE, 0xFEb03CF0…)`).
+
+## 2026-09-12 — architect — LIVE on Base Sepolia (84532): deployment record committed
+Branch: main   Commit: (this commit)
+What: the owner broadcast DeployTestnet against real Base Sepolia after the D-033 split landed, and
+it completed — the first successful ArcReserve deployment on a public chain. Committing
+`contracts/deployments/84532.json` as the canonical record; every other stack reads addresses from
+that file, never from chat or logs.
+Verified by the architect directly against sepolia.base.org (not from broadcast artifacts): all
+nine core contracts hold code (pool 22,142 B = real Uniswap V3, engine 16,709 B, vault 12,247 B);
+`statusOf(0x618d32ff…75a9)` = 2 (Active) — the state no earlier attempt ever reached; all six
+components registered in the registry; pool created by Uniswap's canonical factory
+0x4752ba5D…aD24 at fee 3000, tick −276325 (≈1.000000 mUSD), observation cardinalityNext 900 (the
+stepped growth under EIP-7825 worked); `redemptionReserve` = 20,000e6; `assetIsToken0` = true,
+matching the pre-deploy prediction. Contract Arch's independent selector-level verification is
+running separately.
+Rehearsal calibration from Contract Arch (Anvil, --broadcast): begin 8,522,905 / complete
+7,192,074 gas, within 1% of the test-measured 8,538,854 / 7,270,255. Both phases fit under
+Hedera's 15,000,000 too, so 296 is unblocked whenever the owner wants it.
+Chain hygiene note: an EARLIER failed deployment left ~18 orphan contracts and one
+Approved-but-never-completed asset under the dead registry 0x481C18A9…6677 from the same deployer.
+Indexers and any chain inspection must key off the NEW factory 0xaFB2329C…08BB. Cleanup
+(closeAsset + revoke the dead factory's FACTORY_ROLE) is still pending.
+Near miss worth recording: the pre-broadcast forensics led Contract Arch to flag 84532.json as a
+simulation artifact and advise deleting it before broadcasting. It was in fact the real record —
+the owner had broadcast during the rehearsal. It flagged rather than acted, and the architect
+caught it by re-verifying against the chain. Lesson: verify state against the chain, not against
+the plan, whenever a human may have acted between messages.
+Interface changes: none.
+Needs: owner — (1) grade the frontend comprehension answers, still the largest blocker; (2) decide
+how judges get KYC-verified on 84532 (operator-run page vs pre-registered wallets vs a DemoRegistrar
+contract allowing testnet self-registration) — without one, every judge wallet is unverified and
+cannot buy.
