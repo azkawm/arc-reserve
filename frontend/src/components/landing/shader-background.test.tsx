@@ -130,6 +130,7 @@ function createFakeGlContext() {
     deleteProgram: vi.fn(),
     useProgram: vi.fn(),
     createBuffer: vi.fn(() => ({})),
+    deleteBuffer: vi.fn(),
     bindBuffer: vi.fn(),
     bufferData: vi.fn(),
     getAttribLocation: vi.fn(() => 0),
