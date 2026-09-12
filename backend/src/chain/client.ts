@@ -13,6 +13,12 @@ const NATIVE_CURRENCY: Record<SupportedChainId, { name: string; symbol: string; 
   31337: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   84532: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
   296: { name: 'HBAR', symbol: 'HBAR', decimals: 18 },
+  // Arc pays gas in USDC, but the NATIVE balance uses 18 decimals at the EVM level, not the 6 the
+  // symbol usually means. Measured, not assumed: Arc's raw gas price is 2.1e10, which prices a
+  // plain transfer at 0.00044 USDC at 18 decimals and at 441 million at 6. Anything deriving
+  // decimals from "USDC" is wrong by 10^12 with no error to show it. ArcReserve's own stablecoin on
+  // Arc is MockUSD, 6 decimals, and has nothing to do with this entry.
+  5042002: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
 };
 
 /**
@@ -25,6 +31,9 @@ const MULTICALL3: Partial<
   Record<SupportedChainId, { address: `0x${string}`; blockCreated: number }>
 > = {
   84532: { address: '0xca11bde05977b3631167028862be2a173976ca11', blockCreated: 1_059_647 },
+  // A genesis predeploy on Arc: code is already present at block 1. The dRPC endpoint also accepts
+  // JSON-RPC batches, so Arc keeps the default transport batching that Hedera's relay cannot take.
+  5042002: { address: '0xca11bde05977b3631167028862be2a173976ca11', blockCreated: 1 },
 };
 
 export function defineArcChainFor(chainId: SupportedChainId, rpcUrl: string) {

@@ -35,11 +35,12 @@ describe('loadConfig', () => {
     expect(config.REGISTRY_ADDRESS).toBe('0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512');
   });
 
-  it('serves the three supported testnets', () => {
+  it('serves the four supported testnets', () => {
     for (const [chainId, name] of [
       ['31337', 'Anvil'],
       ['84532', 'Base Sepolia'],
       ['296', 'Hedera Testnet'],
+      ['5042002', 'Arc Testnet'],
     ] as const) {
       expect(loadConfig({ ...BASE, CHAIN_ID: chainId }).chainName).toBe(name);
     }

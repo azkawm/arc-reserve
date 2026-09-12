@@ -179,7 +179,7 @@ right length, so a checksummed address can never become a second lookup key.
 
 | Column | Notes |
 | --- | --- |
-| `chain_id` | Primary key. CHECK constrains it to 31337 / 84532 / 296 (D-027) |
+| `chain_id` | Primary key. CHECK constrains it to 31337 / 84532 / 296 / 5042002 (D-027, amended 2026-09-13 for Arc) |
 | `name` | Human-readable network |
 | `finality_confirmations` | Applied confirmation depth |
 | `registry_address`, `factory_address`, `stablecoin_address` | Deployment fingerprint. A process configured for different addresses on the same chain id is refused rather than interleaving two histories |

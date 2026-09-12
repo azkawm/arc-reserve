@@ -13,6 +13,7 @@ export const SUPPORTED_CHAINS = {
   31337: { name: 'Anvil', shortName: 'anvil' },
   84532: { name: 'Base Sepolia', shortName: 'base-sepolia' },
   296: { name: 'Hedera Testnet', shortName: 'hedera-testnet' },
+  5042002: { name: 'Arc Testnet', shortName: 'arc-testnet' },
 } as const;
 
 export type SupportedChainId = keyof typeof SUPPORTED_CHAINS;

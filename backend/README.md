@@ -174,8 +174,11 @@ If PowerShell blocks `npm.ps1`, use `npm.cmd run <script>`.
 Every variable is validated at startup and the process **refuses to run** on anything invalid —
 see `.env.example` for the annotated list. The rules worth knowing:
 
-- `CHAIN_ID` must be `31337`, `84532` or `296`. A mainnet id is rejected by config *and* by a
-  database CHECK constraint.
+- `CHAIN_ID` must be `31337`, `84532`, `296` or `5042002` (Arc testnet). A mainnet id is rejected by
+  config *and* by a database CHECK constraint — adding a chain needs both, and a migration for the
+  second, or the indexer passes validation and then fails on its first insert.
+- One API base URL serves every chain (`?chainId=`). Each indexer process indexes one chain, but any
+  process can serve a chain it does not index once `RPC_HTTP_URL_<chainId>` is set for it.
 - `REGISTRY_ADDRESS` / `FACTORY_ADDRESS` / `MUSD_ADDRESS` must be non-zero and must have code on
   the chain. Per-asset component addresses are **discovered** from `AssetSystemDeployed`, never
   configured.
