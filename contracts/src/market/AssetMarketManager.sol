@@ -162,8 +162,18 @@ contract AssetMarketManager is
     /// @notice The opportunistic level-up on the rebalance path did not run, and why (D-036).
     ///         Never an error: a rebalance must not fail because the floor could not advance.
     event FloorLevelUpSkipped(bytes32 reason);
+    /// @notice A user trade routed through the manager (D-037).
+    /// @dev    `amountRequested` and `amountSpent` differ whenever the swap exhausts liquidity and
+    ///         stops at the price limit; the remainder is refunded to the trader. Both are emitted
+    ///         so a consumer never has to reconstruct actual spend by diffing ERC-20 transfers in
+    ///         the same transaction, and the names are explicit so neither can be mistaken for the
+    ///         other — `amountRequested` is what was asked for, `amountSpent` is what the pool took.
     event SwapExactInput(
-        address indexed trader, address indexed tokenIn, uint256 amountIn, uint256 amountOut
+        address indexed trader,
+        address indexed tokenIn,
+        uint256 amountRequested,
+        uint256 amountSpent,
+        uint256 amountOut
     );
     /// @notice D-035: realised market surplus handed to the vault's protected reserve.
     event SurplusCredited(uint256 amount);
@@ -438,8 +448,9 @@ contract AssetMarketManager is
         if (!zeroForOne && tokenIn != address(token1)) revert InvalidPoolTokens();
 
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
-        amountOut = _routeSwap(zeroForOne, amountIn, minAmountOut, tokenIn);
-        emit SwapExactInput(msg.sender, tokenIn, amountIn, amountOut);
+        uint256 spent;
+        (amountOut, spent) = _routeSwap(zeroForOne, amountIn, minAmountOut, tokenIn);
+        emit SwapExactInput(msg.sender, tokenIn, amountIn, spent, amountOut);
 
         _runFlywheel();
     }
@@ -692,7 +703,7 @@ contract AssetMarketManager is
 
     function _routeSwap(bool zeroForOne, uint256 amountIn, uint256 minAmountOut, address tokenIn)
         private
-        returns (uint256 amountOut)
+        returns (uint256 amountOut, uint256 spent)
     {
         bytes memory data = _encodeSwapCallback(zeroForOne, amountIn);
         _activeSwapCallback = keccak256(data);
@@ -714,7 +725,7 @@ contract AssetMarketManager is
         // A swap that stops at the price limit leaves input unspent. Refund it — left here it
         // would sit in the manager's balance and be miscounted as market surplus on the next
         // credit, quietly converting a trader's own money into protected reserve.
-        uint256 spent = uint256(inputDelta);
+        spent = uint256(inputDelta);
         if (spent < amountIn) IERC20(tokenIn).safeTransfer(msg.sender, amountIn - spent);
     }
 

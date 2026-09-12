@@ -781,8 +781,13 @@ has genuinely returned more than was borrowed.
 theatre; the cap is manager-side. The funds are real and the direction is one-way, so the worst a
 buggy manager can do is misreport which bucket capital came from — never inflate the reserve.
 
-**What is NOT built:** the atomic burn → collect → move → re-mint, the `L'` liquidity maths it
-needs, and the anchor top-up. B-1 harvests without re-minting, so no `L'` is required; a keeper
+**DEFERRED, NOT DELIVERED — read this before assuming the feature is complete.** The atomic
+burn → collect → move → re-mint, the `L'` liquidity maths it needs, and the anchor top-up from
+inventory were all specified in this decision and are **not built**. They are Phase B-2. Anyone
+reading "D-035: accepted" as "the flywheel is finished" is wrong: the loop closes, but the anchor
+is not maintained atomically and discovery is not automatically refilled.
+
+Detail on the deferral: B-1 harvests without re-minting, so no `L'` is required; a keeper
 refills through the existing `addLiquidity`, where liquidity is supplied explicitly and guarded by
 its own slippage bounds. Degradation when inventory is exhausted is **skip and emit**, not a range
 shift — an anchor moved off spot is no longer an anchor, so shifting would sacrifice the model to
@@ -854,6 +859,59 @@ production paths (D-027, D-029) and demonstrating them is not required. The dist
 hold: **existing role gates stay**, because they cost nothing, are already built, and are themselves
 demo material (the refusals). And the three properties of `creditMarketSurplus` above are
 load-bearing, not ceremony — without them the reserve is not a reserve.
+
+## D-037: The protocol provides a user sell/trade path, superseding "sell is not provided"
+
+Status: accepted and implemented 2026-09-12, as part of D-035 Phase B-1
+(`AssetMarketManager.swapExactInput`). Recorded separately because it is a **product change**, not
+an implementation detail of the flywheel.
+
+**What changed.** `CONTRACTS_TO_FRONTEND` §7 previously listed *"Sell / router execution (keeper
+`executeSwap` is not a user sell)"* among the things the contracts deliberately do not provide.
+That is no longer true. `swapExactInput(tokenIn, amountIn, minAmountOut, deadline)` is a
+permissionless trade in either direction, callable by any wallet.
+
+**Why it appeared, and why that is not a reversal.** It was not added because the sell decision was
+revisited. It was forced by the flywheel: Uniswap V3 has **no hooks**, so a third-party trade
+cannot call back into the engine. For a trade to realise discovery's converted inventory and credit
+it to the reserve, the trade has to pass through the manager. The user-facing sell is a
+*consequence* of D-035 needing a trade it can hook, not a change of position on routing.
+
+**What this is NOT, and must not become.** Not a router. Single pool, single hop, exact input only.
+No multi-hop, no path encoding, no external pool support, no price aggregation, no MEV protection.
+The original reasoning against building a router stands untouched; this is one entry point on the
+asset's own pool.
+
+**Properties worth recording, because they surprise integrators:**
+
+- **Users approve the MANAGER, not a router and not the pool.** The manager pays the pool from its
+  own balance inside the swap callback.
+- **Compliance needs no extra checks and gets none.** The pool pays the caller directly, so
+  `AssetToken` rejects an unverified recipient on a buy; an unverified seller cannot transfer tokens
+  in. The permissioned perimeter holds through the trade path for free.
+- **A partial fill refunds the unspent input.** A swap that exhausts liquidity stops at the price
+  limit. Left in the manager, the remainder is indistinguishable from market surplus and would be
+  credited to the protected reserve on the next crank — quietly converting a trader's own money into
+  backing. The wallet's balance change is therefore smaller than the requested amount, and
+  `SwapExactInput` carries **both** `amountRequested` and `amountSpent` so a consumer can show the
+  real figure without reconstructing it by diffing ERC-20 transfers in the same transaction. The
+  names are deliberately explicit: an event field called `amountIn` on a path that can partially
+  fill is a trap, because every indexer will read it as actual.
+- **`minAmountOut` is the caller's responsibility.** The contract enforces it and supplies no
+  default; passing 0 is a demo shortcut, never a pattern.
+- **Post-trade steps never revert the trade.** Harvest, credit and floor ratchet each skip with
+  `FlywheelSkipped(reason)`. A trader's swap must not fail because the engine could not tidy up.
+- **The keeper's `executeSwap` is unchanged and still separate** — role-gated, for the manager's own
+  inventory, and still not a user sell.
+
+**Consequences.** `CONTRACTS_TO_FRONTEND` §7 is corrected and a CHANGED row filed.
+
+`CLAUDE.md` needs **no change**, which is worth stating because it looks like it should. Both of
+its sell references are frontend-scoped and both remain true: "sell execution" (line 364) sits in
+the *"Mock or static today"* list describing the frontend's fixtures, and line 490 says plainly
+"Sell is intentionally not implemented **in the frontend**." Neither asserts that the contracts
+withhold a sell path. They go stale only when the frontend builds the UI against
+`swapExactInput` — at which point the owner, who maintains that file, should revisit them.
 
 ## Open decisions
 

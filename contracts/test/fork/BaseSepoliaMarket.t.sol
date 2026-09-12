@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import { Test, console2 } from "forge-std/Test.sol";
+import { Test, Vm, console2 } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { MockUSD } from "../../src/mocks/MockUSD.sol";
 import { AssetRegistry } from "../../src/registry/AssetRegistry.sol";
@@ -272,7 +272,9 @@ contract BaseSepoliaMarketForkTest is Test {
         uint256 backingBefore = vault.currentBacking();
         int24 floorBefore = floor.floorTick();
 
+        vm.recordLogs();
         _tradeThroughManager("flywheelTrader", 60_000e6);
+        uint256 spent = _spentFromSwapLog(vm.getRecordedLogs());
 
         (,, uint128 discoveryAfter,) = market.positions(AssetMarketManager.PositionKind.Discovery);
         assertEq(discoveryAfter, 0, "discovery was not harvested");
@@ -287,6 +289,19 @@ contract BaseSepoliaMarketForkTest is Test {
 
         assertGt(reserveAfter, reserveBefore, "surplus never reached the protected reserve");
         assertGt(vault.currentBacking(), backingBefore, "backing did not rise");
+
+        // Cross-check, and the clearest single statement of what the flywheel does: the money the
+        // trader spent IS the money that became backing. Discovery held asset inventory with no
+        // mUSD cost basis against it, so when the buy converts the whole position and the harvest
+        // realises it, essentially every unit the trader paid crosses into the protected reserve.
+        // Not exact — Uniswap rounds position accounting down, so the reserve gains a couple of
+        // base units less than was spent. That direction is the safe one.
+        assertApproxEqAbs(
+            reserveAfter - reserveBefore,
+            spent,
+            10,
+            "reserve delta should reconcile with what the trader actually spent"
+        );
         // Price-up is a higher tick when the asset is token0 and a lower one when it is token1.
         assertTrue(
             assetIsToken0 ? floor.floorTick() > floorBefore : floor.floorTick() < floorBefore,
@@ -299,13 +314,49 @@ contract BaseSepoliaMarketForkTest is Test {
     ///      credit — quietly converting a trader's own money into protected reserve.
     function test_swapExactInputRefundsInputItCouldNotSpend() public {
         _add(AssetMarketManager.PositionKind.Discovery);
+
+        vm.recordLogs();
         // Discovery holds only a few hundred mUSD of capacity, so most of this order is unspendable.
         address trader = _tradeThroughManager("refundTrader", 60_000e6);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertGt(musd.balanceOf(trader), 50_000e6, "unspent input was not refunded");
         assertEq(
             market.creditableSurplus(), 0, "unspent trader input is being counted as market surplus"
         );
+
+        // The event must carry ACTUAL spend alongside the request. Without it, a consumer told to
+        // display real spend would have to reconstruct it by diffing ERC-20 transfers in the same
+        // transaction — exactly the fragile cross-log inference this event exists to avoid.
+        bool found;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(market)) continue;
+            if (logs[i].topics[0] != AssetMarketManager.SwapExactInput.selector) continue;
+            found = true;
+            (uint256 requested, uint256 spent, uint256 received) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256));
+            console2.log("requested / spent / received:");
+            console2.log(requested);
+            console2.log(spent);
+            console2.log(received);
+            assertEq(requested, 60_000e6, "amountRequested should be what was asked for");
+            assertLt(spent, requested, "amountSpent must reflect the partial fill");
+            assertGt(spent, 0);
+            assertGt(received, 0);
+        }
+        assertTrue(found, "no SwapExactInput event emitted");
+    }
+
+    /// @dev Pulls `amountSpent` out of the manager's own trade event — the amount the pool
+    ///      actually took, which differs from the request whenever liquidity runs out.
+    function _spentFromSwapLog(Vm.Log[] memory logs) private view returns (uint256 spent) {
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(market)) continue;
+            if (logs[i].topics[0] != AssetMarketManager.SwapExactInput.selector) continue;
+            (, spent,) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+            return spent;
+        }
+        revert("no SwapExactInput event found");
     }
 
     // -----------------------------------------------------------------
