@@ -520,6 +520,10 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
             // discovered separately from AssetSystemDeployed. Leaving it out meant the floor could
             // climb on chain and never appear in the asset's own timeline.
             ...(deployment.floor_controller === null ? [] : [deployment.floor_controller]),
+            // Discovered, not deployed: the identity registry is protocol-wide and arrives via
+            // the token's IdentityRegistryAdded. Without it a verification — the only action a
+            // visitor takes themselves — is fetched by nothing and rendered by nothing.
+            ...(await repo.getWatchedAddresses(db, ctx.chainId, ['identityRegistry'])),
           ];
 
     const rows = await repo.getAssetLogs(db, ctx.chainId, addresses, {

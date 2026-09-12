@@ -168,6 +168,13 @@ const MAPPINGS: Record<string, EventMapping> = {
   /** D-026. The hash binds the deployment to the verifier-approved term sheet. */
   TermsApproved: { type: 'TermsApproved', fields: {} },
   Transfer: { type: 'Transfer', actorArg: 'from', fields: { value: 'token' } },
+  // Verification is the one action in the whole system a visitor performs with their own hand.
+  // It was projected into `identities` but rendered nowhere, so someone could verify themselves,
+  // open the timeline, and see every action except their own — which reads as "it did not work"
+  // at the exact moment they are deciding whether this thing is real.
+  IdentityRegistered: { type: 'IdentityRegistered', actorArg: 'investorAddress', fields: {} },
+  IdentityUpdated: { type: 'IdentityUpdated', actorArg: 'investorAddress', fields: {} },
+  IdentityRemoved: { type: 'IdentityRemoved', actorArg: 'investorAddress', fields: {} },
 };
 
 /** Only these contracts contribute to an asset timeline; mUSD movements are not asset activity. */
@@ -180,6 +187,10 @@ const TIMELINE_CONTRACTS = new Set([
   'AssetMarketManager',
   'AssetToken',
   'FloorController',
+  // Protocol-wide rather than per-asset, but who may hold this asset is part of its story, and
+  // with one registry per deployment there is no ambiguity about which asset a registration
+  // concerns.
+  'IdentityRegistry',
 ]);
 
 export function toActivityItem(row: RawLogRow): ActivityItem | null {

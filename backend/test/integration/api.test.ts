@@ -351,6 +351,18 @@ describe('GET /v1/assets/:assetId/activity', () => {
     );
   });
 
+  it('shows a verification in the timeline, since a visitor performs it themselves', async () => {
+    // The identity registry is protocol-wide, so it is in neither asset_deployments nor the
+    // timeline's contract filter by default. It was projected into `identities` and rendered
+    // nowhere, which meant someone could verify their own wallet, open the timeline, and see
+    // every action except theirs. DeployLocal registers three identities, so this chain has them.
+    const body = await get(`/v1/assets/${deployment.assetId}/activity?limit=200`, activitySchema);
+    const registrations = body.data.filter((item) => item.type === 'IdentityRegistered');
+
+    expect(registrations.length).toBeGreaterThan(0);
+    expect(registrations[0]!.actor).toMatch(/^0x[0-9a-f]{40}$/);
+  });
+
   it('formats amounts as decimal strings, not base units', async () => {
     const body = await get(`/v1/assets/${deployment.assetId}/activity?limit=50`, activitySchema);
     const reserveDeposit = body.data.find((item) => item.type === 'ReserveDeposit');

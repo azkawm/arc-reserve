@@ -82,6 +82,23 @@ export async function listAssetRows(
   return rows;
 }
 
+/**
+ * Addresses discovered by kind. The identity registry and compliance contract are protocol-wide
+ * rather than per-asset, so they are not in `asset_deployments` — they arrive via the token's own
+ * `IdentityRegistryAdded` / `ComplianceAdded` announcements.
+ */
+export async function getWatchedAddresses(
+  db: Database,
+  chainId: number,
+  kinds: string[],
+): Promise<string[]> {
+  const { rows } = await db.query<{ address: string }>(
+    'SELECT address FROM watched_addresses WHERE chain_id = $1 AND kind = ANY($2)',
+    [chainId, kinds],
+  );
+  return rows.map((row) => row.address);
+}
+
 export async function getAssetRow(
   db: Database,
   chainId: number,
