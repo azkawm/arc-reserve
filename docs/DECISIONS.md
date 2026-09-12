@@ -711,7 +711,8 @@ the part of the frontend that encodes financial rules rather than framework choi
 `lib/data.ts`, `lib/format.ts` (exact decimal display, no float arithmetic on money),
 `lib/contracts.ts`, `lib/wagmi.ts`, and the `DataSourceBadge` / `DataPanel` components that make
 D-019 unavoidable. The visual identity (palette, Georgia display face) is carried into the Tailwind
-theme tokens rather than restyled.
+theme tokens rather than restyled. **Superseded by D-036**: the concept landing page adopts a new
+light palette and Newsreader display face; this sentence describes the state as of D-035 only.
 
 **What was deliberately not ported, and is therefore currently absent from the product.** The
 marketplace, asset, issuer, verifier, and engine routes; the candle and engine charts; and every
@@ -738,6 +739,45 @@ the contracts enforce the rules, the backend computes the values, and the fronte
 contribution is the provenance discipline, which was ported verbatim. The cost is real and is
 recorded above: a working demo surface was traded for a test runner, a container, and a component
 system that the Next.js app never had.
+
+## D-036: The concept landing page adopts a light palette; D-035's palette-stability clause is superseded
+
+Status: accepted 2026-09-12 (owner instruction; implemented in `openspec/changes/concept-landing-page`).
+
+**The decision.** The app-wide visual system is replaced: D-035's dark ground and lime accent
+(`--arc-bg: #090d0a`, `--arc-green: #b7f765`) give way to a parchment ground, ink-black text, and a
+cerulean accent, sourced from the Stitch reference design in `stitch-ui/`. This is a deliberate
+reversal of one specific sentence in D-035 — "The visual identity (palette, Georgia display face) is
+carried into the Tailwind theme tokens rather than restyled" — which is superseded, not merely
+extended. Every other part of D-035 (the framework choice, the ported data layer, the retired routes)
+stands unchanged.
+
+**Why a reversal is recorded rather than silently overwritten.** D-035's palette-stability clause had
+its own stated reason: so "the brand does not change because the build tool did." That reasoning does
+not carry over to a deliberate design decision made one commit later for an unrelated purpose (giving
+the landing page a considered visual system worth the name), and leaving the old clause unamended
+would read as a contradiction the next person has to resolve by re-deriving it from a git diff.
+
+**Consequences carried out in the same change:**
+- The three provenance colours (`--provenance-live/-derived/-mock`) are re-picked rather than
+  carried over. The previous "derived" blue sat close to the new cerulean brand accent, which would
+  have made "derived data" and "the brand colour" hard to tell apart. All three are verified at
+  `>=4.5:1` contrast on white and span distinct hues (142°/263°/26°), so the distinction holds under
+  red-green colour deficiency and not only for full colour vision.
+- `--radius` moves to `0.25rem`, chosen so Tailwind's derived `sm`/`md`/`lg`/`xl` scale lands on the
+  Stitch reference's own radius scale exactly (2/4/8px) rather than approximating it.
+- Newsreader replaces Georgia as the display serif (Georgia stays as the fallback), loaded from
+  Google Fonts.
+- The eight shadcn-generated components needed no code change — they are token-driven, so the
+  palette and radius changes apply to them automatically. A visual pass over all eight, plus a real
+  cross-viewport screenshot pass once Playwright landed in the same change, confirmed no component
+  broke under the tighter radius scale.
+
+**What is unaffected.** `frontend/src/lib/` (the `/v1` client, react-query bindings, fixture adapter,
+formatters) and the wagmi + react-query providers — none of this depends on the palette, and none of
+it changed. The concept landing page itself is a separate decision, recorded in
+`openspec/changes/concept-landing-page/proposal.md` and `design.md`; this entry covers only the
+palette reversal's relationship to D-035.
 
 ## Open decisions
 

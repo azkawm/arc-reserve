@@ -1,26 +1,40 @@
 # Frontend Specification and Integration Status
 
-**Status (2026-09-12, D-035): rebuilt on React + Vite; only the data layer is ported.**
+**Status (2026-09-12, D-035 + D-036 + `openspec/changes/concept-landing-page`): rebuilt on React +
+Vite; the public page is now a labelled concept landing page; the data layer has no consumer.**
 
 `frontend/` is a React 19 + Vite 8 single-page app with TypeScript, Tailwind CSS v4, shadcn/ui
-components, wagmi, viem, TanStack Query, Lucide icons, Vitest, and a Docker image. It replaces the
-Next.js 15 App Router implementation, which is retired and lives in git history.
+components, wagmi, viem, TanStack Query, Lucide icons, Vitest, Playwright, and a Docker image. It
+replaces the Next.js 15 App Router implementation, which is retired and lives in git history.
 
-What exists today: the toolchain, the theme, the `/v1` client and fixture adapter, the provenance
-components (`DataSourceBadge`, `DataPanel`), the wagmi + react-query providers, and one landing page
-that exercises them. 25 Vitest tests pass; typecheck, lint, and build are clean.
+What exists today: a marketing-shaped concept landing page (hero, illustrative telemetry, the dual
+participant engine, the five independent value references, the four-stage safety escalation ladder,
+a closing call to action) built from a Stitch design reference, carrying a persistent, non-dismissible
+"design concept — not the deployed protocol" banner and per-panel concept markers on every
+illustrative figure. It reads no live data and calls the backend nowhere. Separately, the `/v1`
+client, the fixture adapter, and the provenance components (`DataSourceBadge`, `DataPanel`) are all
+intact in `src/lib/` and `src/components/data-source.tsx` — they simply have **no consumer on this
+page**, since the page that exercised them (D-035's scaffold) was replaced. 83 Vitest tests and a
+12-case Playwright responsive suite (phone/tablet/desktop) pass; typecheck, lint, and build are clean.
 
-What does **not** exist today, and did exist before the rebuild: the marketplace, asset, issuer,
-verifier, and engine routes; the candle and engine charts; routing itself; and every live wallet
-write (buy, claim, redeem, issuer deposits, verifier actions, keeper range calls).
+What does **not** exist today, and did exist before the D-035 rebuild: the marketplace, asset,
+issuer, verifier, and engine routes; the candle and engine charts; routing itself; and every live
+wallet write (buy, claim, redeem, issuer deposits, verifier actions, keeper range calls). The SOLAR01
+deep-dive, the yield/floor simulator, and the offerings table from the Stitch reference are also not
+built — deferred to a follow-up change (`openspec/changes/concept-landing-page/design.md`,
+Non-Goals).
 
 > **Read sections 1 and 3 onward as the porting specification, not as a description of the running
 > app.** They record how the previous implementation behaved, including its real-versus-mock
 > boundary, which is what the ported routes must reproduce. Section 2 has been updated to the
 > current environment contract.
 
-See `frontend/README.md` for commands and the Docker notes, and D-035 in `DECISIONS.md` for why the
-rewrite was accepted and what it cost.
+See `frontend/README.md` for commands, testing, and the Docker notes; D-035 in `DECISIONS.md` for why
+the Vite rewrite was accepted and what it cost; D-036 for the concept landing page's palette reversal;
+and `openspec/changes/concept-landing-page/` (proposal, design, specs, tasks) for the concept page's
+full rationale, including the specific claims it deliberately does not carry over from the Stitch
+reference (a fabricated audit attribution, guarantee language, an "instant" redemption promise, and
+others — see `design.md`'s Decisions section).
 
 ## 1. Routes (previous implementation — the porting target)
 

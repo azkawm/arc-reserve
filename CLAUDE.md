@@ -94,9 +94,9 @@ Do not weaken these rules without an explicit product decision and corresponding
 | Contract tests | Implemented | 247 passing tests at the last verification (2026-08-30, after task 10) |
 | Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
 | Market-manager coverage | Strong | 98.28% lines, 95.44% statements, 73.47% branches, 100% functions (2026-09-11) |
-| Frontend | Rebuilt on React + Vite (D-035) | Vite 8 + React 19, Tailwind v4, shadcn/ui, Vitest, Docker. The `/v1` client, fixture adapter, and provenance components are ported; **the routes, charts, and wallet writes are not**. See `docs/FRONTEND.md` |
+| Frontend | Concept landing page (D-035, D-036) | Vite 8 + React 19, Tailwind v4 (parchment/cerulean palette), shadcn/ui, Vitest, Playwright, Docker. The public page is a labelled design-concept marketing page built from a Stitch reference; **the routes, charts, and wallet writes are not built**. See `docs/FRONTEND.md` and `openspec/changes/concept-landing-page/` |
 | Wallet writes | Not currently wired | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls worked before the D-035 rebuild and must be ported back. wagmi + viem providers are in place |
-| Market data | Client ported, panels not | `lib/api.ts` and `lib/queries.ts` read the full `/v1` surface; only the landing page consumes them so far. Candles stay `mock`-badged on Anvil |
+| Market data | Client ported, no consumer | `lib/api.ts` and `lib/queries.ts` read the full `/v1` surface and are still tested on their own, but the current page reads no live data and calls the backend nowhere — a deliberate, temporary trade recorded in D-036 |
 | Backend API | Implemented | `backend/` (D-030): the full `/v1` read API — assets, metrics, positions, activity, revenue, redemptions, candles, per-account. Provenance envelope on every response; 175 tests |
 | Chain indexer | Implemented | Event ingestion, address discovery, 23 projection tables, restart-safe cursor, reorg rollback + rebuild. Verified against a live Anvil replay and an `evm_revert` reorg |
 | Canonical OHLC | Implemented | Canonical `Swap` ingestion and candle aggregation; the mock pool emits canonical events since task 10. Anvil candles are still badged `mock` — a linear stand-in, not price discovery |
@@ -426,26 +426,39 @@ borrowing. See `docs/MARKET_MAKING.md`.
 
 ## Frontend truth boundary
 
-**Rebuilt 2026-09-12 (D-035).** The frontend is a React + Vite SPA. Read this section as the
-current state, and `docs/FRONTEND.md` §1 and §3 onward as the specification for what must be
+**Rebuilt 2026-09-12 (D-035), restyled and re-pointed the same day (D-036,
+`openspec/changes/concept-landing-page`).** The frontend is a React + Vite SPA. Read this section
+as the current state, and `docs/FRONTEND.md` §1 and §3 onward as the specification for what must be
 ported back.
 
-Working today:
+The public page (`/`) is now a labelled design-concept marketing page built from a Stitch design
+reference — hero, illustrative telemetry, the dual participant engine, the five independent value
+references, the four-stage safety escalation ladder, a closing call to action — carrying a
+persistent, non-dismissible "design concept — not the deployed protocol" banner and a local concept
+marker on every illustrative figure. It reads no live data and calls the backend nowhere.
+
+Working, but currently with **no consumer on the live page**:
 
 - the `/v1` client with the `{ data, meta }` envelope and typed response shapes;
 - react-query bindings for every route (assets, metrics, candles, nav-history, positions,
   activity, per-account);
-- the fixture adapter over `data.ts`, and `DataSourceBadge` / `DataPanel` (D-019);
-- wagmi + viem providers with the injected connector; and
-- one landing page that reads the asset list and badges its provenance.
+- the fixture adapter over `data.ts`, and `DataSourceBadge` / `DataPanel` (D-019); and
+- wagmi + viem providers with the injected connector.
 
-Not working today — these existed before the rebuild and were deliberately not ported:
+This is deliberate and temporary (D-036): the SOLAR01 deep-dive that would exercise these is
+deferred to a follow-up change. `docs/FRONTEND.md` and
+`openspec/changes/concept-landing-page/design.md` (Non-Goals) both record this.
+
+Not working today — these existed before the D-035 rebuild and were deliberately not ported:
 
 - every wallet write: mUSD approval, offering purchase, revenue claim, normal redemption, issuer
   reserve and revenue deposits, asset submission, verifier NAV/status actions, and keeper
   `slide` / `sweep` / `rebalanceToNAV`;
 - the marketplace, asset, engine, issuer, and verifier routes, and routing itself; and
 - the candle chart and the engine position chart.
+
+Also not built (D-036): the SOLAR01 deep-dive, the yield/floor simulator, and the offerings table
+from the Stitch reference.
 
 Still mock or absent by design:
 
@@ -542,10 +555,11 @@ Last contract verification:
 - overall Solidity sources: 85.17% lines, 84.33% statements, 59.05% branches, 85.41% functions
   (measured 2026-09-11).
 
-Last frontend verification (2026-09-12, after the D-035 rebuild): `npm run typecheck`,
-`npm run lint`, `npm run test` (25 tests, 3 files), and `npm run build` all passed. The Docker
-image was **not** built — no Docker daemon was running on the machine; `docker compose config`
-validates.
+Last frontend verification (2026-09-12, after `openspec/changes/concept-landing-page`, D-036):
+`npm run typecheck`, `npm run lint`, `npm run test` (83 tests, 17 files), `npm run test:e2e`
+(Playwright/Chromium, 12 cases across phone/tablet/desktop, 2 correctly skipped), and `npm run
+build` all passed. The Docker image was **not** built — no Docker daemon was running on the
+machine; `docker compose config` validates.
 
 Coverage is not an audit. The local pool is a callback harness, not an economic AMM simulator.
 

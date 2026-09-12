@@ -51,7 +51,7 @@
 
 ## 7. Documentation and verification
 
-- [ ] 7.1 Add a decision record for the palette reversal that explicitly supersedes the relevant part of D-035
-- [ ] 7.2 Update the frontend documentation: new stack surface, and the interval during which the read API has no consumer
-- [ ] 7.3 Update the testing documentation with the two-runner split, what each runner can and cannot prove, and the new coverage table
-- [ ] 7.4 Run the full gate — typecheck, lint, unit tests, browser tests and build — and record the results
+- [x] 7.1 Add a decision record for the palette reversal that explicitly supersedes the relevant part of D-035
+- [x] 7.2 Update the frontend documentation: new stack surface, and the interval during which the read API has no consumer
+- [x] 7.3 Update the testing documentation with the two-runner split, what each runner can and cannot prove, and the new coverage table
+- [x] 7.4 Run the full gate — typecheck, lint, unit tests, browser tests and build — and record the results
