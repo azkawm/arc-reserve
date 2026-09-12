@@ -24,10 +24,10 @@
 
 ## 4. Motion
 
-- [ ] 4.1 Port the hero WebGL shader into a self-contained component owning context, resize observation, the frame loop and teardown on unmount
-- [ ] 4.2 Short-circuit the frame loop in script when reduced motion is requested, rendering the static background instead
-- [ ] 4.3 Suspend the frame loop when the hero is off-screen or the tab is hidden, and cap the device pixel ratio
-- [ ] 4.4 Fall back to the static background when WebGL is unavailable or the context is lost
+- [x] 4.1 Port the hero WebGL shader into a self-contained component owning context, resize observation, the frame loop and teardown on unmount
+- [x] 4.2 Short-circuit the frame loop in script when reduced motion is requested, rendering the static background instead
+- [x] 4.3 Suspend the frame loop when the hero is off-screen or the tab is hidden, and cap the device pixel ratio
+- [x] 4.4 Fall back to the static background when WebGL is unavailable or the context is lost
 - [ ] 4.5 Add section scroll-reveals and hover and focus micro-interactions, all suppressed under reduced motion
 
 ## 5. Unit tests
