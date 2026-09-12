@@ -94,6 +94,22 @@ const MAPPINGS: Record<string, EventMapping> = {
   PositionConfigured: { type: 'PositionConfigured', fields: {} },
   FeesCollected: { type: 'FeesCollected', fields: { amount0: 'raw', amount1: 'raw' } },
   SwapExecuted: { type: 'Swap', fields: { amountIn: 'raw', amountOut: 'raw' } },
+  // amountSpent leads deliberately: it is the trade size. amountRequested rides along so a
+  // partial fill is visible rather than invisible (D-037).
+  SwapExactInput: {
+    type: 'Swap',
+    actorArg: 'trader',
+    fields: { amountSpent: 'raw', amountOut: 'raw', amountRequested: 'raw' },
+  },
+  SurplusCredited: { type: 'SurplusCredited', fields: { amount: 'stable' } },
+  MarketSurplusCredited: {
+    type: 'SurplusCredited',
+    fields: { amount: 'stable', newReserve: 'stable' },
+  },
+  // Informational. The floor climbing is the headline, so when a rebalance does NOT move it,
+  // "why not" is the first question asked — and an invisible raw log cannot answer it.
+  FlywheelSkipped: { type: 'FlywheelSkipped', fields: {} },
+  FloorLevelUpSkipped: { type: 'FloorLevelUpSkipped', fields: {} },
   InitialReserveDeposited: { type: 'ReserveDeposit', actorArg: 'issuer', fields: { amount: 'stable' } },
   ReserveContribution: {
     type: 'ReserveDeposit',
@@ -210,6 +226,14 @@ export function toActivityItem(row: RawLogRow): ActivityItem | null {
   }
   if (row.event_name === 'Rebalanced' && typeof decoded.operation === 'string') {
     summary.operation = decodeBytes32(decoded.operation);
+  }
+  // NO_CONTROLLER, NOT_ELIGIBLE, CAN_LEVEL_UP_REVERTED, LEVEL_UP_REVERTED — the reason is the
+  // entire content of these events, and as hex it tells a reader nothing.
+  if (
+    ['FlywheelSkipped', 'FloorLevelUpSkipped'].includes(row.event_name) &&
+    typeof decoded.reason === 'string'
+  ) {
+    summary.reason = decodeBytes32(decoded.reason);
   }
 
   const actorRaw = mapping.actorArg === undefined ? undefined : decoded[mapping.actorArg];

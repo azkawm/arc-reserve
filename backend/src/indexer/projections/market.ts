@@ -1,5 +1,5 @@
 import { floorControllerSet } from './floor.js';
-import { big, bool, bytes32ToString, hex32, num, type Projector } from './types.js';
+import { addr, big, bool, bytes32ToString, hex32, num, type Projector } from './types.js';
 
 /**
  * AssetMarketManager.
@@ -137,6 +137,35 @@ const swapExecuted: Projector = async (ctx, args, { tx }) => {
   );
 };
 
+/**
+ * D-037. The event carries both the requested input and what was actually spent, and a partial
+ * fill makes them differ by a lot — one measured trade asked for 60,000 and spent 630.32. Both
+ * are stored, and every consumer of "how big was this trade" reads `amount_spent`: taking the
+ * request instead overstates volume by whatever the pool declined to fill, silently.
+ */
+const swapExactInput: Projector = async (ctx, args, { tx }) => {
+  await tx.query(
+    `INSERT INTO manager_exact_input_swaps (chain_id, market_manager, block_number,
+                                            transaction_hash, log_index, trader, token_in,
+                                            amount_requested, amount_spent, amount_out,
+                                            block_timestamp)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      ctx.chainId,
+      ctx.address,
+      ctx.blockNumber.toString(),
+      ctx.transactionHash,
+      ctx.logIndex,
+      addr(args, 'trader'),
+      addr(args, 'tokenIn'),
+      big(args, 'amountRequested').toString(),
+      big(args, 'amountSpent').toString(),
+      big(args, 'amountOut').toString(),
+      ctx.blockTimestamp.toString(),
+    ],
+  );
+};
+
 async function recordPositionEvent(
   ctx: Parameters<Projector>[0],
   tx: Parameters<Projector>[2]['tx'],
@@ -174,6 +203,7 @@ export const marketProjectors: Record<string, Projector> = {
   FeesCollected: feesCollected,
   Rebalanced: rebalanced,
   SwapExecuted: swapExecuted,
+  SwapExactInput: swapExactInput,
   // The floor controller is not in AssetSystemDeployed; this is how it is discovered.
   FloorControllerSet: floorControllerSet,
 };

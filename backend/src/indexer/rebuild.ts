@@ -42,6 +42,7 @@ const PROJECTION_TABLES = [
   'position_liquidity_events',
   'market_rebalances',
   'manager_swaps',
+  'manager_exact_input_swaps',
   'reserve_contributions',
   'reserve_shortfall_events',
   'pool_swaps',

@@ -297,6 +297,56 @@ describe('replaying a seeded DeployLocal chain', () => {
     expect(rows).toEqual([]);
   });
 
+  it('records what an exact-input swap actually spent, alongside what it asked for', async () => {
+    // D-037. The event carries both, and a partial fill makes them diverge — one measured trade
+    // requested 60,000 and spent 630.32. Storing only the request, or reading it as the trade
+    // size, overstates volume by whatever the pool declined to fill, and nothing about the
+    // resulting chart looks wrong. Both columns exist so that mistake cannot be made silently.
+    const { rows } = await db.query<{
+      amount_requested: string;
+      amount_spent: string;
+      amount_out: string;
+      trader: string;
+    }>(
+      `SELECT amount_requested::text, amount_spent::text, amount_out::text, trader
+         FROM manager_exact_input_swaps ORDER BY block_number, log_index`,
+    );
+
+    if (rows.length === 0) return; // a chain that has not traded through the router yet
+
+    for (const row of rows) {
+      // A fill can be partial but never more than was offered.
+      expect(BigInt(row.amount_spent)).toBeLessThanOrEqual(BigInt(row.amount_requested));
+      expect(BigInt(row.amount_spent)).toBeGreaterThan(0n);
+      expect(BigInt(row.amount_out)).toBeGreaterThan(0n);
+      expect(row.trader).toMatch(/^0x[0-9a-f]{40}$/);
+    }
+
+    // And the stored spend agrees with the pool's own Swap in the same transaction, which is
+    // the independent check: two contracts reporting the same trade from different sides.
+    const spentByTx = new Map(
+      (
+        await db.query<{ transaction_hash: string; amount_spent: string }>(
+          `SELECT transaction_hash, amount_spent::text FROM manager_exact_input_swaps`,
+        )
+      ).rows.map((row) => [row.transaction_hash, BigInt(row.amount_spent)]),
+    );
+    const poolSwaps = await db.query<{
+      transaction_hash: string;
+      amount0: string;
+      amount1: string;
+    }>(`SELECT transaction_hash, amount0::text, amount1::text FROM pool_swaps`);
+
+    for (const swap of poolSwaps.rows) {
+      const spent = spentByTx.get(swap.transaction_hash);
+      if (spent === undefined) continue;
+      const amounts = [BigInt(swap.amount0), BigInt(swap.amount1)].map((value) =>
+        value < 0n ? -value : value,
+      );
+      expect(amounts).toContain(spent);
+    }
+  });
+
   it('keeps every log it could not decode instead of dropping it', async () => {
     const { rows } = await db.query<{ count: string; decoded: string }>(
       `SELECT count(*)::text AS count,

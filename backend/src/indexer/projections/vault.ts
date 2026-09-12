@@ -92,6 +92,24 @@ const allocationChanged: Projector = async (ctx, args, deps) => {
 };
 
 /**
+ * D-035 flywheel surplus: deliberately NOT projected here.
+ *
+ * `creditMarketSurplus` was expected to be a fourth growth source the ledger could not see. It
+ * is not: the vault emits `AllocationChanged` for the movement and `MarketSurplusCredited` as an
+ * annotation on it, one log index apart in the same transaction (verified on a replayed chain —
+ * AllocationChanged at log 12, MarketSurplusCredited at log 13, same vault, same tx). Applying
+ * both would count the credit twice.
+ *
+ * The first version of this file did apply both, and the mismatch check written alongside it
+ * caught the error immediately: emitted `newReserve` came back EQUAL to the balance already
+ * stored, which is only possible if the movement had already been applied. That is the same
+ * discipline the allocation projector uses — flag, never absorb — turned on its own author.
+ *
+ * The event stays in `raw_logs` and appears in the activity timeline, which is where an
+ * annotation belongs.
+ */
+
+/**
  * D-023. Stored as configuration, not as a running total: target backing rises with time, so
  * the API recomputes `targetBacking(t)` at query time. A shortfall can begin with no
  * transaction at all, which is why the schedule matters more than the shortfall events.
