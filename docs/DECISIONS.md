@@ -650,13 +650,33 @@ zero expiry, which made the kill switch illusory).
   be used through this contract to verify a third party.
 - Registering as **retail** means the D-028 5,000 mUSD cap applies to judges, which demonstrates
   class-based caps rather than hiding them.
-- **Claims expire.** `selfRegister()` sets `expiresAt = block.timestamp + 90 days`, never `0`.
-  Rationale: `isVerified` is `registered && (expiresAt == 0 || expiresAt > now)`, so a zero expiry
-  verifies every self-registered wallet *permanently*. Revoking the registrar's role would then stop
-  new registrations while un-verifying nobody, and unwinding would mean `deleteIdentity` one wallet
-  at a time — by someone still holding the role just revoked. A finite expiry makes the
-  permissionless surface time-bounded by construction, turns role revocation into a real wind-down,
-  and exercises the claim-expiry path on a deployed system rather than only in tests.
+- **Claims expire after 7 days**, never `0`. Rationale: `isVerified` is
+  `registered && (expiresAt == 0 || expiresAt > now)`, so a zero expiry verifies every
+  self-registered wallet *permanently*. Revoking the registrar's role would then stop new
+  registrations while un-verifying nobody, and unwinding would mean `deleteIdentity` one wallet at a
+  time — by someone still holding the role just revoked. A finite expiry makes the permissionless
+  surface time-bounded by construction, turns role revocation into a real wind-down, and exercises
+  the claim-expiry path on a deployed system rather than only in tests. 7 days, not 90 (owner,
+  2026-09-12): an expiry that outlasts the judging window by an order of magnitude leaves the kill
+  switch exactly as decorative as a zero expiry did.
+- **The second call renews; it does not early-return.** These two properties must land together —
+  separately they compose into a permanent lockout. Verified against `IdentityRegistry` source:
+  `registerIdentity` reverts `AlreadyRegistered` on the `registered` flag **alone**, ignoring
+  expiry, and expiry never clears that flag. So an expired judge is simultaneously unverified and
+  unregisterable, and an early-returning registrar would refuse to help them — with no self-service
+  path, permanently. Required shape:
+  ```text
+  not registered -> registerIdentity(msg.sender, msg.sender, 360, 1, now + 7 days)
+  already present -> updateClaimExpiry(msg.sender, now + 7 days)
+  ```
+  Both calls are inside `REGISTRY_AGENT_ROLE`, which the registrar holds. This is idempotent for a
+  double-click, renewable for a judge returning next week, and keeps the kill switch honest: revoke
+  the role and every claim lapses within 7 days with no way to renew. **A short expiry is only
+  costless because renewal exists.**
+- **The renewal branch must call `updateClaimExpiry` only — never `updateInvestorClass`.**
+  Otherwise the owner's deployer wallet, registered `institutional`, silently demotes itself to
+  `retail` the first time it presses the demo button and inherits the D-028 5,000 mUSD cap on a live
+  system. This is a deliberate property, not an oversight; do not "tidy" the branches together.
 - Chain-guarded to the D-027 testnet ids (31337, 84532, 296), checked **inside `selfRegister()`**
   rather than captured in the constructor, so a fork cannot inherit a stale permission.
 - Idempotent for an already-registered wallet: `registerIdentity` reverts `AlreadyRegistered`, so
