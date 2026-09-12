@@ -516,6 +516,10 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
             deployment.market_manager,
             deployment.revenue_distributor,
             deployment.redemption_controller,
+            // The floor ratchet is a headline: its FloorLevelUp comes from the controller, which is
+            // discovered separately from AssetSystemDeployed. Leaving it out meant the floor could
+            // climb on chain and never appear in the asset's own timeline.
+            ...(deployment.floor_controller === null ? [] : [deployment.floor_controller]),
           ];
 
     const rows = await repo.getAssetLogs(db, ctx.chainId, addresses, {
