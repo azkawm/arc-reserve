@@ -19,7 +19,7 @@
 - [x] 3.2 Telemetry band: four stat cards, each carrying a concept marker, with no "live" vocabulary in the heading or the cards
 - [x] 3.3 Dual Participant Engine section: the investor and issuer pathway cards
 - [x] 3.4 Five Independent Value References section, keeping market spot, TWAP, verified NAV, published floor and redemption price as five distinct entries
-- [ ] 3.5 Four-Stage Safety Escalation Ladder section, preserving the real stage order and triggers
+- [x] 3.5 Four-Stage Safety Escalation Ladder section, preserving the real stage order and triggers
 - [ ] 3.6 Closing call to action and footer, with every audit and attestation attribution removed
 
 ## 4. Motion
