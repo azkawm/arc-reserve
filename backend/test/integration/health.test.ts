@@ -139,7 +139,7 @@ describe('GET /v1/health', () => {
     expect(body.data.indexers[0]?.lagBlocks).toBe(400);
   });
 
-  it('degrades when a projection anomaly is open', async () => {
+  it('degrades when a projection anomaly is open on the chain it indexes', async () => {
     await registerChain(db, config);
     await db.query(
       `INSERT INTO projection_anomalies (chain_id, worker, kind, detail)
@@ -151,6 +151,36 @@ describe('GET /v1/health', () => {
 
     expect(body.data.status).toBe('degraded');
     expect(body.data.anomalies.open).toBe(1);
+    expect(body.data.anomalies.indexedChain).toBe(1);
+  });
+
+  it('reports another chain\'s anomalies without calling itself degraded for them', async () => {
+    // The database is shared across chains (D-030) and this process indexes one of them. A dev
+    // chain's backlog is real and worth reporting, but it is not this service being unwell —
+    // and a red light nobody can act on is how everyone learns to ignore red lights.
+    await registerChain(db, config);
+    await db.query(
+      `INSERT INTO chains (chain_id, name, finality_confirmations, registry_address,
+                           factory_address, stablecoin_address, start_block)
+       VALUES (84532, 'Base Sepolia', 1, $1, $2, $3, 0)`,
+      [
+        `0x${'a1'.repeat(20)}`,
+        `0x${'b2'.repeat(20)}`,
+        `0x${'c3'.repeat(20)}`,
+      ],
+    );
+    await db.query(
+      `INSERT INTO projection_anomalies (chain_id, worker, kind, detail)
+       VALUES (84532, 'arc-events', 'allocation_balance_mismatch', '{}'::jsonb)`,
+    );
+
+    const server = await serve(stubClient());
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.status).toBe('healthy');
+    expect(body.data.anomalies.indexedChain).toBe(0);
+    expect(body.data.anomalies.open).toBe(1);
+    expect(body.data.anomalies.byChain).toEqual([{ chainId: 84532, open: 1 }]);
   });
 
   it('reports unhealthy with 503 when the chain is unreachable', async () => {

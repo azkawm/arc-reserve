@@ -52,10 +52,10 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
 
   let chains: ChainRow[] = [];
   let cursors: CursorRow[] = [];
-  let openAnomalies = 0;
+  let anomalyRows: Array<{ chain_id: string; count: string }> = [];
 
   if (database.ok) {
-    [chains, cursors, openAnomalies] = await Promise.all([
+    [chains, cursors, anomalyRows] = await Promise.all([
       db
         .query<ChainRow>(
           `SELECT chain_id, name, finality_confirmations, registry_address, factory_address,
@@ -71,12 +71,26 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
         )
         .then((r) => r.rows),
       db
-        .query<{ count: string }>(
-          'SELECT count(*)::text AS count FROM projection_anomalies WHERE resolved = FALSE',
+        .query<{ chain_id: string; count: string }>(
+          `SELECT chain_id::text, count(*)::text AS count
+             FROM projection_anomalies WHERE resolved = FALSE
+            GROUP BY chain_id ORDER BY chain_id`,
         )
-        .then((r) => Number(r.rows[0]?.count ?? '0')),
+        .then((r) => r.rows),
     ]);
   }
+
+  // Anomalies are reported for every chain in the shared database, because the API serves every
+  // chain in it — but the verdict below is about THIS process, which indexes one. A service that
+  // called itself degraded over a dev chain it does not index would be crying wolf, and a system
+  // that shows red while it is fine teaches everyone to ignore red.
+  const anomaliesByChain = anomalyRows.map((row) => ({
+    chainId: Number(row.chain_id),
+    open: Number(row.count),
+  }));
+  const openAnomalies = anomaliesByChain.reduce((total, row) => total + row.open, 0);
+  const openOnIndexedChain =
+    anomaliesByChain.find((row) => row.chainId === config.CHAIN_ID)?.open ?? 0;
 
   const indexers = cursors.map((row) => ({
     chainId: Number(row.chain_id),
@@ -101,9 +115,11 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
   const status = deriveStatus({
     databaseOk: database.ok,
     rpcOk: rpc.ok,
-    openAnomalies,
+    openAnomalies: openOnIndexedChain,
     now,
-    indexers,
+    // Same reasoning: another chain's cursor being stale or errored is another process's
+    // problem. This one answers for the chain it indexes.
+    indexers: indexers.filter((indexer) => indexer.chainId === config.CHAIN_ID),
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   });
 
@@ -143,7 +159,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     // Milestone A watches only the root contracts. Milestone B grows this set from
     // AssetSystemDeployed, so the count is a discovery signal, not a constant.
     watchedContracts: 3 + (config.addresses.companyVesting ? 1 : 0),
-    anomalies: { open: openAnomalies },
+    anomalies: { open: openAnomalies, indexedChain: openOnIndexedChain, byChain: anomaliesByChain },
     allowMockMarketData: config.ALLOW_MOCK_MARKET_DATA,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   };

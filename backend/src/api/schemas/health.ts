@@ -59,8 +59,19 @@ export const healthSchema = z.object({
   indexers: z.array(cursorHealthSchema),
   chains: z.array(chainSummarySchema),
   watchedContracts: z.number().int().nonnegative(),
-  /** Rows the projector flagged rather than overwrote. Non-zero means degraded. */
-  anomalies: z.object({ open: z.number().int().nonnegative() }),
+  /**
+   * Rows the projector flagged rather than overwrote. `open` counts every chain in the shared
+   * database; `indexedChain` counts only the chain this process indexes, and only that one moves
+   * `status` to degraded. A chain listed in `byChain` with open rows is still worth showing — some
+   * other process answers for it.
+   */
+  anomalies: z.object({
+    open: z.number().int().nonnegative(),
+    indexedChain: z.number().int().nonnegative(),
+    byChain: z.array(
+      z.object({ chainId: z.number().int(), open: z.number().int().nonnegative() }),
+    ),
+  }),
   /** Whether this process is permitted to serve synthetic market data at all (D-019). */
   allowMockMarketData: z.boolean(),
   staleAfterSeconds: z.number().int().positive(),
