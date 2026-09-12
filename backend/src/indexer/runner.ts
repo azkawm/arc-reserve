@@ -39,6 +39,9 @@ export interface SyncSummary {
 }
 
 export class Indexer {
+  /** Whether the relay serves eth_getCode at past blocks; decided once, on first need. */
+  private historicalCode: 'supported' | 'unsupported' | null = null;
+
   private readonly deps: IndexerDeps;
   private watched: WatchedSet | null = null;
   private running = false;
@@ -162,10 +165,11 @@ export class Indexer {
     // logs it had never fetched — the next run resumed after them, and they were lost for good,
     // under a cursor that looked exactly like a healthy sync.
     //
-    // Replay passes also change the ORDER in which logs are projected: a component discovered in a
-    // later pass has its earlier logs projected after other contracts' later ones. That is safe only
-    // while no projector reads state written by a component discovered in a LATER pass. Today none
-    // does. Four projectors read projected state: token.ts and vault.ts read their own contract's rows;
+    // Replay passes, and the backfill below, also change the ORDER in which logs are projected: a
+    // component discovered late has its earlier logs projected after other contracts' later ones —
+    // and a backfill projects logs from blocks whose ranges were committed long before. That is safe
+    // only while no projector reads state written by a component discovered in a later pass OR a
+    // later range. Today none does. Four projectors read projected state: token.ts and vault.ts read their own contract's rows;
     // lifecycle.ts and pool.ts (poolContext) read asset_deployments, which the factory — a root,
     // watched from the first pass — writes before any pool or component enters the filter. If that
     // ever broke, poolContext would find no row, and its Swap projector flags swap_without_deployment
@@ -173,6 +177,7 @@ export class Indexer {
     // ones, are read by the API only. Keep it that way, or make the reader tolerate a later write.
     for (let pass = 0; pass < MAX_DISCOVERY_PASSES; pass += 1) {
       const sizeBefore = watched.size();
+      const knownBefore = new Set(watched.addresses());
 
       const logs = (await client.getLogs({
         address: watched.addresses(),
@@ -198,6 +203,16 @@ export class Indexer {
         logger,
         { advanceCursor: false },
       );
+
+      // Replaying this range fetches a newly discovered component's logs INSIDE the range. It cannot
+      // reach logs the component emitted before the range began — and components routinely emit
+      // before the event that announces them. On a fast chain that gap crosses range boundaries: on
+      // Arc, compliance emitted both ModuleAdded logs one range before ComplianceAdded, so they were
+      // never fetched and the modules they reveal were never discovered. Backfill closes that gap.
+      const discovered = watched.addresses().filter((address) => !knownBefore.has(address));
+      if (discovered.length > 0 && fromBlock > config.START_BLOCK) {
+        await this.backfill(watched, discovered, fromBlock - 1n);
+      }
 
       if (pass === 0) {
         totals.blocksIngested = result.blocksIngested;
@@ -240,10 +255,12 @@ export class Indexer {
     fromBlock: bigint,
     toBlock: bigint,
     logsByBlock: Map<string, ChainLog[]>,
+    options: { includeEnd?: boolean } = {},
   ): Promise<ChainBlock[]> {
     const { client } = this.deps;
     const numbers = new Set<string>(logsByBlock.keys());
-    numbers.add(toBlock.toString());
+    // The range end is fetched for the cursor's hash checkpoint; a backfill moves no cursor.
+    if (options.includeEnd !== false) numbers.add(toBlock.toString());
 
     const sorted = [...numbers].map(BigInt).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const wanted = sorted.filter((number) => number >= fromBlock && number <= toBlock);
@@ -261,6 +278,154 @@ export class Indexer {
     );
 
     return blocks;
+  }
+
+  /**
+   * Fetch the logs newly discovered components emitted BEFORE the range that discovered them.
+   *
+   * A component cannot emit before it exists, so its backfill starts at its creation block — found by
+   * binary search on historical contract code, not by scanning from START_BLOCK, which would grow
+   * with the chain's age (Arc produces ~172,800 blocks a day). What a backfill ingests can discover
+   * further components — compliance's ModuleAdded reveals its modules — so it runs in rounds until
+   * nothing new appears. It never moves the cursor, and a read that fails propagates: the range stays
+   * unfinished and is retried, rather than finishing over logs it never fetched.
+   */
+  private async backfill(watched: WatchedSet, addresses: string[], upTo: bigint): Promise<void> {
+    const { client, db, config, logger } = this.deps;
+    let pending = addresses;
+
+    for (let round = 0; pending.length > 0; round += 1) {
+      if (round >= MAX_DISCOVERY_PASSES) {
+        throw new Error(
+          `backfill still discovering after ${MAX_DISCOVERY_PASSES} rounds before block ${upTo}; not advancing the cursor`,
+        );
+      }
+
+      const creations: bigint[] = [];
+      for (const address of pending) creations.push(await this.creationBlock(address, upTo));
+      const lower = creations.reduce((earliest, block) => (block < earliest ? block : earliest), upTo + 1n);
+      const knownBefore = new Set(watched.addresses());
+
+      for (let start = lower; start <= upTo; start += BigInt(config.MAX_BLOCK_RANGE)) {
+        const end = min(start + BigInt(config.MAX_BLOCK_RANGE) - 1n, upTo);
+        const logs = (await client.getLogs({
+          address: pending as `0x${string}`[],
+          fromBlock: start,
+          toBlock: end,
+        })) as unknown as ChainLog[];
+        if (logs.length === 0) continue;
+
+        const logsByBlock = new Map<string, ChainLog[]>();
+        for (const log of logs) {
+          const key = log.blockNumber.toString();
+          const bucket = logsByBlock.get(key);
+          if (bucket === undefined) logsByBlock.set(key, [log]);
+          else bucket.push(log);
+        }
+
+        const blocks = await this.fetchBlocks(start, end, logsByBlock, { includeEnd: false });
+        await ingestBlocks(db, config.CHAIN_ID, watched, blocks, logsByBlock, logger, {
+          advanceCursor: false,
+        });
+      }
+
+      if (lower <= upTo) {
+        logger.debug(
+          { from: lower.toString(), to: upTo.toString(), addresses: pending.length },
+          'backfilled components that emitted before the range that discovered them',
+        );
+      }
+
+      // Anything the backfill itself discovered gets its own round, from its own creation block.
+      pending = watched.addresses().filter((address) => !knownBefore.has(address));
+    }
+  }
+
+  /**
+   * The first block at which an address has code: the earliest block it could have emitted in.
+   * Returns `upTo + 1` when it has no code yet at `upTo`, and START_BLOCK when it already existed there.
+   *
+   * The search is biased LOW, because the two errors are not symmetric: starting too early costs a
+   * few extra getLogs, starting too late silently drops logs. Code present is authoritative; a "no
+   * code" answer can come from a relay node lagging behind its peers — a late binder is often created
+   * seconds before it is announced, right at the tip where that happens — so a 0x is asked once more
+   * before it is believed. (Code appears exactly once per component: nothing self-destructs or
+   * redeploys at the same address, so the search is sound.)
+   *
+   * Failed reads are NOT answered with START_BLOCK. On a young chain that would be harmless; for a
+   * component bound weeks later it means tens of thousands of getLogs on a relay that times out.
+   * They propagate instead. START_BLOCK is used only when this process has established that the
+   * relay serves no historical state at all.
+   */
+  private async creationBlock(address: string, upTo: bigint): Promise<bigint> {
+    const { client, config } = this.deps;
+    const floor = config.START_BLOCK;
+    if ((await this.historicalCodeSupport()) === 'unsupported') return floor;
+
+    const codeAt = async (blockNumber: bigint): Promise<boolean> => {
+      const code = await client.getCode({ address: address as `0x${string}`, blockNumber });
+      return code !== undefined && code !== '0x';
+    };
+    const hasCodeAt = async (blockNumber: bigint): Promise<boolean> =>
+      (await codeAt(blockNumber)) || (await codeAt(blockNumber));
+
+    if (!(await hasCodeAt(upTo))) return upTo + 1n;
+    if (await hasCodeAt(floor)) return floor;
+    // Invariant: no code at lo, code at hi.
+    let lo = floor;
+    let hi = upTo;
+    while (hi - lo > 1n) {
+      const mid = (lo + hi) / 2n;
+      if (await hasCodeAt(mid)) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+
+  /**
+   * Whether the relay really answers eth_getCode AT A PAST BLOCK, decided once per process.
+   *
+   * Two ways a relay can fail this, and neither is "it returned 0x" — an empty answer at a block
+   * before a contract existed is correct history (on both live chains the registry appears three
+   * blocks after START_BLOCK). A relay can refuse historical reads with an error, or it can IGNORE the
+   * block parameter and return current state. The second is the quiet one: every binary-search
+   * midpoint reads "code present", every search lands on START_BLOCK, and backfill silently pays
+   * full cost forever. So the probe is two-sided against the configured registry: code at the head,
+   * and none the block before START_BLOCK, where nothing of this deployment can exist yet.
+   * Anything else is treated as unsupported — which costs efficiency, never correctness.
+   */
+  private async historicalCodeSupport(): Promise<'supported' | 'unsupported'> {
+    if (this.historicalCode !== null) return this.historicalCode;
+    const { client, config, logger } = this.deps;
+    const address = config.addresses.registry;
+    const present = async (blockNumber?: bigint) => {
+      const code = await client.getCode(blockNumber === undefined ? { address } : { address, blockNumber });
+      return code !== undefined && code !== '0x';
+    };
+    const attempt = async (): Promise<boolean> => {
+      if (!(await present())) return false; // no registry at the head: cannot judge history against it
+      if (config.START_BLOCK === 0n) return true; // nothing before genesis to compare with
+      return !(await present(config.START_BLOCK - 1n));
+    };
+
+    let verdict: boolean;
+    try {
+      verdict = await attempt();
+    } catch {
+      // One failure could be transient; ask once more before judging the relay.
+      try {
+        verdict = await attempt();
+      } catch {
+        verdict = false;
+      }
+    }
+    this.historicalCode = verdict ? 'supported' : 'unsupported';
+    if (!verdict) {
+      logger.warn(
+        'relay does not answer eth_getCode at past blocks reliably; backfills will start at START_BLOCK',
+      );
+    }
+    return this.historicalCode;
   }
 
   private async nextBlock(): Promise<bigint> {
