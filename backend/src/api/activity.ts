@@ -178,7 +178,7 @@ const MAPPINGS: Record<string, EventMapping> = {
 };
 
 /** Only these contracts contribute to an asset timeline; mUSD movements are not asset activity. */
-const TIMELINE_CONTRACTS = new Set([
+export const TIMELINE_CONTRACTS = new Set([
   'AssetRegistry',
   'AssetVault',
   'PrimaryOffering',

@@ -26,7 +26,7 @@ import {
   redemptionsSchema,
   revenueSchema,
 } from '../schemas/assets.js';
-import { toActivityItem } from '../activity.js';
+import { toActivityItem, TIMELINE_CONTRACTS } from '../activity.js';
 import * as repo from '../repository.js';
 import { readAssetSnapshot, type AssetSnapshot } from '../../chain/snapshot.js';
 import type { ApiDeps } from './context.js';
@@ -502,33 +502,21 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       .safeParse(request.query);
     if (!query.success) throw ApiError.badRequest('invalid query', query.error.issues);
 
-    const { asset, deployment } = await ctx.resolve(params.data.assetId);
+    const { asset } = await ctx.resolve(params.data.assetId);
     const inputs = await ctx.envelopeInputs();
 
-    const addresses =
-      deployment === null
-        ? [ctx.registry]
-        : [
-            ctx.registry,
-            deployment.token,
-            deployment.vault,
-            deployment.offering,
-            deployment.market_manager,
-            deployment.revenue_distributor,
-            deployment.redemption_controller,
-            // The floor ratchet is a headline: its FloorLevelUp comes from the controller, which is
-            // discovered separately from AssetSystemDeployed. Leaving it out meant the floor could
-            // climb on chain and never appear in the asset's own timeline.
-            ...(deployment.floor_controller === null ? [] : [deployment.floor_controller]),
-            // Discovered, not deployed: the identity registry is protocol-wide and arrives via
-            // the token's IdentityRegistryAdded. Without it a verification — the only action a
-            // visitor takes themselves — is fetched by nothing and rendered by nothing.
-            ...(await repo.getWatchedAddresses(db, ctx.chainId, ['identityRegistry'])),
-          ];
+    // Everything the indexer has discovered for this asset, plus the registry, whose logs cover
+    // every asset. Deliberately not assembled from the deployment row: components bound after
+    // deployment are absent from it, and an address missing here makes its events invisible
+    // while indexing, projection and rendering all report success.
+    const addresses = [ctx.registry, ...(await repo.getAssetAddresses(db, ctx.chainId, asset.asset_id))];
 
     const rows = await repo.getAssetLogs(db, ctx.chainId, addresses, {
       // Over-fetch: registry logs cover every asset and some events map to no activity type.
       limit: query.data.limit * 4,
+      // The pool and the compliance modules are watched for this asset but contribute nothing to
+      // a timeline, so they are excluded in SQL rather than fetched and discarded.
+      contractNames: [...TIMELINE_CONTRACTS],
     });
 
     const items = rows

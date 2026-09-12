@@ -83,18 +83,27 @@ export async function listAssetRows(
 }
 
 /**
- * Addresses discovered by kind. The identity registry and compliance contract are protocol-wide
- * rather than per-asset, so they are not in `asset_deployments` — they arrive via the token's own
- * `IdentityRegistryAdded` / `ComplianceAdded` announcements.
+ * Every address the indexer has discovered for an asset.
+ *
+ * This is deliberately NOT built from `asset_deployments`. That table holds what
+ * `AssetSystemDeployed` announced, and several components are bound AFTERWARDS by a setter —
+ * the floor controller via `FloorControllerSet`, the identity registry and compliance via the
+ * token's own announcements. A set built from the deployment event cannot know about those, and
+ * an address missing from it makes its component's events invisible while every other layer
+ * reports success. That has already happened twice.
+ *
+ * `watched_addresses` is what the indexer is actually watching, so it answers the question the
+ * caller means: which contracts belong to this asset right now. It also covers a component
+ * SWAPPED on a running system, which the deployment row never would.
  */
-export async function getWatchedAddresses(
+export async function getAssetAddresses(
   db: Database,
   chainId: number,
-  kinds: string[],
+  assetId: string,
 ): Promise<string[]> {
   const { rows } = await db.query<{ address: string }>(
-    'SELECT address FROM watched_addresses WHERE chain_id = $1 AND kind = ANY($2)',
-    [chainId, kinds],
+    'SELECT address FROM watched_addresses WHERE chain_id = $1 AND asset_id = $2',
+    [chainId, assetId],
   );
   return rows.map((row) => row.address);
 }
@@ -362,10 +371,23 @@ export async function getAssetLogs(
   db: Database,
   chainId: number,
   addresses: string[],
-  options: { limit: number; actor?: string; before?: { block: bigint; logIndex: number } },
+  options: {
+    limit: number;
+    actor?: string;
+    before?: { block: bigint; logIndex: number };
+    /** Restrict to contracts that can actually render, so the limit is spent on rows that count. */
+    contractNames?: string[];
+  },
 ): Promise<RawLogRow[]> {
   const params: unknown[] = [chainId, addresses, options.limit];
   let where = 'r.chain_id = $1 AND r.address = ANY($2) AND r.event_name IS NOT NULL';
+
+  if (options.contractNames !== undefined) {
+    params.push(options.contractNames);
+    // Cast explicitly: the sibling address comparison uses a domain type, and the driver gives
+    // up inferring an element type for the statement once it sees one.
+    where += ` AND r.contract_name = ANY($${params.length}::text[])`;
+  }
 
   if (options.before !== undefined) {
     params.push(options.before.block.toString(), options.before.logIndex);
