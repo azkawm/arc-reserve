@@ -6,7 +6,7 @@
  *
  *   **Fixture mode is a configured mode, never a fallback.**
  *
- * With no `NEXT_PUBLIC_API_URL` the app runs on `data.ts` and every panel says `Mock`. With an
+ * With no `VITE_API_URL` the app runs on `data.ts` and every panel says `Mock`. With an
  * API URL configured, a failed request is an *error state* — it never quietly becomes a
  * fixture. Those two behaviours look similar in a screenshot and are completely different
  * claims about what the user is looking at.
@@ -49,14 +49,14 @@ export class ApiError extends Error {
   }
 }
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
+export const apiBaseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "";
 
 /** True when no backend is configured, so the app is deliberately running on fixtures. */
 export const fixtureMode = apiBaseUrl === "";
 
 export async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<Envelope<T>> {
   if (fixtureMode) {
-    throw new ApiError("NETWORK", "no NEXT_PUBLIC_API_URL configured");
+    throw new ApiError("NETWORK", "no VITE_API_URL configured");
   }
 
   let response: Response;

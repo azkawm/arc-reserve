@@ -1,0 +1,1298 @@
+<!DOCTYPE html><html class="scroll-smooth" lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-lowest":"#ffffff","surface-container-highest":"#e2e3e0","ink-black":"#171717","on-error":"#ffffff","tertiary":"#0c0801","parchment":"#fefffc","secondary-fixed":"#c3e7ff","inverse-on-surface":"#f0f1ee","on-surface":"#191c1b","on-secondary-container":"#005776","graphite":"#2c2c2c","outline-variant":"#c8c5cc","primary":"#070710","surface-container":"#edeeeb","on-primary":"#ffffff","on-tertiary-fixed-variant":"#4d4635","on-tertiary":"#ffffff","inverse-surface":"#2e312f","surface-container-high":"#e7e8e6","surface-tint":"#5e5d69","surface-container-low":"#f3f4f1","on-secondary":"#ffffff","tertiary-fixed":"#ece2ca","on-background":"#191c1b","primary-fixed":"#e3e1ef","twilight":"#282834","error-container":"#ffdad6","on-error-container":"#93000a","mist":"#dee2de","surface-variant":"#e2e3e0","secondary":"#00668a","error":"#ba1a1a","primary-fixed-dim":"#c7c5d3","outline":"#78767c","on-secondary-fixed":"#001e2c","charcoal":"#444141","secondary-fixed-dim":"#7bd0ff","on-secondary-fixed-variant":"#004c69","on-primary-fixed":"#1b1b25","primary-container":"#1f1f29","on-surface-variant":"#47464b","cerulean":"#0081c0","tertiary-container":"#252011","secondary-container":"#74cefe","tertiary-fixed-dim":"#d0c6af","on-primary-fixed-variant":"#464651","surface-bright":"#f9faf7","surface":"#f9faf7","linen":"#f9faf7","signal-blue":"#41a1cf","on-primary-container":"#878693","on-tertiary-fixed":"#201b0d","surface-dim":"#d9dad8","on-tertiary-container":"#908773","paper":"#ffffff","background":"#f9faf7","fog":"#b4b8b4","dusk":"#1f1f29","ash":"#646464","inverse-primary":"#c7c5d3"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"1.5rem","margin-mobile":"1.25rem","margin":"3rem","space-md":"1rem","gutter-mobile":"1rem","space-sm":"0.5rem","gutter":"1.5rem","space-xl":"2.5rem","space-xs":"0.25rem"},fontFamily:{"body-sm":["Inter"],"headline-sm":["Newsreader"],"caption":["Inter"],"display-lg":["Newsreader"],"label-sm":["Inter"],"body-lg":["Inter"],"body-md":["Inter"],"headline-md":["Newsreader"],"headline-lg":["Newsreader"],"display-lg-mobile":["Newsreader"],"label-md":["Inter"]},fontSize:{"body-sm":["13px",{"lineHeight":"20px","fontWeight":"400"}],"headline-sm":["22px",{"lineHeight":"30px","letterSpacing":"-0.01em","fontWeight":"500"}],"caption":["11px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"400"}],"display-lg":["56px",{"lineHeight":"64px","letterSpacing":"-0.04em","fontWeight":"400"}],"label-sm":["12px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"500"}],"body-lg":["18px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"400"}],"body-md":["15px",{"lineHeight":"24px","fontWeight":"400"}],"headline-md":["28px",{"lineHeight":"36px","letterSpacing":"-0.02em","fontWeight":"400"}],"headline-lg":["36px",{"lineHeight":"44px","letterSpacing":"-0.03em","fontWeight":"400"}],"display-lg-mobile":["38px",{"lineHeight":"46px","letterSpacing":"-0.03em","fontWeight":"400"}],"label-md":["14px",{"lineHeight":"20px","letterSpacing":"0.01em","fontWeight":"500"}]}}}};</script><style>
+@keyframes pulse-beam {
+  0% { stroke-dashoffset: 60; }
+  100% { stroke-dashoffset: 0; }
+}
+.flow-beam-animated {
+  stroke-dasharray: 6, 8;
+  animation: pulse-beam 1.4s linear infinite;
+}
+@keyframes beacon-glow {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.4); opacity: 0.2; }
+}
+.beacon-pulse {
+  animation: beacon-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+</style></head><body class="bg-parchment font-body-md text-graphite min-h-screen flex flex-col antialiased selection:bg-secondary-fixed selection:text-ink-black"><header class="fixed top-0 inset-x-0 z-50 bg-linen/80 backdrop-blur-xl border-b border-mist/80 transition-all duration-300"><div class="h-20 w-full px-margin flex items-center justify-between gap-gutter"><div class="flex items-center gap-space-md"><img alt="ArcReserve" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VvUNQJwrITgEbAiJ5SFObgI0ovksThFRMd3J3LqK6LKk-Dm9wSb8RafZKCGs4F1BoFVauZ1_xYtzwEAgnsgvB8ZeHMDEecdVyhg6Xb4X8-mpdW_qdA8uPjkAkagmV7wVObZ8srsvXn_xcH-BfqjDwjWgQ2ZK9CJ_EGLE7RhW0Q_rIH2ZRrHZKSRVhmfpPu4pqicZCoO__tYgtQmqqZV_FbB7C1rrZxKLsCc03FgFi1LgaQUQsP0F2sYek"><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-ink-black tracking-tight font-medium">ArcReserve</span><span class="font-caption text-caption text-ash uppercase tracking-widest">Institutional RWA Protocol</span></div></div><nav class="hidden xl:flex items-center gap-space-xs" data-active-classes="text-ink-black bg-surface-container font-semibold border-b border-graphite"><a aria-current="page" class="px-space-sm py-space-xs transition-colors rounded text-ink-black bg-surface-container font-semibold border-b border-graphite" data-path="protocol-overview" href="#">Home</a><a class="px-space-sm py-space-xs font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" data-path="primary-offerings" href="#flagship-solar">Primary Offerings</a><a class="px-space-sm py-space-xs font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" data-path="investor-terminal" href="#deep-dive">Investor Terminal</a><a class="px-space-sm py-space-xs font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" data-path="issuer-portal" href="#issuer-journey">Issuer Portal</a><a class="px-space-sm py-space-xs font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" data-path="arc-liquidity-engine" href="#risk-governance">ARC Risk Engine</a></nav><div class="flex items-center gap-space-sm"><div id="header-claimed-pill" class="hidden md:flex items-center gap-1.5 px-space-sm py-1.5 rounded-full bg-paper/90 backdrop-blur-md border border-mist shadow-sm transition-all duration-300"><span class="w-2 h-2 rounded-full bg-cerulean"></span><span class="font-caption text-caption text-ash">Claimed:</span><span id="header-claimed-total" class="font-caption text-caption text-ink-black font-mono font-medium">0.00 mUSD</span></div><div class="hidden sm:flex items-center gap-space-xs px-space-sm py-1.5 rounded-full bg-paper/90 backdrop-blur-md border border-mist shadow-sm"><span class="w-2 h-2 rounded-full bg-cerulean animate-pulse"></span><span class="font-caption text-caption text-graphite font-mono">Base Sepolia • Contract Synced</span></div><button class="hidden md:inline-flex items-center gap-1 px-space-sm py-1.5 rounded bg-paper/80 hover:bg-surface-container border border-mist font-label-sm text-label-sm text-charcoal transition-colors" type="button"><span class="material-symbols-outlined text-[15px] text-ash">water_drop</span><span class="">Faucet</span></button><button class="inline-flex items-center gap-1.5 px-space-md py-1.5 rounded bg-paper/95 hover:bg-linen border border-signal-blue text-cerulean hover:text-secondary font-label-sm text-label-sm transition-all shadow-[0_1px_3px_rgba(23,23,23,0.05)]" type="button"><span class="material-symbols-outlined text-[16px]">verified_user</span><span class="">Connect KYC Wallet</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0 shadow-sm"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-20 bg-parchment flex-1"><div class="flex flex-col w-full">
+<!-- Hero Section: First Viewport Cinematic, Futuristic, Clean & Living WebGL Canvas -->
+<section class="relative min-h-[calc(100vh-5rem)] w-full flex flex-col justify-between items-center px-margin py-8 overflow-hidden">
+<!-- Interactive WebGL Shader living canvas background -->
+
+<!-- Ambient subtle grid overlay with gradient fade -->
+<div class="absolute inset-0 pointer-events-none opacity-25 [background-image:linear-gradient(to_right,#c8c5cc_1px,transparent_1px),linear-gradient(to_bottom,#c8c5cc_1px,transparent_1px)] [background-size:64px_64px] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_30%,transparent_100%)]"></div>
+<!-- Eyebrow Tag -->
+<div class="relative z-10 pt-4 flex justify-center">
+<div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-paper/85 backdrop-blur-md border border-mist/90 shadow-[0_2px_12px_rgba(0,129,192,0.08)]">
+<span class="w-2 h-2 rounded-full bg-signal-blue animate-ping"></span>
+<span class="font-label-sm text-label-sm text-charcoal tracking-wide uppercase font-medium">ERC-3643 Institutional Protocol • Production Live on Base</span>
+</div>
+</div>
+<!-- Minimal Punchy Hero Statement -->
+<div class="relative z-10 max-w-[880px] text-center flex flex-col items-center gap-6 my-auto">
+<h1 class="font-display-lg text-4xl sm:text-5xl lg:text-[64px] text-ink-black leading-[1.08] tracking-tight font-headline-lg">
+      Real assets.<br>
+<span class="italic font-normal text-cerulean">Programmable</span> liquidity.
+    </h1>
+<p class="font-body-lg text-body-lg text-charcoal max-w-[620px] leading-relaxed mx-auto">
+      Institutional clean infrastructure cash flows tokenized with continuous onchain reserve guarantees.
+    </p>
+<!-- Clean Interactive CTAs -->
+<div class="flex flex-wrap items-center justify-center gap-space-sm pt-2">
+<a class="inline-flex items-center justify-center gap-2.5 px-6 py-3 rounded bg-paper hover:bg-linen border border-signal-blue text-cerulean font-label-md text-label-md transition-all duration-200 shadow-[0_2px_8px_rgba(0,129,192,0.12)] hover:shadow-[0_4px_16px_rgba(0,129,192,0.2)] group" href="#flagship-solar">
+<span class="font-medium">Explore Offerings</span>
+<span class="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</a>
+<a class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded bg-paper/85 hover:bg-paper backdrop-blur-sm border border-mist text-graphite hover:text-ink-black font-label-md text-label-md transition-all duration-200 shadow-sm" href="#deep-dive">
+<span class="material-symbols-outlined text-[18px] text-ash">schema</span>
+<span class="">Protocol Architecture</span>
+</a>
+</div>
+<!-- Floating Live Telemetry Frosted Glass Pill -->
+<div class="mt-4 inline-flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-5 py-2.5 rounded-full bg-paper/80 backdrop-blur-xl border border-mist/90 shadow-[0_4px_20px_rgba(23,23,23,0.06)] text-caption font-caption text-graphite">
+<div class="flex items-center gap-1.5">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-signal-blue opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-cerulean"></span>
+</span>
+<span class="font-medium text-ink-black uppercase tracking-wider text-[11px]" id="hero-pill-ticker">SOLAR01</span>
+</div>
+<span class="text-fog">•</span>
+<div class="">Active Backing: <strong class="text-ink-black font-mono font-medium" id="hero-pill-backing">104.2%</strong></div>
+<span class="text-fog">•</span>
+<div class="">Sinking Fund: <strong class="text-ink-black font-mono font-medium" id="hero-pill-fund">$342,000 mUSD</strong></div>
+<span class="text-fog">•</span>
+<div class="">Ratchet Floor: <strong class="text-cerulean font-mono font-medium" id="hero-pill-floor">$0.315 mUSD</strong></div>
+</div>
+</div>
+<!-- Inviting Subtle Kinetic Indicator: Scroll down to inspect mechanics -->
+<div class="relative z-10 pb-2 flex flex-col items-center justify-center gap-1.5">
+<a class="group flex flex-col items-center text-ash hover:text-cerulean transition-colors duration-200" href="#deep-dive">
+<span class="font-caption text-caption tracking-wider uppercase font-medium group-hover:text-cerulean transition-colors">Scroll to inspect mechanics</span>
+<span class="material-symbols-outlined text-[20px] animate-bounce mt-0.5 text-signal-blue">arrow_downward</span>
+</a>
+</div>
+</section>
+<!-- SECTION 1: Institutional Telemetry & Live Sovereign Attestations -->
+<section class="w-full bg-linen/90 border-y border-mist py-space-lg px-margin" id="deep-dive">
+<div class="max-w-[1200px] mx-auto flex flex-col gap-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-mist pb-3">
+<div class="flex items-center gap-space-xs text-caption font-caption text-charcoal">
+<span class="inline-block w-2.5 h-2.5 rounded-full bg-cerulean animate-pulse"></span>
+<span class="font-semibold text-ink-black uppercase tracking-wider">Live Institutional Telemetry &amp; Sovereign Attestations</span>
+<span class="text-fog">/</span>
+<span class="font-mono text-ash">Base Sepolia Block #14,892,104</span>
+</div>
+<div class="flex items-center gap-2 text-caption font-caption text-ash">
+<span class="material-symbols-outlined text-[15px] text-signal-blue">verified</span>
+<span class="">Oracle Heartbeat Synced (12s ago) • Dual Halborn &amp; VeriSol Audited</span>
+</div>
+</div>
+<!-- 4 Key Core Protocol Telemetry Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Metric 1 -->
+<div class="p-space-md rounded-xl bg-paper border border-mist flex flex-col justify-between gap-2 shadow-[0_1px_3px_rgba(23,23,23,0.03)] hover:border-signal-blue transition-colors">
+<div class="flex items-center justify-between">
+<span class="font-caption text-caption text-ash uppercase tracking-wider">Active Backing Ratio</span>
+<span class="material-symbols-outlined text-[18px] text-signal-blue">shield</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-md text-headline-md text-ink-black font-normal" id="metric-backing-val">104.2%</span>
+<span class="text-caption font-caption text-signal-blue font-medium" id="metric-backing-diff">↑ +4.2% Over-collateralized</span>
+</div>
+<div class="text-caption font-caption text-charcoal border-t border-mist/60 pt-2 flex justify-between">
+<span class="">Current Sinking Fund</span>
+<span class="font-mono text-ink-black font-medium" id="metric-sinking-fund-val">0.342 mUSD / 0.320 target</span>
+</div>
+</div>
+<!-- Metric 2 -->
+<div class="p-space-md rounded-xl bg-paper border border-mist flex flex-col justify-between gap-2 shadow-[0_1px_3px_rgba(23,23,23,0.03)] hover:border-signal-blue transition-colors">
+<div class="flex items-center justify-between">
+<span class="font-caption text-caption text-ash uppercase tracking-wider">24h Revenue Inflows</span>
+<span class="material-symbols-outlined text-[18px] text-ash">solar_power</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-md text-headline-md text-ink-black font-normal" id="metric-inflows-val">$18,450</span>
+<span class="text-caption font-caption text-ash font-mono">mUSD</span>
+</div>
+<div class="text-caption font-caption text-charcoal border-t border-mist/60 pt-2 flex items-center justify-between"><span class="">Grid Delivery: <span class="font-mono text-ink-black font-medium" id="metric-delivery-val">48.2 MWh</span></span><button type="button" id="step3-claim-btn" class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-secondary-fixed/50 hover:bg-secondary-fixed text-on-secondary-fixed border border-secondary-fixed/80 text-[11px] font-medium transition-all"><span class="material-symbols-outlined text-[13px] text-cerulean">bolt</span><span class="">Claimable: $18,450 24h</span></button></div>
+</div>
+<!-- Metric 3 -->
+<div class="p-space-md rounded-xl bg-paper border border-mist flex flex-col justify-between gap-2 shadow-[0_1px_3px_rgba(23,23,23,0.03)] hover:border-signal-blue transition-colors">
+<div class="flex items-center justify-between">
+<span class="font-caption text-caption text-ash uppercase tracking-wider">Investor Gross Payout</span>
+<span class="material-symbols-outlined text-[18px] text-ash">pie_chart</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-md text-headline-md text-ink-black font-normal" id="metric-gross-val">60.0%</span>
+<span class="text-caption font-caption text-ash">Fixed Contractual Split</span>
+</div>
+<div class="text-caption font-caption text-charcoal border-t border-mist/60 pt-2 flex justify-between">
+<span class="">Settlement Cadence</span>
+<span class="font-medium text-cerulean">Programmatic Per PPA cycle</span>
+</div>
+</div>
+<!-- Metric 4 -->
+<div class="p-space-md rounded-xl bg-paper border border-mist flex flex-col justify-between gap-2 shadow-[0_1px_3px_rgba(23,23,23,0.03)] hover:border-signal-blue transition-colors">
+<div class="flex items-center justify-between">
+<span class="font-caption text-caption text-ash uppercase tracking-wider">Floor Ratchet Level</span>
+<span class="material-symbols-outlined text-[18px] text-signal-blue">trending_up</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-md text-headline-md text-cerulean font-normal" id="metric-floor-val">$0.315</span>
+<span class="text-caption font-caption text-ash font-mono">mUSD / token</span>
+</div>
+<div class="text-caption font-caption text-charcoal border-t border-mist/60 pt-2 flex justify-between">
+<span class="">Downside Risk Barrier</span>
+<span class="font-medium text-ink-black">Monotonic (Never decrements)</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: Dual Participant Engine (Qualified Investors vs Asset Issuers) -->
+<section class="w-full bg-paper border-b border-mist py-space-xl px-margin" id="issuer-journey">
+<div class="max-w-[1200px] mx-auto flex flex-col gap-space-lg">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-sm border-b border-mist pb-space-sm">
+<div>
+<span class="font-caption text-caption text-ash uppercase tracking-widest block">System Mechanics</span>
+<h2 class="font-headline-lg text-headline-lg text-ink-black mt-1">Dual Participant Engine</h2>
+</div>
+<p class="font-body-sm text-body-sm text-charcoal max-w-md">
+        Engineered for institutional capital efficiency without compromising statutory compliance or physical covenant enforcement.
+      </p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Card 1: For Qualified Investors -->
+<div class="p-space-lg rounded-xl bg-parchment border border-mist hover:border-signal-blue transition-all duration-200 flex flex-col justify-between gap-space-md shadow-[0_1px_3px_rgba(23,23,23,0.02)]">
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-paper border border-mist text-caption font-caption text-charcoal">
+<span class="w-1.5 h-1.5 rounded-full bg-cerulean"></span>
+<span class="">Permissioned Whitelist</span>
+</span>
+<span class="font-mono text-caption text-ash">PATHWAY // 01</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-ink-black">For Qualified Investors</h3>
+<p class="font-body-md text-body-md text-charcoal leading-relaxed">
+            Participate in prime real-world utility assets with cryptographic provenance, verified off-taker contracts, and instantaneous programmatic exit guarantees.
+          </p>
+<ul class="flex flex-col gap-2.5 pt-2 font-body-sm text-body-sm text-graphite">
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-signal-blue text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">Instant Fractional Subscription:</strong> Enter premier institutional energy and property offerings starting from 100 mUSD.</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-signal-blue text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">Automated 60% Gross Cash Flow:</strong> Direct settlement to your wallet on every PPA payment cycle with 1-click onchain claim.</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-signal-blue text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">Dual-Engine Liquidity:</strong> Exit immediately at <code class="font-mono bg-paper px-1 rounded text-caption border border-mist">min(NAV, backing)</code> via protocol vault, or trade spot on concentrated ARC Uniswap V3 pools.</span>
+</li>
+</ul>
+</div>
+<div class="pt-space-sm border-t border-mist flex items-center justify-between">
+<span class="font-caption text-caption text-ash">ERC-3643 Automated Compliance Check</span>
+<a class="inline-flex items-center gap-1 text-signal-blue hover:text-cerulean font-label-sm text-label-sm font-medium group" href="#flagship-solar">
+<span class="">Open Investor Terminal</span>
+<span class="material-symbols-outlined text-[14px] group-hover:translate-x-0.5 transition-transform">chevron_right</span>
+</a>
+</div>
+</div>
+<!-- Card 2: For Renewable & Real Estate Issuers -->
+<div class="p-space-lg rounded-xl bg-parchment border border-mist hover:border-dusk transition-all duration-200 flex flex-col justify-between gap-space-md shadow-[0_1px_3px_rgba(23,23,23,0.02)]">
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-paper border border-mist text-caption font-caption text-charcoal">
+<span class="w-1.5 h-1.5 rounded-full bg-dusk"></span>
+<span class="">Institutional Originators</span>
+</span>
+<span class="font-mono text-caption text-ash">PATHWAY // 02</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-ink-black">For Utility &amp; Asset Issuers</h3>
+<p class="font-body-md text-body-md text-charcoal leading-relaxed">
+            Finance capital expenditure against future contracted revenue without equity dilution, burdensome bank syndication covenants, or opaque secondary repricing.
+          </p>
+<ul class="flex flex-col gap-2.5 pt-2 font-body-sm text-body-sm text-graphite">
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-twilight text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">65,000 mUSD Upfront per 100k Raise:</strong> Retain operational independence with upfront capital release and zero equity dilution.</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-twilight text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">Linear 3-Year Sinking Reserve:</strong> Transparent amortizing schedule with automated telemetry feeds direct from production meters.</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="material-symbols-outlined text-twilight text-[18px] shrink-0 mt-0.5">check_circle</span>
+<span class=""><strong class="font-medium text-ink-black">Identity-Gated Syndication:</strong> Whitelisted secondary markets restrict distribution strictly to accredited and verified institutional counterparts.</span>
+</li>
+</ul>
+</div>
+<div class="pt-space-sm border-t border-mist flex items-center justify-between">
+<span class="font-caption text-caption text-ash">Institutional Basel III Cap-Weight</span>
+<a class="inline-flex items-center gap-1 text-twilight hover:text-ink-black font-label-sm text-label-sm font-medium group" href="#">
+<span class="">Apply for Origination Audit</span>
+<span class="material-symbols-outlined text-[14px] group-hover:translate-x-0.5 transition-transform">chevron_right</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 3: Top 5 Project Spotlight Selector & Interactive Simulator -->
+<section class="w-full py-space-xl px-margin" id="flagship-solar">
+<div class="max-w-[1200px] mx-auto flex flex-col gap-space-lg">
+<!-- Headline & Top 5 Interactive Project Selector Chips -->
+<div class="flex flex-col gap-space-md border-b border-mist pb-space-sm">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-sm">
+<div>
+<div class="flex items-center gap-space-xs mb-1">
+<span class="font-caption text-caption text-ash uppercase tracking-wider">Series Spotlight • Active Portfolio</span>
+<span class="px-2.5 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-container font-label-sm text-label-sm font-medium" id="project-status-badge">Offering Status: Open</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-ink-black" id="project-display-title">Solar Indonesia 01 (SOLAR01)</h2>
+</div>
+<div class="flex items-center gap-space-sm">
+<div class="text-right">
+<span class="font-caption text-caption text-ash block">Token Ticker / Series</span>
+<span class="font-mono text-body-md font-medium text-ink-black" id="project-ticker-display">$SOLAR01 • Series I</span>
+</div>
+<div class="h-8 w-px bg-mist"></div>
+<div class="text-right">
+<span class="font-caption text-caption text-ash block">Standard</span>
+<span class="font-mono text-body-md font-medium text-signal-blue">ERC-3643</span>
+</div>
+</div>
+</div>
+<!-- Interactive Tabs / Chips for Top 5 Projects -->
+<div class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" id="project-tabs-container">
+<button class="project-tab-btn active-project-tab px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-ink-black text-paper border-ink-black shadow-sm" data-proj="solar01" type="button">
+<span class="material-symbols-outlined text-[16px] text-signal-blue">solar_power</span>
+<span class="">SOLAR01 — Solar Indonesia 01</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-paper/20">60% Rev</span>
+</button>
+<button class="project-tab-btn px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-paper hover:bg-linen text-charcoal border-mist" data-proj="hydro01" type="button">
+<span class="material-symbols-outlined text-[16px] text-cerulean">waves</span>
+<span class="">HYDRO01 — North Sumatra Run-of-River</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-mist/60">58% Rev</span>
+</button>
+<button class="project-tab-btn px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-paper hover:bg-linen text-charcoal border-mist" data-proj="bess01" type="button">
+<span class="material-symbols-outlined text-[16px] text-signal-blue">battery_charging_full</span>
+<span class="">BESS01 — Cikarang Industrial BESS</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-mist/60">65% Rev</span>
+</button>
+<button class="project-tab-btn px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-paper hover:bg-linen text-charcoal border-mist" data-proj="solar02" type="button">
+<span class="material-symbols-outlined text-[16px] text-cerulean">wb_sunny</span>
+<span class="">SOLAR02 — Sumba Microgrid</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-mist/60">62.5% Rev</span>
+</button>
+<button class="project-tab-btn px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-paper hover:bg-linen text-charcoal border-mist" data-proj="geo01" type="button">
+<span class="material-symbols-outlined text-[16px] text-signal-blue">volcano</span>
+<span class="">GEO01 — Kamojang Geothermal Baseload</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-mist/60">64% Rev</span>
+</button>
+</div>
+</div>
+<!-- Asset Summary Card & Interactive Mini-Simulator -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+<!-- Left 7 Cols: Institutional Fact Sheet & Onchain Breakdown -->
+<div class="lg:col-span-7 flex flex-col gap-space-md">
+<div class="p-space-lg rounded-xl bg-paper border border-mist flex flex-col gap-space-md shadow-[0_1px_3px_rgba(23,23,23,0.03)]">
+<div class="flex items-center justify-between border-b border-mist pb-space-sm">
+<span class="font-headline-sm text-headline-sm text-ink-black">Institutional Asset Profile</span>
+<span class="font-mono text-caption text-ash" id="project-uid">UID: 0x81b4...e37c</span>
+</div>
+<!-- Technical Attributes Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-space-sm text-body-sm">
+<div class="p-space-sm rounded bg-linen border border-mist">
+<span class="text-caption font-caption text-ash block uppercase">Contracted Off-taker</span>
+<span class="font-medium text-ink-black" id="project-offtaker">State Electricity Corp (PLN)</span>
+<span class="text-caption font-caption text-charcoal block mt-0.5" id="project-offtaker-sub">20-Year Sovereign Guarantee</span>
+</div>
+<div class="p-space-sm rounded bg-linen border border-mist">
+<span class="text-caption font-caption text-ash block uppercase">Nameplate Capacity</span>
+<span class="font-medium text-ink-black" id="project-capacity">12.8 MWp Utility-Scale</span>
+<span class="text-caption font-caption text-charcoal block mt-0.5" id="project-corridor">West Java Solar Corridor</span>
+</div>
+<div class="p-space-sm rounded bg-linen border border-mist">
+<span class="text-caption font-caption text-ash block uppercase">Total Series Issue</span>
+<span class="font-medium text-ink-black" id="project-issue-total">100,000 mUSD</span>
+<span class="text-caption font-caption text-charcoal block mt-0.5" id="project-issue-tokens">100,000 Tokens @ $1.00 mUSD</span>
+</div>
+<div class="p-space-sm rounded bg-linen border border-mist">
+<span class="text-caption font-caption text-ash block uppercase">Verifier &amp; Attestation</span>
+<span class="font-medium text-ink-black" id="project-verifier">Bureau Veritas Onchain</span>
+<span class="text-caption font-caption text-signal-blue block mt-0.5" id="project-verifier-feed">IoT Production Telemetry Oracle</span>
+</div>
+</div>
+<!-- 5 Onchain Accounting Categories (Never Commingled) -->
+<div class="flex flex-col gap-2 pt-space-xs"><div class="grid grid-cols-2 gap-2 mb-1"><button type="button" id="btn-simulate-claim" class="py-2 px-3 rounded bg-secondary-fixed hover:bg-secondary-fixed-dim text-on-secondary-fixed border border-secondary-fixed text-label-sm font-label-sm font-medium transition-all flex items-center justify-center gap-1.5 shadow-sm"><span class="material-symbols-outlined text-[16px] text-cerulean">payments</span><span class="">Simulate Claim Yield</span></button><button type="button" id="btn-simulate-exit" class="py-2 px-3 rounded bg-paper hover:bg-linen text-graphite border border-mist text-label-sm font-label-sm font-medium transition-all flex items-center justify-center gap-1.5 shadow-sm"><span class="material-symbols-outlined text-[16px] text-ash">output</span><span class="">Simulate Exit</span></button></div>
+<div class="flex items-center justify-between">
+<span class="font-caption text-caption text-charcoal font-medium uppercase tracking-wider">Segregated Onchain Capital Buckets</span>
+<span class="font-caption text-caption text-ash font-medium">100% Non-commingled</span>
+</div>
+<!-- Bar visual -->
+<div class="w-full h-3 rounded bg-linen flex overflow-hidden border border-mist" id="buckets-bar-container">
+<div class="bg-primary-container transition-all duration-500" id="bar-capex" style="width: 65%" title="Issuer Capex (65%)"></div>
+<div class="bg-cerulean transition-all duration-500" id="bar-sinking" style="width: 30%" title="Sinking Reserve (30%)"></div>
+<div class="bg-secondary-container transition-all duration-500" id="bar-amm" style="width: 5%" title="Protocol AMM Liquidity (5%)"></div>
+</div>
+<!-- Legend -->
+<div class="grid grid-cols-3 gap-2 text-caption font-caption pt-1 text-charcoal">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-primary-container shrink-0"></span>
+<span class=""><strong id="legend-capex">65,000 mUSD</strong> Capex</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-cerulean shrink-0"></span>
+<span class=""><strong id="legend-sinking">30,000 mUSD</strong> Sinking Fund</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-secondary-container shrink-0"></span>
+<span class=""><strong id="legend-amm">5,000 mUSD</strong> AMM Pool</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Physical Infrastructure Verification Picture Card -->
+<div class="w-full h-48 rounded-xl border border-mist overflow-hidden relative shadow-[0_1px_3px_rgba(23,23,23,0.02)] group">
+<img alt="Physical Asset Infrastructure feed" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" id="project-main-image" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjvKXrm2Vu8a8kfnsGw6LI956EGXn1NR3XNGjT8V41V6dMuD9HjdfMKpjKAq0HwxWjTyEncG1lxyFHEBNHZKSK9W0jNn-pjFo8Ac67N_9co5VWURG8g8JtUIfov7zFcDPawWLfgpYAxbFm8orN4LLP-Sb6X_kgYj5hdlZNKZN08kMcFmNe7IiXt3C6D5g4Hr75r37swo8j_K2-tE0KYGy_8Xz-8jqqkuswGQtk1SeIZTo-969MEwEH">
+<div class="absolute inset-0 bg-gradient-to-t from-ink-black/85 via-ink-black/25 to-transparent flex items-end p-space-md">
+<div class="flex items-center justify-between w-full text-paper">
+<div>
+<span class="text-caption font-caption text-mist uppercase tracking-widest block">Physical Asset Registry</span>
+<span class="font-headline-sm text-headline-sm" id="project-telemetry-tag">Substation 4B Telemetry • Verified Operating</span>
+</div>
+<div class="flex items-center gap-1 px-2.5 py-1 rounded bg-paper/20 backdrop-blur-md border border-paper/30 text-caption font-caption">
+<span class="w-2 h-2 rounded-full bg-signal-blue animate-pulse"></span>
+<span id="project-feed-status" class="">Direct Satellite Feed</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right 5 Cols: Interactive Yield & Floor Mini-Simulator -->
+<div class="lg:col-span-5 flex flex-col gap-space-md">
+<div class="p-space-lg rounded-xl bg-paper border border-mist shadow-[0_1px_3px_rgba(23,23,23,0.03)] flex flex-col gap-space-md">
+<div class="flex items-center justify-between border-b border-mist pb-space-sm">
+<div>
+<span class="font-headline-sm text-headline-sm text-ink-black">Yield &amp; Floor Simulator</span>
+<span class="font-caption text-caption text-ash block" id="sim-subtitle">Model 36-Month Amortization (SOLAR01)</span>
+</div>
+<span class="material-symbols-outlined text-signal-blue text-[20px]">calculate</span>
+</div>
+<!-- Investment Amount Slider -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-charcoal font-medium">Subscription Commitment:</span>
+<span class="font-mono text-body-md font-semibold text-ink-black" id="investment-display">10.000 mUSD</span>
+</div>
+<input class="w-full accent-signal-blue cursor-pointer h-2 bg-linen rounded-lg border border-mist" id="investment-slider" max="50000" min="500" step="500" type="range" value="10000">
+<div class="flex justify-between text-caption font-caption text-ash">
+<span class="">500 mUSD</span>
+<span class="">25,000 mUSD</span>
+<span class="">50,000 mUSD</span>
+</div>
+</div>
+<!-- Maturity Month Slider -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-charcoal font-medium">Holding Horizon:</span>
+<span class="font-mono text-body-md font-semibold text-ink-black" id="horizon-display">18 Months</span>
+</div>
+<input class="w-full accent-signal-blue cursor-pointer h-2 bg-linen rounded-lg border border-mist" id="horizon-slider" max="36" min="1" step="1" type="range" value="18">
+<div class="flex justify-between text-caption font-caption text-ash">
+<span class="">Month 1</span>
+<span class="">Month 18</span>
+<span class="">Month 36 (Maturity)</span>
+</div>
+</div>
+<!-- Simulation Results Table -->
+<div class="p-space-sm rounded bg-linen border border-mist flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-body-sm border-b border-mist pb-1.5">
+<span class="text-charcoal" id="label-revenue-share">Gross Revenue Distributed (60.0%):</span>
+<span class="font-mono font-medium text-ink-black" id="res-revenue">+1.890,00 mUSD</span>
+</div>
+<div class="flex items-center justify-between text-body-sm border-b border-mist pb-1.5">
+<span class="text-charcoal">Guaranteed Sinking Vault Floor:</span>
+<span class="font-mono font-medium text-cerulean" id="res-floor">$0.321 mUSD / token</span>
+</div>
+<div class="flex items-center justify-between text-body-sm border-b border-mist pb-1.5">
+<span class="text-charcoal">Instant Protocol Redemption Price:</span>
+<span class="font-mono font-medium text-ink-black" id="res-redemption">3.420,00 mUSD</span>
+</div>
+<div class="flex items-center justify-between text-body-sm pt-0.5">
+<span class="font-semibold text-ink-black">Projected Total Capital Realization:</span>
+<span class="font-mono font-semibold text-ink-black text-body-lg" id="res-total">11.890,00 mUSD</span>
+</div>
+</div>
+<!-- CTA -->
+<div class="pt-space-xs flex flex-col gap-2"><div class="grid grid-cols-2 gap-2 mb-1"><button type="button" id="btn-simulate-claim" class="py-2 px-3 rounded bg-secondary-fixed hover:bg-secondary-fixed-dim text-on-secondary-fixed border border-secondary-fixed text-label-sm font-label-sm font-medium transition-all flex items-center justify-center gap-1.5 shadow-sm"><span class="material-symbols-outlined text-[16px] text-cerulean">payments</span><span class="">Simulate Claim Yield</span></button><button type="button" id="btn-simulate-exit" class="py-2 px-3 rounded bg-paper hover:bg-linen text-graphite border border-mist text-label-sm font-label-sm font-medium transition-all flex items-center justify-center gap-1.5 shadow-sm"><span class="material-symbols-outlined text-[16px] text-ash">output</span><span class="">Simulate Exit</span></button></div>
+<button class="w-full py-2.5 px-space-md rounded bg-dusk hover:bg-ink-black text-paper font-label-md text-label-md transition-colors flex items-center justify-center gap-2 border border-twilight shadow-[0_1px_2px_rgba(23,23,23,0.06)]" id="whitelist-cta-btn" type="button">
+<span class="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+<span id="whitelist-cta-text" class="">Whitelist Wallet for SOLAR01 Allocation</span>
+</button>
+<span class="text-caption font-caption text-ash text-center">Minimum allocation 100 mUSD • Accredited KYC Verified</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 4: Five Independent Value References Matrix with Interactive Architectural Diagram -->
+<section class="w-full bg-paper border-t border-mist py-space-xl px-margin" id="risk-governance">
+<div class="max-w-[1200px] mx-auto flex flex-col gap-space-xl">
+<!-- Matrix Header & Table -->
+<div class="flex flex-col gap-space-md">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-sm border-b border-mist pb-space-sm">
+<div>
+<span class="font-caption text-caption text-ash uppercase tracking-widest block">Risk Governance &amp; Anti-Manipulation</span>
+<h2 class="font-headline-lg text-headline-lg text-ink-black mt-1">Five Independent Value References Matrix</h2>
+</div>
+<p class="font-body-sm text-body-sm text-charcoal max-w-md">
+          ArcReserve completely separates speculative secondary market trading from statutory off-chain asset value and immutable onchain vault reserves.
+        </p>
+</div>
+<!-- Interactive Visual Architecture Diagram: 5-Tier Valuation Pipeline & Flash-Loan Protection Buffer -->
+<div class="p-space-lg rounded-2xl bg-linen border border-mist shadow-[0_1px_4px_rgba(23,23,23,0.04)] flex flex-col gap-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-mist/80 pb-3">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-cerulean animate-ping"></span>
+<span class="font-label-md text-label-md text-ink-black font-semibold uppercase tracking-wider">Multi-Tier Valuation Buffer &amp; Price Invariance Engine</span>
+</div>
+<span class="text-caption font-caption text-ash font-mono">Simulated Oracle Tick • Dual Halborn &amp; VeriSol Invariants</span>
+</div>
+<!-- Interactive SVG Pipeline Gauge Diagram -->
+<div class="w-full overflow-x-auto py-2">
+<div class="min-w-[840px] flex flex-col gap-4">
+<!-- Visual 5 Tiers Pipeline Cards -->
+<div class="grid grid-cols-5 gap-3 relative">
+<!-- Connective Flow Beam Behind Cards -->
+<div class="absolute top-1/2 left-4 right-4 h-0.5 bg-mist -translate-y-1/2 pointer-events-none z-0">
+<div class="h-full bg-gradient-to-r from-signal-blue via-cerulean to-secondary w-full opacity-60"></div>
+</div>
+<!-- Tier 1 -->
+<div class="relative z-10 p-space-sm rounded-xl bg-paper border border-mist shadow-sm flex flex-col gap-2 hover:border-signal-blue transition-all cursor-default group" id="tier-card-1">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-linen text-ash uppercase font-semibold">Tier 1</span>
+<span class="w-2 h-2 rounded-full bg-signal-blue animate-pulse"></span>
+</div>
+<div>
+<div class="font-medium text-body-sm text-ink-black group-hover:text-cerulean transition-colors">Market Spot</div>
+<div class="text-[11px] text-ash">Uniswap V3 Pool</div>
+</div>
+<div class="text-body-md font-mono font-semibold text-ink-black">$1.04 <span class="text-caption font-normal text-ash">mUSD</span></div>
+<div class="text-[10px] text-charcoal bg-linen p-1.5 rounded border border-mist/60 leading-tight">Volatile secondary liquidity. Free floating.</div>
+</div>
+<!-- Tier 2 -->
+<div class="relative z-10 p-space-sm rounded-xl bg-paper border border-mist shadow-sm flex flex-col gap-2 hover:border-signal-blue transition-all cursor-default group" id="tier-card-2">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-linen text-ash uppercase font-semibold">Tier 2</span>
+<span class="w-2 h-2 rounded-full bg-ash"></span>
+</div>
+<div>
+<div class="font-medium text-body-sm text-ink-black group-hover:text-cerulean transition-colors">30-Min TWAP</div>
+<div class="text-[11px] text-ash">Geometric Mean Oracle</div>
+</div>
+<div class="text-body-md font-mono font-semibold text-ink-black">$1.02 <span class="text-caption font-normal text-ash">mUSD</span></div>
+<div class="text-[10px] text-charcoal bg-linen p-1.5 rounded border border-mist/60 leading-tight">Blocks flash-loans &amp; single-block sandwich attacks.</div>
+</div>
+<!-- Tier 3 -->
+<div class="relative z-10 p-space-sm rounded-xl bg-paper border border-mist shadow-sm flex flex-col gap-2 hover:border-signal-blue transition-all cursor-default group" id="tier-card-3">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-linen text-ash uppercase font-semibold">Tier 3</span>
+<span class="w-2 h-2 rounded-full bg-graphite"></span>
+</div>
+<div>
+<div class="font-medium text-body-sm text-ink-black group-hover:text-cerulean transition-colors">Verified NAV</div>
+<div class="text-[11px] text-ash">Physical Appraisal</div>
+</div>
+<div class="text-body-md font-mono font-semibold text-ink-black">$1.00 <span class="text-caption font-normal text-ash">mUSD</span></div>
+<div class="text-[10px] text-charcoal bg-linen p-1.5 rounded border border-mist/60 leading-tight">Physical plant asset verification via Bureau Veritas.</div>
+</div>
+<!-- Tier 4 -->
+<div class="relative z-10 p-space-sm rounded-xl bg-linen border-2 border-cerulean shadow-md flex flex-col gap-2 hover:border-cerulean transition-all cursor-default group" id="tier-card-4">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-secondary-fixed text-on-secondary-container uppercase font-semibold">Tier 4</span>
+<span class="w-2 h-2 rounded-full bg-cerulean beacon-pulse"></span>
+</div>
+<div>
+<div class="font-medium text-body-sm text-cerulean font-semibold">Published Floor</div>
+<div class="text-[11px] text-ash">Monotonic Barrier</div>
+</div>
+<div class="text-body-md font-mono font-bold text-cerulean">$0.315 <span class="text-caption font-normal text-ash">mUSD</span></div>
+<div class="text-[10px] text-cerulean font-medium bg-paper p-1.5 rounded border border-secondary-fixed leading-tight">Hard stop: Floor never decrements onchain.</div>
+</div>
+<!-- Tier 5 -->
+<div class="relative z-10 p-space-sm rounded-xl bg-paper border border-mist shadow-sm flex flex-col gap-2 hover:border-signal-blue transition-all cursor-default group" id="tier-card-5">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-linen text-ash uppercase font-semibold">Tier 5</span>
+<span class="w-2 h-2 rounded-full bg-dusk"></span>
+</div>
+<div>
+<div class="font-medium text-body-sm text-ink-black group-hover:text-cerulean transition-colors">Instant Redemption</div>
+<div class="text-[11px] text-ash">Sinking Vault Ratio</div>
+</div>
+<div class="text-body-md font-mono font-semibold text-ink-black">$0.342 <span class="text-caption font-normal text-ash">mUSD</span></div>
+<div class="text-[10px] text-charcoal bg-linen p-1.5 rounded border border-mist/60 leading-tight">1-click burn-to-redeem directly from reserve vault.</div>
+</div>
+</div>
+<!-- Dynamic Mathematical Guard-rail Meter -->
+<div class="p-space-sm rounded-xl bg-paper border border-mist flex flex-col gap-2">
+<div class="flex items-center justify-between text-caption font-caption text-ash">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px] text-signal-blue">security</span> <strong>Invariant Guarantee:</strong> <code>Instant Redemption ($0.342) ≥ Published Floor ($0.315)</code></span>
+<span class="font-mono text-cerulean font-medium">Protection Buffer: +$0.027 mUSD (+8.57% Safety Margin)</span>
+</div>
+<!-- Progress bar representing buffer -->
+<div class="relative w-full h-3 bg-mist/50 rounded-full overflow-hidden flex items-center">
+<div class="h-full bg-cerulean rounded-full transition-all duration-700" style="width: 32.8%"></div>
+<div class="h-full bg-signal-blue/70 rounded-r-full transition-all duration-700" style="width: 2.8%"></div>
+<div class="absolute left-[30.2%] top-0 bottom-0 w-0.5 bg-ink-black" title="Floor Barrier"></div>
+</div>
+<div class="flex justify-between text-[11px] font-mono text-ash pt-0.5">
+<span class="">$0.00 Baseline</span>
+<span class="">$0.315 Monotonic Floor (Never decrements)</span>
+<span class="">$0.342 Active Sinking Reserve</span>
+<span class="">$1.00 Par NAV</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="w-full overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[760px]">
+<thead>
+<tr class="border-b border-mist text-caption font-caption text-ash uppercase">
+<th class="py-3 px-space-sm">Reference Tier</th>
+<th class="py-3 px-space-sm">Source / Mechanism</th>
+<th class="py-3 px-space-sm">Current Metric</th>
+<th class="py-3 px-space-sm">Update Cadence</th>
+<th class="py-3 px-space-sm">Investor Protection Mandate</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-mist font-body-sm text-graphite">
+<tr class="hover:bg-linen/60 transition-colors">
+<td class="py-3.5 px-space-sm font-medium text-ink-black flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-signal-blue"></span>
+<span class="">1. Market Spot</span>
+</td>
+<td class="py-3.5 px-space-sm text-charcoal">Uniswap V3 Concentrated Pool (SOLAR01/mUSD)</td>
+<td class="py-3.5 px-space-sm font-mono font-medium text-ink-black">$1.04 mUSD</td>
+<td class="py-3.5 px-space-sm text-ash font-mono text-caption">Per Block</td>
+<td class="py-3.5 px-space-sm text-charcoal">Immediate secondary liquidity for active traders.</td>
+</tr>
+<tr class="hover:bg-linen/60 transition-colors">
+<td class="py-3.5 px-space-sm font-medium text-ink-black flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-ash"></span>
+<span class="">2. 30-Minute TWAP</span>
+</td>
+<td class="py-3.5 px-space-sm text-charcoal">Onchain Time-Weighted Geometric Mean</td>
+<td class="py-3.5 px-space-sm font-mono font-medium text-ink-black">$1.02 mUSD</td>
+<td class="py-3.5 px-space-sm text-ash font-mono text-caption">Rolling 30 mins</td>
+<td class="py-3.5 px-space-sm text-charcoal">Shields protocol contracts against flash loan manipulation.</td>
+</tr>
+<tr class="hover:bg-linen/60 transition-colors">
+<td class="py-3.5 px-space-sm font-medium text-ink-black flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-graphite"></span>
+<span class="">3. Verified NAV</span>
+</td>
+<td class="py-3.5 px-space-sm text-charcoal">Independent Third-Party Physical Appraisal</td>
+<td class="py-3.5 px-space-sm font-mono font-medium text-ink-black">$1.00 mUSD</td>
+<td class="py-3.5 px-space-sm text-ash font-mono text-caption">Monthly Attested</td>
+<td class="py-3.5 px-space-sm text-charcoal">Guarantees accounting valuation reflects true plant capacity.</td>
+</tr>
+<tr class="hover:bg-linen/60 transition-colors bg-linen/30">
+<td class="py-3.5 px-space-sm font-medium text-cerulean flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-cerulean"></span>
+<span class="">4. Published Floor</span>
+</td>
+<td class="py-3.5 px-space-sm text-charcoal">Non-depreciating mathematical ratcheted barrier</td>
+<td class="py-3.5 px-space-sm font-mono font-medium text-cerulean">$0.315 mUSD</td>
+<td class="py-3.5 px-space-sm text-ash font-mono text-caption">Monotonic (Floor-only)</td>
+<td class="py-3.5 px-space-sm text-charcoal">Irreversible hard bottom; never moves downward regardless of market fear.</td>
+</tr>
+<tr class="hover:bg-linen/60 transition-colors">
+<td class="py-3.5 px-space-sm font-medium text-ink-black flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-dusk"></span>
+<span class="">5. Instant Redemption</span>
+</td>
+<td class="py-3.5 px-space-sm text-charcoal">Solvent Sinking Reserve Vault Balance Ratio</td>
+<td class="py-3.5 px-space-sm font-mono font-medium text-ink-black">$0.342 mUSD</td>
+<td class="py-3.5 px-space-sm text-ash font-mono text-caption">Real-Time Continuous</td>
+<td class="py-3.5 px-space-sm text-charcoal">Instant burn-and-withdraw right against segregated escrow capital.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Four-Stage Safety Escalation Ladder with Animated Circuit Flowchart -->
+<div class="flex flex-col gap-space-md pt-space-md border-t border-mist">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-sm border-b border-mist pb-space-sm">
+<div>
+<span class="font-caption text-caption text-ash uppercase tracking-widest block">Self-Enforcing Failure Mode Protocol</span>
+<h2 class="font-headline-lg text-headline-lg text-ink-black mt-1">Four-Stage Safety Escalation Ladder</h2>
+</div>
+<p class="font-body-sm text-body-sm text-charcoal max-w-md">
+          Self-enforcing smart contract triggers guarantee automated remediation long before legal distress can impact investor yield. Click any stage to inspect circuit triggers.
+        </p>
+</div>
+<!-- Animated Circuit Diagram Progression -->
+<div class="relative w-full">
+<!-- Connection Flow SVG Beam (Visible on lg screens) -->
+<div class="hidden lg:block absolute top-[52px] left-[12%] right-[12%] h-1 pointer-events-none z-0">
+<svg class="w-full h-8 overflow-visible" fill="none" viewBox="0 0 800 20">
+<path class="flow-beam-animated" d="M 0 10 L 800 10" stroke="#41a1cf" stroke-width="2.5"></path>
+</svg>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter relative z-10" id="safety-ladder-container">
+<!-- Stage 01 -->
+<div class="stage-card active-stage p-space-md rounded-xl bg-linen hover:bg-paper border-2 border-mist hover:border-signal-blue transition-all cursor-pointer flex flex-col justify-between gap-space-md shadow-sm" data-stage="1">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono text-caption text-ash">STAGE 01</span>
+<div class="relative flex h-3 w-3 items-center justify-center">
+<span class="absolute inline-flex h-full w-full rounded-full bg-fog opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-fog"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-ink-black">Behind Schedule</h4>
+<p class="font-body-sm text-body-sm text-charcoal">
+              If sinking fund inflow falls &gt;5% below the linear trajectory, a <strong>30-day grace timer</strong> starts automatically onchain with public telemetry alert.
+            </p>
+</div>
+<div class="border-t border-mist pt-2 flex flex-col gap-1">
+<span class="font-caption text-caption text-ash font-medium">Smart Contract Trigger:</span>
+<span class="text-[11px] font-mono text-charcoal"><code>onchainOracle.delta() &lt; -0.05</code></span>
+<span class="font-caption text-caption text-ash pt-1">No token penalty invoked</span>
+</div>
+</div>
+<!-- Stage 02 -->
+<div class="stage-card p-space-md rounded-xl bg-linen hover:bg-paper border-2 border-mist hover:border-signal-blue transition-all cursor-pointer flex flex-col justify-between gap-space-md shadow-sm" data-stage="2">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono text-caption text-ash">STAGE 02</span>
+<div class="relative flex h-3 w-3 items-center justify-center">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-signal-blue opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-signal-blue"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-ink-black">Automatic Shortfall</h4>
+<p class="font-body-sm text-body-sm text-charcoal">
+              Issuer operational revenue withdrawals are immediately <strong>frozen</strong>. Gross cash flow split shifts from 60/40 to <strong>85/15</strong> to replenish reserve.
+            </p>
+</div>
+<div class="border-t border-mist pt-2 flex flex-col gap-1">
+<span class="font-caption text-caption text-signal-blue font-medium">Smart Contract Trigger:</span>
+<span class="text-[11px] font-mono text-charcoal"><code>escrow.freezeIssuerWithdrawals()</code></span>
+<span class="font-caption text-caption text-signal-blue pt-1">Algorithmic redirect active</span>
+</div>
+</div>
+<!-- Stage 03 -->
+<div class="stage-card p-space-md rounded-xl bg-linen hover:bg-paper border-2 border-mist hover:border-error transition-all cursor-pointer flex flex-col justify-between gap-space-md shadow-sm" data-stage="3">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono text-caption text-ash">STAGE 03</span>
+<div class="relative flex h-3 w-3 items-center justify-center">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-error"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-ink-black">Verifier Default</h4>
+<p class="font-body-sm text-body-sm text-charcoal">
+              If grace expires without balance restitution, the protocol triggers <strong>Emergency Redemption</strong>. All tokenholders can redeem at 100% of remaining vault balance.
+            </p>
+</div>
+<div class="border-t border-mist pt-2 flex flex-col gap-1">
+<span class="font-caption text-caption text-error font-medium">Smart Contract Trigger:</span>
+<span class="text-[11px] font-mono text-charcoal"><code>vault.unlockEmergencyRedeem()</code></span>
+<span class="font-caption text-caption text-error pt-1">Full vault liquidation unlocked</span>
+</div>
+</div>
+<!-- Stage 04 -->
+<div class="stage-card p-space-md rounded-xl bg-linen hover:bg-paper border-2 border-mist hover:border-ink-black transition-all cursor-pointer flex flex-col justify-between gap-space-md shadow-sm" data-stage="4">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono text-caption text-ash">STAGE 04</span>
+<div class="relative flex h-3 w-3 items-center justify-center">
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-ink-black"></span>
+</div>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-ink-black">Lien Enforcement</h4>
+<p class="font-body-sm text-body-sm text-charcoal">
+              Statutory perfection lien filed under SPV cross-collateral charter initiates liquidation of physical photovoltaic equipment and PLN contract receivables.
+            </p>
+</div>
+<div class="border-t border-mist pt-2 flex flex-col gap-1">
+<span class="font-caption text-caption text-ink-black font-medium">Statutory Enforcement:</span>
+<span class="text-[11px] font-mono text-charcoal"><code>SPV.foreclosePhysicalSecurity()</code></span>
+<span class="font-caption text-caption text-ink-black pt-1">Governed under Singapore arbitration</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Interactive Circuit Inspector Details Box -->
+<div class="p-space-md rounded-xl bg-paper border border-signal-blue/40 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-sm" id="circuit-inspector-box">
+<div class="flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-signal-blue text-[24px] shrink-0 mt-0.5" id="circuit-icon">verified_user</span>
+<div class="flex flex-col gap-0.5">
+<span class="font-label-md text-label-md font-semibold text-ink-black" id="circuit-title">Circuit State: Stage 01 — Continuous Telemetry Surveillance</span>
+<p class="font-body-sm text-body-sm text-charcoal" id="circuit-desc">IoT smart meters verify PLN grid injection every 12 seconds. Oracle heartbeats feed automatically to Sinking Fund smart contracts without off-chain intermediary custody.</p>
+</div>
+</div>
+<span class="px-3 py-1 rounded-full bg-secondary-fixed text-on-secondary-container font-mono text-caption shrink-0 font-medium" id="circuit-status">Normal Autonomous Operation</span>
+</div>
+<!-- Transparent Boundary Disclaimer -->
+<div class="p-space-md rounded-lg bg-linen border border-mist flex items-start gap-space-sm mt-2">
+<span class="material-symbols-outlined text-cerulean text-[22px] shrink-0 mt-0.5">policy</span>
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md font-medium text-ink-black">Institutional Integrity &amp; Boundary Disclaimer</span>
+<p class="font-body-sm text-body-sm text-charcoal leading-relaxed">
+            ArcReserve rejects artificial algorithmic peg guarantees. Principal and yield distributions are protected strictly to the exact extent of the verified onchain sinking fund reserve and legally perfected first-priority liens over physical solar generation hardware and sovereign off-taker contracts.
+          </p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 5: Institutional Onboarding CTA colophon footer -->
+<section class="w-full bg-linen border-t border-mist py-space-xl px-margin">
+<div class="max-w-[1200px] mx-auto flex flex-col items-center text-center gap-space-md">
+<div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-paper border border-mist text-caption font-caption text-charcoal shadow-sm">
+<span class="w-2 h-2 rounded-full bg-signal-blue"></span>
+<span class="">Institutional Onboarding Wave 03 Active</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-ink-black max-w-2xl font-normal">
+      Step into institution-grade cash flow tokenization.
+    </h2>
+<p class="font-body-md text-body-md text-charcoal max-w-xl">
+      Access audited physical energy cash flows on Base Sepolia. Review legal dossiers, inspect IoT sensor feeds, and allocate with programmatic reserve backing.
+    </p>
+<div class="flex flex-wrap items-center justify-center gap-space-sm mt-space-xs">
+<a class="inline-flex items-center gap-2 px-space-md py-2.5 rounded bg-dusk hover:bg-ink-black text-paper font-label-md text-label-md transition-colors border border-twilight shadow-sm" href="#flagship-solar">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+<span class="">Access Investor Terminal</span>
+</a>
+<a class="inline-flex items-center gap-2 px-space-md py-2.5 rounded bg-paper hover:bg-linen border border-signal-blue text-cerulean font-label-md text-label-md transition-all shadow-sm" href="#">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+<span class="">Download Institutional Term Sheet (PDF)</span>
+</a>
+</div>
+<div class="pt-space-md flex items-center justify-center gap-space-md text-caption font-caption text-ash border-t border-mist w-full max-w-md">
+<span class="">Restricted to accredited participants</span>
+<span class="">•</span>
+<span class="">Dual Audit by Halborn &amp; VeriSol</span>
+</div>
+</div>
+</section>
+<!-- Interactive Top 5 Project Engine & Simulator & Ladder Logic Script -->
+<script>
+  (function initArcReserveEngine() {
+    // Project Dataset
+    const PROJECTS = {
+      solar01: {
+        ticker: "$SOLAR01 • Series I",
+        pillTicker: "SOLAR01",
+        title: "Solar Indonesia 01 (SOLAR01)",
+        status: "Offering Status: Open",
+        uid: "UID: 0x81b4...e37c",
+        offtaker: "State Electricity Corp (PLN)",
+        offtakerSub: "20-Year Sovereign Guarantee",
+        capacity: "12.8 MWp Utility-Scale",
+        corridor: "West Java Solar Corridor",
+        issueTotal: "100,000 mUSD",
+        issueTokens: "100,000 Tokens @ $1.00 mUSD",
+        verifier: "Bureau Veritas Onchain",
+        verifierFeed: "IoT Production Telemetry Oracle",
+        backing: "104.2%",
+        backingDiff: "↑ +4.2% Over-collateralized",
+        sinkingFundVal: "0.342 mUSD / 0.320 target",
+        fundPill: "$342,000 mUSD",
+        floorPill: "$0.315 mUSD",
+        inflows: "$18,450",
+        delivery: "48.2 MWh PLN Metered",
+        grossRevRate: 0.60,
+        grossLabel: "60.0%",
+        floorBase: 0.300,
+        floorTarget: 0.342,
+        currentFloor: "$0.315",
+        instantRedeemUnit: 0.342,
+        monthlyYieldRate: 0.0105,
+        capexPct: 65,
+        sinkingPct: 30,
+        ammPct: 5,
+        capexText: "65,000 mUSD",
+        sinkingText: "30,000 mUSD",
+        ammText: "5,000 mUSD",
+        imgUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuDjvKXrm2Vu8a8kfnsGw6LI956EGXn1NR3XNGjT8V41V6dMuD9HjdfMKpjKAq0HwxWjTyEncG1lxyFHEBNHZKSK9W0jNn-pjFo8Ac67N_9co5VWURG8g8JtUIfov7zFcDPawWLfgpYAxbFm8orN4LLP-Sb6X_kgYj5hdlZNKZN08kMcFmNe7IiXt3C6D5g4Hr75r37swo8j_K2-tE0KYGy_8Xz-8jqqkuswGQtk1SeIZTo-969MEwEH",
+        telemetryTag: "Substation 4B Telemetry • Verified Operating",
+        feedStatus: "Direct Satellite Feed"
+      },
+      hydro01: {
+        ticker: "$HYDRO01 • Series II",
+        pillTicker: "HYDRO01",
+        title: "North Sumatra Run-of-River (HYDRO01)",
+        status: "Offering Status: Subscribed 82%",
+        uid: "UID: 0x4f2a...98db",
+        offtaker: "State Electricity Corp (PLN)",
+        offtakerSub: "25-Year Fixed Feed-in Tariff",
+        capacity: "8.0 MW Continuous Hydro",
+        corridor: "Asahan Basin Corridor",
+        issueTotal: "400,000 mUSD",
+        issueTokens: "400,000 Tokens @ $1.00 mUSD",
+        verifier: "TÜV SÜD Hydro Attestation",
+        verifierFeed: "Hydrological Flow Telemetry",
+        backing: "107.5%",
+        backingDiff: "↑ +7.5% Over-collateralized",
+        sinkingFundVal: "1.420 mUSD / 1.300 target",
+        fundPill: "$1,420,000 mUSD",
+        floorPill: "$0.328 mUSD",
+        inflows: "$42,800",
+        delivery: "192.4 MWh Continuous Grid",
+        grossRevRate: 0.58,
+        grossLabel: "58.0%",
+        floorBase: 0.310,
+        floorTarget: 0.355,
+        currentFloor: "$0.328",
+        instantRedeemUnit: 0.355,
+        monthlyYieldRate: 0.0098,
+        capexPct: 68,
+        sinkingPct: 27,
+        ammPct: 5,
+        capexText: "272,000 mUSD",
+        sinkingText: "108,000 mUSD",
+        ammText: "20,000 mUSD",
+        imgUrl: "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=1200&q=80",
+        telemetryTag: "Penstock Sensor Feed • 34.2 m³/s Verified Flow",
+        feedStatus: "SCADA Encrypted Telemetry"
+      },
+      bess01: {
+        ticker: "$BESS01 • Series III",
+        pillTicker: "BESS01",
+        title: "Cikarang Industrial BESS (BESS01)",
+        status: "Offering Status: Open",
+        uid: "UID: 0x93dc...a117",
+        offtaker: "Cikarang Listrindo Tbk",
+        offtakerSub: "15-Year Peak Arbitrage PPA",
+        capacity: "10.0 MWh Peak Shaving Storage",
+        corridor: "Jababeka Industrial Zone",
+        issueTotal: "180,000 mUSD",
+        issueTokens: "180,000 Tokens @ $1.00 mUSD",
+        verifier: "DNV Energy Storage Oracle",
+        verifierFeed: "BMS Cell Degradation & Telemetry",
+        backing: "102.8%",
+        backingDiff: "↑ +2.8% Over-collateralized",
+        sinkingFundVal: "0.582 mUSD / 0.550 target",
+        fundPill: "$582,000 mUSD",
+        floorPill: "$0.308 mUSD",
+        inflows: "$24,100",
+        delivery: "8.8 MWh Daily Peak Cycle",
+        grossRevRate: 0.65,
+        grossLabel: "65.0%",
+        floorBase: 0.295,
+        floorTarget: 0.338,
+        currentFloor: "$0.308",
+        instantRedeemUnit: 0.338,
+        monthlyYieldRate: 0.0122,
+        capexPct: 62,
+        sinkingPct: 32,
+        ammPct: 6,
+        capexText: "111,600 mUSD",
+        sinkingText: "57,600 mUSD",
+        ammText: "10,800 mUSD",
+        imgUrl: "https://images.unsplash.com/photo-1548611716-ad87483d94ca?auto=format&fit=crop&w=1200&q=80",
+        telemetryTag: "Lithium Inverter Racks • 99.4% Efficiency SOH",
+        feedStatus: "Dual IoT Modbus Synced"
+      },
+      solar02: {
+        ticker: "$SOLAR02 • Series IV",
+        pillTicker: "SOLAR02",
+        title: "Sumba Microgrid Solar (SOLAR02)",
+        status: "Offering Status: Open",
+        uid: "UID: 0x1b7e...63cf",
+        offtaker: "State Electricity Corp (PLN)",
+        offtakerSub: "20-Year Island Electrification",
+        capacity: "4.5 MWp Island Solar + 2MWh Storage",
+        corridor: "East Nusa Tenggara Microgrid",
+        issueTotal: "250,000 mUSD",
+        issueTokens: "250,000 Tokens @ $1.00 mUSD",
+        verifier: "Bureau Veritas Onchain",
+        verifierFeed: "Autonomous Inverter Smart Telemetry",
+        backing: "105.1%",
+        backingDiff: "↑ +5.1% Over-collateralized",
+        sinkingFundVal: "0.812 mUSD / 0.775 target",
+        fundPill: "$812,000 mUSD",
+        floorPill: "$0.318 mUSD",
+        inflows: "$19,650",
+        delivery: "22.4 MWh Island Feeder",
+        grossRevRate: 0.625,
+        grossLabel: "62.5%",
+        floorBase: 0.305,
+        floorTarget: 0.345,
+        currentFloor: "$0.318",
+        instantRedeemUnit: 0.345,
+        monthlyYieldRate: 0.0110,
+        capexPct: 64,
+        sinkingPct: 31,
+        ammPct: 5,
+        capexText: "160,000 mUSD",
+        sinkingText: "77,500 mUSD",
+        ammText: "12,500 mUSD",
+        imgUrl: "https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=1200&q=80",
+        telemetryTag: "Sumba Island Microfeeder • 100% Online",
+        feedStatus: "Starlink IoT Telemetry Active"
+      },
+      geo01: {
+        ticker: "$GEO01 • Series V",
+        pillTicker: "GEO01",
+        title: "Kamojang Geothermal Baseload (GEO01)",
+        status: "Offering Status: Institutional Allocation 91%",
+        uid: "UID: 0x77ee...3341",
+        offtaker: "Pertamina Geothermal Energy & PLN",
+        offtakerSub: "30-Year Sovereign Baseload PPA",
+        capacity: "15.0 MW Geothermal Steam Unit 4",
+        corridor: "Kamojang Volcanic Plateau",
+        issueTotal: "650,000 mUSD",
+        issueTokens: "650,000 Tokens @ $1.00 mUSD",
+        verifier: "Lloyd's Register Energy Attestation",
+        verifierFeed: "High-Pressure Steam Enthalpy Meters",
+        backing: "108.9%",
+        backingDiff: "↑ +8.9% Over-collateralized",
+        sinkingFundVal: "2.310 mUSD / 2.100 target",
+        fundPill: "$2,310,000 mUSD",
+        floorPill: "$0.334 mUSD",
+        inflows: "$84,200",
+        delivery: "356.8 MWh Continuous Baseload",
+        grossRevRate: 0.64,
+        grossLabel: "64.0%",
+        floorBase: 0.315,
+        floorTarget: 0.362,
+        currentFloor: "$0.334",
+        instantRedeemUnit: 0.362,
+        monthlyYieldRate: 0.0118,
+        capexPct: 66,
+        sinkingPct: 29,
+        ammPct: 5,
+        capexText: "429,000 mUSD",
+        sinkingText: "188,500 mUSD",
+        ammText: "32,500 mUSD",
+        imgUrl: "https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=1200&q=80",
+        telemetryTag: "Wellhead 11 Enthalpy • 240°C Superheated Steam",
+        feedStatus: "Encrypted ISO 14001 Sensor Grid"
+      }
+    };
+
+    let activeKey = 'solar01';
+
+    // Simulator Elements
+    const sliderInvestment = document.getElementById('investment-slider');
+    const sliderHorizon = document.getElementById('horizon-slider');
+    const dispInvestment = document.getElementById('investment-display');
+    const dispHorizon = document.getElementById('horizon-display');
+    const resRevenue = document.getElementById('res-revenue');
+    const resFloor = document.getElementById('res-floor');
+    const resRedemption = document.getElementById('res-redemption');
+    const resTotal = document.getElementById('res-total');
+    const labelRevenueShare = document.getElementById('label-revenue-share');
+    const simSubtitle = document.getElementById('sim-subtitle');
+    const whitelistBtn = document.getElementById('whitelist-cta-text');
+
+    function updateSimulator() {
+      const proj = PROJECTS[activeKey];
+      const principal = parseFloat(sliderInvestment.value);
+      const months = parseInt(sliderHorizon.value, 10);
+
+      dispInvestment.textContent = principal.toLocaleString() + ' mUSD';
+      dispHorizon.textContent = months + (months === 1 ? ' Month' : ' Months');
+
+      const totalRevenueDistributed = principal * proj.monthlyYieldRate * months;
+      const floorPerToken = proj.floorBase + ((proj.floorTarget - proj.floorBase) * (months / 36));
+      const instantRedemptionVal = principal * proj.instantRedeemUnit;
+      const projectedRealization = principal + totalRevenueDistributed;
+
+      labelRevenueShare.textContent = `Gross Revenue Distributed (${proj.grossLabel}):`;
+      resRevenue.textContent = '+' + totalRevenueDistributed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' mUSD';
+      resFloor.textContent = '$' + floorPerToken.toFixed(3) + ' mUSD / token';
+      resRedemption.textContent = instantRedemptionVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' mUSD';
+      resTotal.textContent = projectedRealization.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' mUSD';
+    }
+
+    function switchProject(key) {
+      if (!PROJECTS[key]) return;
+      activeKey = key;
+      const p = PROJECTS[key];
+
+      // Update Tabs styling
+      document.querySelectorAll('.project-tab-btn').forEach(btn => {
+        if (btn.dataset.proj === key) {
+          btn.className = "project-tab-btn active-project-tab px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-ink-black text-paper border-ink-black shadow-sm";
+        } else {
+          btn.className = "project-tab-btn px-3.5 py-2 rounded-lg border text-caption font-medium flex items-center gap-2 transition-all shrink-0 bg-paper hover:bg-linen text-charcoal border-mist";
+        }
+      });
+
+      // Update Section 3 Asset Profile Elements
+      document.getElementById('project-display-title').textContent = p.title;
+      document.getElementById('project-ticker-display').textContent = p.ticker;
+      document.getElementById('project-status-badge').textContent = p.status;
+      document.getElementById('project-uid').textContent = p.uid;
+      document.getElementById('project-offtaker').textContent = p.offtaker;
+      document.getElementById('project-offtaker-sub').textContent = p.offtakerSub;
+      document.getElementById('project-capacity').textContent = p.capacity;
+      document.getElementById('project-corridor').textContent = p.corridor;
+      document.getElementById('project-issue-total').textContent = p.issueTotal;
+      document.getElementById('project-issue-tokens').textContent = p.issueTokens;
+      document.getElementById('project-verifier').textContent = p.verifier;
+      document.getElementById('project-verifier-feed').textContent = p.verifierFeed;
+
+      // Buckets
+      document.getElementById('bar-capex').style.width = p.capexPct + '%';
+      document.getElementById('bar-sinking').style.width = p.sinkingPct + '%';
+      document.getElementById('bar-amm').style.width = p.ammPct + '%';
+      document.getElementById('legend-capex').textContent = p.capexText;
+      document.getElementById('legend-sinking').textContent = p.sinkingText;
+      document.getElementById('legend-amm').textContent = p.ammText;
+
+      // Image & Telemetry tag
+      const img = document.getElementById('project-main-image');
+      img.src = p.imgUrl;
+      document.getElementById('project-telemetry-tag').textContent = p.telemetryTag;
+      document.getElementById('project-feed-status').textContent = p.feedStatus;
+
+      // Hero Pill & Section 1 Metrics sync
+      document.getElementById('hero-pill-ticker').textContent = p.pillTicker;
+      document.getElementById('hero-pill-backing').textContent = p.backing;
+      document.getElementById('hero-pill-fund').textContent = p.fundPill;
+      document.getElementById('hero-pill-floor').textContent = p.floorPill;
+
+      document.getElementById('metric-backing-val').textContent = p.backing;
+      document.getElementById('metric-backing-diff').textContent = p.backingDiff;
+      document.getElementById('metric-sinking-fund-val').textContent = p.sinkingFundVal;
+      document.getElementById('metric-inflows-val').textContent = p.inflows;
+      document.getElementById('metric-delivery-val').textContent = p.delivery;
+      document.getElementById('metric-gross-val').textContent = p.grossLabel;
+      document.getElementById('metric-floor-val').textContent = p.currentFloor;
+
+      // Simulator sync
+      simSubtitle.textContent = `Model 36-Month Amortization (${p.pillTicker})`;
+      whitelistBtn.textContent = `Whitelist Wallet for ${p.pillTicker} Allocation`;
+      updateSimulator();
+    }
+
+    // Attach click to project tabs
+    document.querySelectorAll('.project-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => switchProject(btn.dataset.proj));
+    });
+
+    if (sliderInvestment && sliderHorizon) {
+      sliderInvestment.addEventListener('input', updateSimulator);
+      sliderHorizon.addEventListener('input', updateSimulator);
+      updateSimulator();
+    }
+
+    // Four-Stage Safety Escalation Interactive Circuit Inspector
+    const STAGE_DETAILS = {
+      "1": {
+        icon: "timer",
+        title: "Stage 01 — Behind Schedule (30-Day Onchain Grace Window)",
+        desc: "Automated oracle monitor detects sinking reserve deposits lagging by >5%. A public 30-day grace timer begins onchain. No penalty is levied on tokens; issuer receives cryptographically signed push notice to reconcile.",
+        status: "Normal / Grace Surveillance"
+      },
+      "2": {
+        icon: "lock_clock",
+        title: "Stage 02 — Automatic Revenue Shortfall & Redirect (85/15 Shift)",
+        desc: "Issuer operational withdrawal functions are automatically frozen via smart contract escrow. Protocol gross cash flow split algorithmically reallocates from 60/40 to 85/15, directly replenishing the sinking reserve vault.",
+        status: "Reserve Replenishment Active"
+      },
+      "3": {
+        icon: "gavel",
+        title: "Stage 03 — Verifier Default & Emergency 100% Vault Liquidation",
+        desc: "Grace period lapses without balance cure. Verifier or multisig oracle signals default on Base Sepolia. Emergency Redemption opens immediately: 100% of the segregated sinking reserve is burnable for instantaneous capital exit.",
+        status: "Vault Exit Protocol Unlocked"
+      },
+      "4": {
+        icon: "account_balance",
+        title: "Stage 04 — Statutory First-Priority Lien & Equipment Foreclosure",
+        desc: "Statutory cross-collateral SPV charter triggers legal execution. Equipment perfection lien enables direct handover of physical utility generation assets and receivables under established Singapore Arbitration jurisdiction.",
+        status: "Arbitration Perfected Liquidation"
+      }
+    };
+
+    const stageCards = document.querySelectorAll('.stage-card');
+    const circuitIcon = document.getElementById('circuit-icon');
+    const circuitTitle = document.getElementById('circuit-title');
+    const circuitDesc = document.getElementById('circuit-desc');
+    const circuitStatus = document.getElementById('circuit-status');
+
+    stageCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const stageNum = card.dataset.stage;
+        stageCards.forEach(c => {
+          c.classList.remove('border-cerulean', 'bg-paper', 'ring-2', 'ring-cerulean/30');
+          c.classList.add('bg-linen', 'border-mist');
+        });
+        card.classList.remove('bg-linen', 'border-mist');
+        card.classList.add('border-cerulean', 'bg-paper', 'ring-2', 'ring-cerulean/30');
+
+        const det = STAGE_DETAILS[stageNum];
+        if (det) {
+          circuitIcon.textContent = det.icon;
+          circuitTitle.textContent = det.title;
+          circuitDesc.textContent = det.desc;
+          circuitStatus.textContent = det.status;
+        }
+      });
+    });
+  })();
+</script>
+</div></main><footer class="w-full bg-paper border-t border-mist mt-auto"><div class="w-full max-w-[1200px] mx-auto px-margin py-space-xl"><div class="grid grid-cols-1 md:grid-cols-12 gap-gutter pb-space-lg border-b border-mist items-start"><div class="md:col-span-7 flex flex-col gap-space-sm"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-ink-black">ArcReserve</span><span class="font-caption text-caption text-ash uppercase px-1.5 py-0.5 border border-mist rounded bg-linen">Colophon</span></div><p class="font-headline-sm text-headline-sm text-graphite italic leading-relaxed">ArcReserve Protocol — Real assets. Programmable liquidity. 60% gross revenue distribution backed by an onchain sinking-fund reserve.</p></div><div class="md:col-span-5 flex flex-col md:items-end justify-between gap-space-md"><div class="flex flex-wrap items-center gap-space-md font-label-sm text-label-sm text-on-surface-variant"><a class="hover:text-ink-black transition-colors" href="#">Smart Contracts</a><a class="hover:text-ink-black transition-colors" href="#">Audits &amp; Verifications</a><a class="hover:text-ink-black transition-colors" href="#">Transparency Registry</a><a class="hover:text-ink-black transition-colors" href="#">Legal Framework</a></div><div class="flex items-center gap-space-xs text-charcoal font-caption text-caption"><span class="w-1.5 h-1.5 rounded-full bg-cerulean"></span><span class="">Consensus Layer v2.14 • Sinking Fund Health Ratio 142.8%</span></div></div></div><div class="pt-space-md flex flex-col sm:flex-row items-center justify-between gap-space-sm font-caption text-caption text-ash"><span class="">© 2025 ArcReserve Foundation. Governed under Institutional Basel III RWA Guidelines.</span><span class="">All reserves attested daily on Base Sepolia. Non-custodial institutional vault architecture.</span></div></div></footer>
+
+<div id="claim-toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none"></div><script>
+(function initYieldClaimSystem() {
+  let cumulativeClaimed = 0;
+  const toastContainer = document.getElementById('claim-toast-container');
+  const headerCounter = document.getElementById('header-claimed-total');
+  const headerPill = document.getElementById('header-claimed-pill');
+
+  function generateTxHash() {
+    const chars = '0123456789abcdef';
+    let hash = '0x';
+    for (let i = 0; i < 4; i++) hash += chars[Math.floor(Math.random() * chars.length)];
+    hash += '...';
+    for (let i = 0; i < 4; i++) hash += chars[Math.floor(Math.random() * chars.length)];
+    return hash;
+  }
+
+  function triggerToast(amountText, titleText = 'Yield Distribution Confirmed • Base Sepolia') {
+    if (!toastContainer) return;
+
+    const toastId = 'toast-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    const txHash = generateTxHash();
+
+    const toast = document.createElement('div');
+    toast.id = toastId;
+    toast.className = 'pointer-events-auto w-full bg-paper/95 backdrop-blur-xl border border-secondary-fixed-dim rounded-xl p-4 shadow-[0_4px_24px_rgba(0,129,192,0.18)] flex flex-col gap-2.5 transition-all duration-300 transform translate-y-4 opacity-0';
+
+    toast.innerHTML = `
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-signal-blue opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-cerulean"></span>
+          </span>
+          <span class="font-label-sm text-[12px] font-semibold text-ink-black tracking-wide">${titleText}</span>
+        </div>
+        <button type="button" class="toast-close-btn text-ash hover:text-ink-black transition-colors">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+      <div class="flex items-baseline justify-between border-y border-mist/70 py-2 my-0.5">
+        <span class="text-caption font-caption text-charcoal">Gross Claim Disbursed:</span>
+        <span class="font-mono font-bold text-headline-sm text-cerulean">${amountText}</span>
+      </div>
+      <div class="flex flex-col gap-1 text-[11px] font-mono text-ash">
+        <div class="flex items-center justify-between">
+          <span>Recipient KYC Wallet:</span>
+          <span class="text-charcoal font-medium">0x8F21...3b9C</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Base Sepolia Tx:</span>
+          <a href="#" class="text-cerulean hover:underline inline-flex items-center gap-0.5">
+            <span>${txHash}</span>
+            <span class="material-symbols-outlined text-[12px]">open_in_new</span>
+          </a>
+        </div>
+      </div>
+      <div class="w-full bg-mist/50 h-1 rounded-full overflow-hidden mt-1">
+        <div class="toast-progress-bar h-full bg-gradient-to-r from-signal-blue to-cerulean rounded-full" style="width: 100%; transition: width 5s linear;"></div>
+      </div>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.remove('translate-y-4', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      const pBar = toast.querySelector('.toast-progress-bar');
+      if (pBar) {
+        setTimeout(() => { pBar.style.width = '0%'; }, 50);
+      }
+    });
+
+    const dismissTimeout = setTimeout(() => {
+      dismissToast(toast);
+    }, 5000);
+
+    const closeBtn = toast.querySelector('.toast-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        clearTimeout(dismissTimeout);
+        dismissToast(toast);
+      });
+    }
+  }
+
+  function dismissToast(toastEl) {
+    if (!toastEl || !toastEl.parentNode) return;
+    toastEl.classList.add('opacity-0', 'translate-x-6');
+    setTimeout(() => {
+      if (toastEl.parentNode) toastEl.remove();
+    }, 300);
+  }
+
+  function incrementHeaderClaim(amountNum) {
+    cumulativeClaimed += amountNum;
+    if (headerCounter) {
+      headerCounter.textContent = cumulativeClaimed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' mUSD';
+    }
+    if (headerPill) {
+      headerPill.classList.remove('hidden');
+      headerPill.classList.add('border-cerulean', 'scale-105');
+      setTimeout(() => {
+        headerPill.classList.remove('border-cerulean', 'scale-105');
+      }, 800);
+    }
+  }
+
+  function attachClaimHandler(btn, amountProvider, customTitle) {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = `<span class="material-symbols-outlined text-[15px] animate-spin text-cerulean">sync</span><span>Confirming onchain...</span>`;
+      btn.disabled = true;
+
+      setTimeout(() => {
+        const rawVal = amountProvider();
+        const numericVal = parseFloat(rawVal.replace(/[^0-9.]/g, '')) || 1890.00;
+        incrementHeaderClaim(numericVal);
+        triggerToast(rawVal, customTitle);
+
+        btn.innerHTML = `<span class="material-symbols-outlined text-[15px] text-cerulean">check_circle</span><span>Claimed!</span>`;
+        setTimeout(() => {
+          btn.innerHTML = originalHTML;
+          btn.disabled = false;
+        }, 2200);
+      }, 650);
+    });
+  }
+
+  const simClaimBtn = document.getElementById('btn-simulate-claim');
+  const simExitBtn = document.getElementById('btn-simulate-exit');
+  const step3Btn = document.getElementById('step3-claim-btn');
+
+  attachClaimHandler(simClaimBtn, () => {
+    const resEl = document.getElementById('res-revenue');
+    return resEl ? resEl.textContent.trim() : '+1,890.00 mUSD';
+  }, 'Yield Distribution Confirmed • Base Sepolia');
+
+  attachClaimHandler(simExitBtn, () => {
+    const resEl = document.getElementById('res-redemption');
+    return resEl ? '+' + resEl.textContent.trim() : '+3,420.00 mUSD';
+  }, 'Vault Sinking Floor Exit Settled • Base Sepolia');
+
+  attachClaimHandler(step3Btn, () => {
+    const inflowEl = document.getElementById('metric-inflows-val');
+    return inflowEl ? '+' + inflowEl.textContent.trim() + ' mUSD' : '+$18,450.00 mUSD';
+  }, '24h Inflow Swept to KYC Wallet • Base Sepolia');
+})();
+</script></body></html>

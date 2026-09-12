@@ -10,7 +10,7 @@ import { fixtureEnvelope } from "@/lib/api";
  * regardless of where the data came from and decides what to render from `meta.provenance`
  * alone — never from a "are we in demo mode" branch scattered through the tree.
  *
- * This is only reached when no `NEXT_PUBLIC_API_URL` is configured. A *failed* request against
+ * This is only reached when no `VITE_API_URL` is configured. A *failed* request against
  * a configured backend never lands here (D-019): that is an error state.
  */
 

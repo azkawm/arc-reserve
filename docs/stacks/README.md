@@ -19,7 +19,7 @@ the contract wins and the boundary doc must be fixed.
 | --- | --- | --- | --- |
 | Contracts | `contracts/` (Foundry, Solidity 0.8.24, OZ 5.x) | Implemented, 56 tests | [`AGENT_CONTRACTS.md`](AGENT_CONTRACTS.md) |
 | Backend / indexer | `backend/` (**does not exist yet**; planned Node 20 + TypeScript + viem + Fastify + PostgreSQL) | Spec only | [`AGENT_BACKEND.md`](AGENT_BACKEND.md) |
-| Frontend | `frontend/` (Next.js 15, React 19, wagmi 2, viem 2, Recharts 3) | Prototype; writes live, reads mostly fixtures | [`AGENT_FRONTEND.md`](AGENT_FRONTEND.md) |
+| Frontend | `frontend/` (React 19 + Vite 8, Tailwind v4, shadcn/ui, wagmi 2, viem 2, Vitest) | Rebuilt on Vite (D-035); data layer ported, routes/charts/writes not | [`AGENT_FRONTEND.md`](AGENT_FRONTEND.md) |
 
 ## The three boundaries
 

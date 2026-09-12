@@ -2,12 +2,16 @@ contracts/cache/
 contracts/out/
 contracts/broadcast/
 contracts/lib/*/.git/
-frontend/.next/
+frontend/dist/
 frontend/node_modules/
+frontend/.env
 frontend/.env.local
 frontend/coverage/
 frontend/*.tsbuildinfo
 frontend/dev-server*.log
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 .DS_Store
 .runtime/
 backend/node_modules/
@@ -16,3 +20,9 @@ backend/.env
 contracts/.env
 backend/coverage/
 backend/*.tsbuildinfo
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

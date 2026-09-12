@@ -266,6 +266,8 @@ From `frontend/`:
 ```powershell
 npm run typecheck
 npm run lint
+npm run test
+npm run test:e2e
 npm run build
 ```
 
@@ -274,19 +276,77 @@ On Windows systems where PowerShell blocks `npm.ps1`, use:
 ```powershell
 npm.cmd run typecheck
 npm.cmd run lint
+npm.cmd run test
+npm.cmd run test:e2e
 npm.cmd run build
 ```
 
-Last verified on 2026-08-17:
+Last verified on 2026-09-12, after `openspec/changes/concept-landing-page` (D-036) landed on top of
+the D-035 Vite rebuild:
 
-- TypeScript `tsc --noEmit`: passed;
-- ESLint: passed;
-- Next.js 15.5.9 optimized production build: passed; and
-- marketplace, asset detail, engine, issuer, and verifier routes prerendered successfully.
+- TypeScript `tsc -b` (now three project references — app, node, and e2e; see below): passed;
+- ESLint 10 (flat config, mirrors the backend's): passed;
+- Vitest: 83 tests across 17 files, all passed;
+- Playwright: 12 cases across 3 viewport projects, all passed (2 correctly skipped where not
+  applicable — see below); and
+- Vite production build: passed (`dist/` bundle emitted).
 
-The frontend has no dedicated unit or browser test suite yet. Add tests when live/backend data replaces
-fixtures, particularly for unit formatting, provenance labels, transaction state, and stale/error
-behavior.
+### Two runners, because they can prove different things
+
+**Vitest + Testing Library (jsdom)**, configured in `vite.config.ts` with `vitest.setup.ts`, covers
+unit behaviour: component logic, formatting, provenance rules, and the page's claim rules (no audit
+vocabulary, no guarantee language, no "live" self-description) checked by rendering and searching
+text. It cannot prove layout at all — jsdom has no CSS cascade and no layout engine, so a `lg:flex`
+breakpoint class never actually computes and `getBoundingClientRect()` returns zeros.
+
+**Playwright + Chromium**, configured in `playwright.config.ts` with its own `tsconfig.e2e.json`
+(Playwright's `page.evaluate()` callbacks run inside the real browser and need DOM lib types the
+Node-only `tsconfig.node.json` does not carry), covers what only a real browser can: no horizontal
+document overflow, navigation actually hiding/showing at the right pixel widths, and wide content
+(a five-column table) genuinely needing to scroll inside its own container at phone width rather
+than merely being styled as if it would. Chromium only — these are standard CSS layout assertions,
+not engine-specific rendering, so testing one engine is a scope choice, not a gap. There is no CI in
+this repository, so `npm run test:e2e` is a local command run by habit, not a gate anything enforces
+automatically.
+
+Two of the twelve Playwright cases are intentionally skipped outside the `phone` project via
+`test.skip(condition, reason)`: the five-column reference table needs to scroll at 390px but not
+necessarily at 768px or 1440px, so asserting it must scroll everywhere would be asserting something
+false about wider viewports.
+
+### Coverage, current file by file
+
+| File | Covers |
+| --- | --- |
+| `src/lib/format.test.ts` | Money display — truncation never rounds up, thousand grouping, price padding to three decimals, compact abbreviation, basis points, absent-vs-zero (`—` vs `0.000`) |
+| `src/lib/api.test.ts` | D-019 — fixture mode is configured not fallback, no network call in fixture mode, backend error codes surfaced, a non-envelope response rejected, an unreachable backend reported as `NETWORK`, fixture envelopes labelled `mock` + `stale` |
+| `src/hooks/use-reduced-motion.test.ts` | Reads the live OS preference via a stubbed `matchMedia`, updates without a remount, defaults to motion-allowed when `matchMedia` does not exist |
+| `src/components/landing/concept-banner.test.tsx` | The persistent statement names what the page is and is not, and exposes no dismiss control |
+| `src/components/landing/concept-marker.test.tsx` | The "this figure is invented" marker renders and is distinguishable from `DataSourceBadge` |
+| `src/components/landing/arc-monogram.test.tsx` | The logo is a local, labelled, self-contained SVG with no external reference |
+| `src/components/landing/landing-header.test.tsx` | Every nav link is an in-page anchor; the mobile disclosure opens, lists links, and closes on activation |
+| `src/components/landing/landing-footer.test.tsx` | Restates the accurate disclaimer, not the Stitch reference's colophon claims |
+| `src/components/landing/scroll-reveal.test.tsx` | Fails open (already revealed) under reduced motion and when `IntersectionObserver` does not exist; reveals correctly once one is available and fires |
+| `src/components/landing/shader-background.test.tsx` | Full lifecycle with a fake WebGL context and fake observers — no loop until intersecting, loop starts, context lost stops it; reduced motion mounts no canvas at all; missing WebGL context falls back to the static background |
+| `src/components/landing/hero.test.tsx` | Product tagline, no production/guarantee claims, the status pill carries a concept marker, both CTAs are in-page anchors |
+| `src/components/landing/telemetry-band.test.tsx` | No "live" self-description, no audit vocabulary, no "fixed" split claim, all four cards carry a concept marker |
+| `src/components/landing/dual-participant-engine.test.tsx` | No unconditional/instant exit claim, no audit or invented regulatory framework, no dangling links |
+| `src/components/landing/value-references.test.tsx` | The five references stay five distinct, separately labelled entries; no "instant redemption", no named third-party attestation, no "guarantee" |
+| `src/components/landing/safety-ladder.test.tsx` | All four stages render in their real order; no guarantee language or invented jurisdiction *at any selected stage* (checked by clicking through all four, since only one stage's detail panel is in the DOM at a time); the real 40/45/10/5 split figures, not the reference's invented 85/15 |
+| `src/components/landing/closing-cta.test.tsx` | No audit claim, no misstatement of who may participate, both CTAs resolve to real in-page sections |
+| `src/App.test.tsx` | Page-level: claim rules hold across every section at once (not just within one), the concept statement sits inside the shared sticky wrapper, exactly six concept markers exist across the whole page, all six sections render in their documented order with every nav href resolving to a real section id, no animation frame loop starts without WebGL, and mounting the page issues no backend request at all |
+| `e2e/responsive.spec.ts` | Real-browser layout at phone/tablet/desktop — see above |
+
+One bug the tests themselves caught, worth keeping in mind when writing the next claim-rule check: a
+first draft of `App.test.tsx`'s "no guarantee language" check searched the *entire* rendered page,
+which failed against `LandingFooter`'s own required disclaimer — "not a guaranteed return" is
+truthful, mandated content, not a claim. Fixed by scoping the check to `<main>` (Hero through
+ClosingCta); a blunt whole-page string search over-corrects when the required disclaimer legitimately
+uses the same word to deny something rather than assert it.
+
+Gaps worth closing once the deferred SOLAR01 deep-dive lands: transaction state machines (submitted →
+receipt confirmed), stale and error rendering per panel, and tick↔price conversion under both token
+orderings.
 
 ## 12. Formatting note
 

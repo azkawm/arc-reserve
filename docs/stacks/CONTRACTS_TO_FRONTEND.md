@@ -13,26 +13,25 @@ The deploy script writes `contracts/deployments/<chainId>.json` with root key `"
 
 | JSON key | Frontend env var | Required for `contractsConfigured` |
 | --- | --- | --- |
-| `mockUSD` | `NEXT_PUBLIC_MUSD_ADDRESS` | yes |
-| `registry` | `NEXT_PUBLIC_REGISTRY_ADDRESS` | yes |
-| `token` | `NEXT_PUBLIC_TOKEN_ADDRESS` | yes (currently unused by UI) |
-| `vault` | `NEXT_PUBLIC_VAULT_ADDRESS` | yes |
-| `offering` | `NEXT_PUBLIC_OFFERING_ADDRESS` | yes |
-| `marketManager` | `NEXT_PUBLIC_MARKET_MANAGER_ADDRESS` | yes |
-| `revenueDistributor` | `NEXT_PUBLIC_REVENUE_DISTRIBUTOR_ADDRESS` | yes |
-| `redemptionController` | `NEXT_PUBLIC_REDEMPTION_CONTROLLER_ADDRESS` | yes |
-| `assetId` | `NEXT_PUBLIC_ASSET_ID` | bytes32, used by registry calls |
+| `mockUSD` | `VITE_MUSD_ADDRESS` | yes |
+| `registry` | `VITE_REGISTRY_ADDRESS` | yes |
+| `token` | `VITE_TOKEN_ADDRESS` | yes (currently unused by UI) |
+| `vault` | `VITE_VAULT_ADDRESS` | yes |
+| `offering` | `VITE_OFFERING_ADDRESS` | yes |
+| `marketManager` | `VITE_MARKET_MANAGER_ADDRESS` | yes |
+| `revenueDistributor` | `VITE_REVENUE_DISTRIBUTOR_ADDRESS` | yes |
+| `redemptionController` | `VITE_REDEMPTION_CONTROLLER_ADDRESS` | yes |
+| `assetId` | `VITE_ASSET_ID` | bytes32, used by registry calls |
 | `pool` | — (no env var yet) | needed if the UI ever reads `slot0` directly |
 | `companyVesting` | — (no env var yet) | needed for the supply panel |
-| `identityRegistry` | `NEXT_PUBLIC_IDENTITY_REGISTRY_ADDRESS` (new, 2026-08-27) | KYC status badge, eligibility pre-checks |
-| `demoRegistrar` | — (no env var yet) | **the Verify-me button** — `selfRegister()` is how a visitor becomes eligible to buy |
+| `identityRegistry` | `VITE_IDENTITY_REGISTRY_ADDRESS` (new, 2026-08-27) | KYC status badge, eligibility pre-checks |
 | `compliance`, `countryAllowModule`, `transferLockModule` | — | admin screens only |
 | `factory` | — | not needed by UI |
 
 Rules:
 - Anvil addresses change on every chain restart; `.env.local` must be regenerated. A script that
   copies `deployments/31337.json` into `.env.local` is a legitimate frontend-agent task.
-- `NEXT_PUBLIC_RPC_URL` defaults to `http://127.0.0.1:8545`; chain id is `31337`.
+- `VITE_RPC_URL` defaults to `http://127.0.0.1:8545`; chain id is `31337`.
 - Target chains (D-027): Anvil `31337`, Base Sepolia `84532`, Hedera testnet `296`. Addresses are
   per chain (`deployments/<chainId>.json`); the frontend should hold a `chainId → addresses` map
   rather than a single set of env vars once the testnet deployments exist.
@@ -178,7 +177,7 @@ Tick → price: `price_human = 1.0001^tick * 10^(dec0 - dec1)` with the asset as
 | Date | Change | Migration |
 | --- | --- | --- |
 | 2026-08-27 | Initial boundary snapshot | — |
-| 2026-08-27 | **CHANGED** — token is permissioned (D-021). New reads in §4 (KYC status, `transferRestriction`), new errors in §5, new env var `NEXT_PUBLIC_IDENTITY_REGISTRY_ADDRESS`, new JSON keys `identityRegistry`, `compliance`, `countryAllowModule`, `transferLockModule`. `AssetFactory.DeploymentParams` gained `identityRegistry` (last field). | Frontend: show a KYC badge from `isVerified(address)`; disable Buy/Send when `transferRestriction` ≠ 0 and show the mapped reason; only Anvil #0/#1 are verified in the demo. |
+| 2026-08-27 | **CHANGED** — token is permissioned (D-021). New reads in §4 (KYC status, `transferRestriction`), new errors in §5, new env var `VITE_IDENTITY_REGISTRY_ADDRESS`, new JSON keys `identityRegistry`, `compliance`, `countryAllowModule`, `transferLockModule`. `AssetFactory.DeploymentParams` gained `identityRegistry` (last field). | Frontend: show a KYC badge from `isVerified(address)`; disable Buy/Send when `transferRestriction` ≠ 0 and show the mapped reason; only Anvil #0/#1 are verified in the demo. |
 | 2026-08-27 | **CHANGED** — company-token treatment (D-024). New `AssetToken` reads: `investorSupply()`, `issuerAllocationSupply()`, `isIssuerAllocation(address)`. New `RedemptionController` error `IssuerAllocationCannotRedeem()`. `vault.minimumRequiredReserve()`, `vault.reserveRatioBps()`, `redemption.redemptionPrice(mode)` and `redemption.outstandingTokenObligations()` now use investor supply, not total supply — the same reserve now reads as a **higher** backing per token. No signature changed; the numbers move. | Frontend: label supply as "investor supply" wherever backing is derived; disable Redeem and show "company allocation cannot redeem" when `isIssuerAllocation(wallet)`; do not compute backing as `reserve / totalSupply` anywhere. |
 | 2026-08-27 | **CHANGED** — `transferRestriction(from, to, value)` no longer returns `EnforcedPause` for a burn leg (`to == address(0)`). A redemption burn is exempt from the protocol pause, so the preview now matches the contract. Non-burn legs are unchanged. | Frontend: a Redeem preview during a pause now correctly returns `0x00000000`; keep using it to gate the Redeem button rather than checking `paused()` directly. |
 | 2026-08-30 | **CHANGED** — D-028 class-based subscription caps. New reads `investorClassOf(address)`, `effectiveWalletLimit(address)`, `remainingAllowance(address)`, `classLimits(uint8)`, `raisedByClass(uint8)`; new admin write `setClassLimit(uint8,uint256,uint256)`; new errors `ClassWalletLimitExceeded()` / `ClassAggregateCapExceeded()`. **Demo identities changed**: Anvil #1 is now accredited (unchanged 50,000 headroom), Anvil #2 is a new retail wallet capped at 5,000. | Frontend: the Buy panel should show `remainingAllowance(wallet)` rather than the flat `walletPurchaseLimit` — it already folds in the class cap, the class aggregate cap and the remaining raise, so it is the one number that is always right. Show the connected wallet's class from `investorClassOf`. Map the two new errors to a class-specific message: a retail wallet hitting 5,000 is a policy outcome to explain, not a failure. `type(uint256).max` means uncapped — render the word, not the number. |
@@ -195,3 +194,4 @@ Tick → price: `price_human = 1.0001^tick * 10^(dec0 - dec1)` with the asset as
 | 2026-09-12 | **BREAKING** — D-036, the TWAP is removed. **`twapWindow()` and `maxSpotTwapDeviationBps()` no longer exist**; any call reverts. `marketPrices()` keeps its three-value shape but `twapPrice` and `meanTick` are **always 0**. `safetyState`'s third return value is always 0. `slide`/`sweep` now require spot to have **left the anchor's range** (up / down respectively) rather than to sit above/below a TWAP. `SafetyFailure` value 5 is reserved and never returned; 6/7/8 are unchanged. | Frontend: **delete the TWAP overlay, its legend entry and the spot/TWAP gate row** rather than re-pointing them at something else — there is no time-weighted price to show, and rendering the 0 would print a fake price of zero. The value list on the asset page drops from five to four (spot, NAV, floor, redemption). The keeper buttons change meaning: `slide`/`sweep` are callable **only when price has left the anchor band**, so on a fresh deployment — where spot starts mid-band — both are correctly disabled. Show that as "price is inside the range, no rebalance needed", not as an error. Read the live tick from `pool.slot0()` if you need it. |
 | 2026-09-12 | **CHANGED** — D-033 two-phase factory. `AssetFactory.deployAssetSystem(params)` is **retired**, replaced by `beginAssetSystem(params)` then `completeAssetSystem(assetId, params)`, with `abandonAssetSystem(assetId)` as the way out and `isPending(assetId)` to detect a half-built system. New `AssetVault` error `SystemNotActive()` (added to §5). The UI does not call the factory today, so **nothing in the app breaks**. | Frontend: no required change. If an admin/issuer screen ever offers deployment, it is now two wallet transactions and the second must come from the **same wallet** as the first — an issuer who signs phase 1 and then switches accounts cannot finish, and the recovery is `abandonAssetSystem`, not a retry. Between the two, the asset reads `Approved` with a live vault address that rejects deposits with `SystemNotActive()`; show that as "deployment in progress", not as a broken asset. |
 | 2026-09-12 | **CHANGED** — token ordering is per deployment, and the two live chains now differ. `assetIsToken0()` is **false on 31337** and **true on 84532**, so the same tick denotes inverse prices on the two chains and the "higher tick = lower asset price" convention reverses with the ordering. One mUSD ≈ `+276325` (Anvil) / `−276325` (Base Sepolia). §6 item 1 corrected accordingly. | Frontend: treat ordering as per-connection state in the query layer; never cache or share it across chains, and never infer it from a fixture. Any tick↔price helper takes ordering as a parameter. A cached Anvil value renders Base prices **inverted** while looking correct locally — the failure is silent, so assert both orderings map equivalent ticks to the same human price in tests. |
+| 2026-09-12 | **CHANGED** — D-035: the frontend is a React + Vite SPA, so every frontend env var in §1 is renamed `NEXT_PUBLIC_*` → `VITE_*` and is read through `import.meta.env`. Nothing about the contract ABI, addresses, or `deployments/<chainId>.json` changes. Note that Vite **inlines** these at build time, so they are not runtime configuration. | Frontend: the rename is done in `lib/contracts.ts` and `.env.example`. A `sync-env.mjs` script (still an open task) must emit `VITE_*` names. Also note that the app currently issues **no contract writes at all** — the wallet panels were not ported in the rebuild and every §4/§6 item is outstanding again. |

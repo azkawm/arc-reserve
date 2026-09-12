@@ -47,10 +47,15 @@ rollback, and fresh-Anvil detection; the full `/v1` read API with a provenance e
 canonical swaps plus an explicitly `mock` synthetic feed behind `ALLOW_MOCK_MARKET_DATA`. Route
 table and operations notes: `backend/README.md`.
 
-### Frontend — half migrated
-Done: marketplace and asset page read `/v1` with a provenance badge per panel; no `NEXT_PUBLIC_API_URL`
-⇒ labelled fixture mode; failed request ⇒ named error, never a fixture (D-019). See
-`docs/FRONTEND.md` §3 for the live-vs-mock table.
+### Frontend — rebuilt on React + Vite (D-035, 2026-09-12); data layer only
+The Next.js app was replaced by a Vite SPA (React 19, Tailwind v4, shadcn/ui, Vitest, Docker).
+Done: the `/v1` client and react-query bindings, the fixture adapter, and the provenance
+components are ported verbatim — no `VITE_API_URL` ⇒ labelled fixture mode; failed request ⇒ named
+error, never a fixture (D-019). Typecheck, lint, 25 Vitest tests, and the build are green.
+**Also not done, because of the rebuild:** the marketplace, asset, issuer, verifier, and engine
+routes, routing itself, both charts, and every wallet write (buy, claim, redeem, issuer and
+verifier actions, keeper calls) are gone from the working tree and must be ported back. They are in
+git history, and `docs/FRONTEND.md` §1/§3 is now their specification.
 **Not done:** issuer, verifier, and engine pages are still fixtures (including hardcoded keeper
 ticks); there is **no KYC gating** — an unverified wallet clicking Buy gets a raw revert instead of
 an explanation (`transferRestriction` is exposed by the contracts exactly for this); no frontend
@@ -89,7 +94,8 @@ Do these in order; do not skip 5:
 3. Run all three verification suites (§2 table).
 4. Run the local demo end-to-end: `anvil`, deploy per `docs/DEMO.md` §4, start the backend
    (`docker compose up -d && npm run migrate && npm run dev`), start the frontend with
-   `NEXT_PUBLIC_API_URL` set, buy/claim/redeem with Anvil #1.
+   `VITE_API_URL` set. Note that buy/claim/redeem cannot be exercised in the UI until the wallet
+   panels are ported back (D-035).
 5. Complete `docs/AI_COMPREHENSION_CHECK.md` — all 40 questions and the scenarios — and have
    your answers graded against Part B before you change code. This is the gate that catches
    confident misreadings; every agent so far has gone through it.
