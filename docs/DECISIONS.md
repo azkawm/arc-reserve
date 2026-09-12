@@ -696,6 +696,49 @@ zero expiry, which made the kill switch illusory).
 wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
 that a real deployment verifies identity offchain through a licensed provider.
 
+## D-035: The frontend is a React + Vite SPA; Next.js is retired
+
+Status: accepted 2026-09-12 (owner instruction). Scaffold landed; route porting outstanding.
+
+**The decision.** `frontend/` is rebuilt as a React + Vite single-page app with Tailwind CSS v4,
+shadcn/ui, Vitest, and a Docker image. The Next.js 15 App Router implementation is removed from the
+working tree and remains in git history.
+
+**What carried over unchanged.** The backend client and the provenance contract, because they are
+the part of the frontend that encodes financial rules rather than framework choices:
+`lib/api.ts` (the `{ data, meta }` envelope and the `ApiError` codes), `lib/queries.ts` (the
+`["api", route, ...]` key namespace and the sub-backend `staleTime`), `lib/fixtures.ts`,
+`lib/data.ts`, `lib/format.ts` (exact decimal display, no float arithmetic on money),
+`lib/contracts.ts`, `lib/wagmi.ts`, and the `DataSourceBadge` / `DataPanel` components that make
+D-019 unavoidable. The visual identity (palette, Georgia display face) is carried into the Tailwind
+theme tokens rather than restyled.
+
+**What was deliberately not ported, and is therefore currently absent from the product.** The
+marketplace, asset, issuer, verifier, and engine routes; the candle and engine charts; and every
+live wallet write — buy, claim, redeem, issuer deposits, verifier NAV and status actions, and keeper
+range calls. Those were working before this change and are not working now. `docs/FRONTEND.md`
+sections 1 and 3 onward are retained as the porting specification, not as a description of the
+current app.
+
+**Deliberate mechanical consequences.**
+- `NEXT_PUBLIC_*` becomes `VITE_*`, read through `import.meta.env` and typed in
+  `src/vite-env.d.ts`. `NEXT_PUBLIC_SITE_URL` is dropped; nothing read it.
+- Vite *inlines* `VITE_*` at build time, so they are Docker **build arguments**, not runtime
+  environment. Repointing the container at a different API means rebuilding it.
+- The dev and preview servers are pinned to port 3000 with `strictPort`, because the backend's
+  `CORS_ORIGIN` defaults to `http://localhost:3000`; a silently reassigned port would break every
+  `/v1` read in the browser.
+- wagmi's `ssr: true` is removed. There is no server render pass in a SPA, and claiming otherwise
+  would misdescribe how the app runs.
+- Routing is still absent, per the standing instruction in `docs/stacks/AGENT_FRONTEND.md`. The
+  routes return with the panels, not before them.
+
+**Why a rewrite was acceptable at this point.** The frontend held no financial logic of its own —
+the contracts enforce the rules, the backend computes the values, and the frontend's own
+contribution is the provenance discipline, which was ported verbatim. The cost is real and is
+recorded above: a working demo surface was traded for a test runner, a container, and a component
+system that the Next.js app never had.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:

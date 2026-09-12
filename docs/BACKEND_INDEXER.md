@@ -117,7 +117,7 @@ Rules:
 - Store addresses checksum-normalized for display and lowercase-normalized for lookup.
 - Verify configured chain ID against RPC before indexing.
 - Refuse to start production mode with `CONFIRMATIONS=0`.
-- Do not bundle backend secrets into `NEXT_PUBLIC_*` variables.
+- Do not bundle backend secrets into `VITE_*` variables (they are inlined into the browser bundle).
 
 ## 5. Data provenance
 

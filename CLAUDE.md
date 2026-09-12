@@ -52,9 +52,9 @@ stablecoin, no legal wrapper), never *how well*. The bar for every stack:
   external function.
 - Backend: typed end-to-end, exact decimal arithmetic, idempotent and reorg-safe by test, health
   and provenance on every response, replayable from a fresh DB.
-- Frontend: typecheck/lint/build clean, no hardcoded financial literals, every number traceable
-  to a read or a labelled fixture, real loading/error/stale states, wallet flows that confirm on
-  receipt, accessible and responsive, copy that reads like a product — not a prototype.
+- Frontend: typecheck/lint/test/build clean, no hardcoded financial literals, every number
+  traceable to a read or a labelled fixture, real loading/error/stale states, wallet flows that
+  confirm on receipt, accessible and responsive, copy that reads like a product — not a prototype.
 - Docs: updated in the same change; a stranger can run the demo on all three chains from the
   runbook alone.
 
@@ -94,9 +94,9 @@ Do not weaken these rules without an explicit product decision and corresponding
 | Contract tests | Implemented | 247 passing tests at the last verification (2026-08-30, after task 10) |
 | Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
 | Market-manager coverage | Strong | 98.28% lines, 95.44% statements, 73.47% branches, 100% functions (2026-09-11) |
-| Frontend | Migrated to the API | Marketplace and asset page read `/v1` with a provenance badge per panel; issuer/verifier/engine panels still fixtures. See `docs/FRONTEND.md` §3 |
-| Wallet writes | Partially live | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls. Unchanged by the API migration: writes still go through the wallet |
-| Market data | Live except the chart | Metrics, reserves, supply, positions and holdings come from `/v1`. Candles stay `mock`-badged on Anvil |
+| Frontend | Rebuilt on React + Vite (D-035) | Vite 8 + React 19, Tailwind v4, shadcn/ui, Vitest, Docker. The `/v1` client, fixture adapter, and provenance components are ported; **the routes, charts, and wallet writes are not**. See `docs/FRONTEND.md` |
+| Wallet writes | Not currently wired | Buy, claim, redeem, issuer actions, verifier actions, and keeper range calls worked before the D-035 rebuild and must be ported back. wagmi + viem providers are in place |
+| Market data | Client ported, panels not | `lib/api.ts` and `lib/queries.ts` read the full `/v1` surface; only the landing page consumes them so far. Candles stay `mock`-badged on Anvil |
 | Backend API | Implemented | `backend/` (D-030): the full `/v1` read API — assets, metrics, positions, activity, revenue, redemptions, candles, per-account. Provenance envelope on every response; 175 tests |
 | Chain indexer | Implemented | Event ingestion, address discovery, 23 projection tables, restart-safe cursor, reorg rollback + rebuild. Verified against a live Anvil replay and an `evm_revert` reorg |
 | Canonical OHLC | Implemented | Canonical `Swap` ingestion and candle aggregation; the mock pool emits canonical events since task 10. Anvil candles are still badged `mock` — a linear stand-in, not price discovery |
@@ -113,6 +113,80 @@ One agent per stack: read `docs/stacks/README.md`, then the brief for your stack
 Interface changes are announced in the boundary doc in the same change. Kickoff prompts are in
 `docs/stacks/PROMPTS.md`; cross-session messages go in `docs/stacks/HANDOFF_LOG.md`; the reasoning
 behind settled decisions is in `docs/DESIGN_RATIONALE.md` — do not re-litigate it in code.
+
+## Change proposals: OpenSpec
+
+Non-trivial changes are proposed before they are implemented, using OpenSpec (CLI v1.4.1,
+`spec-driven` schema). A proposal lives in `openspec/changes/<change-name>/` and holds
+`proposal.md` (why), `design.md` (how), `tasks.md` (steps), and any capability spec deltas.
+Accepted, implemented changes are archived into `openspec/changes/archive/` and their requirements
+land in `openspec/specs/<capability>/spec.md`.
+
+Slash commands (Claude Code, `.claude/commands/opsx/`; Codex, `.codex/skills/`):
+
+```text
+/opsx:propose "<idea>"   Create a change and generate its artifacts
+/opsx:explore            Investigate before proposing
+/opsx:apply              Implement an approved change's tasks
+/opsx:sync               Fold implemented behavior back into specs
+/opsx:archive            Archive a completed change and update openspec/specs/
+```
+
+Useful CLI checks: `openspec list`, `openspec list --specs`, `openspec status --change <name>`,
+`openspec validate --all`, `openspec view`.
+
+OpenSpec does not replace this repository's existing documents. It is a workflow layer above them:
+
+- `docs/DECISIONS.md` remains the record of accepted product decisions (D-0xx). A proposal that
+  changes protocol behavior cites the decision, or adds one in the same change.
+- `docs/SYSTEM_SPEC.md` stays the canonical implementation-level specification; `openspec/specs/`
+  holds capability-level requirements written for agents.
+- The source-of-truth order above is unchanged — a proposal is a plan, not evidence of behavior.
+  Implementation and passing tests still win.
+- The non-negotiable product rules and the hackathon scope bound every proposal.
+- Beads is the task tracker for an accepted proposal, not a second planning surface. A bead
+  records *that* work is scheduled; `proposal.md` and `design.md` record what it is and why.
+
+### Tracking a change's tasks in Beads
+
+OpenSpec plans the work; Beads schedules it. `scripts/openspec-beads.mjs` is the bridge, so the
+plan is written once and the tracker is derived from it rather than maintained by hand:
+
+```bash
+node scripts/openspec-beads.mjs import <change>              # tasks.md -> one epic + one bead per task
+node scripts/openspec-beads.mjs import <change> --dry-run    # print the graph plan, write nothing
+node scripts/openspec-beads.mjs status <change>              # compare checkboxes against bead status
+bd ready                                                     # the next task whose prerequisites are closed
+```
+
+`import` reads `openspec/changes/<change>/tasks.md`, creates an epic plus one task bead per
+`- [ ] N.M` checkbox, labels them all `openspec:<change>`, and chains them with blocking
+dependencies in file order — so `bd ready` shows the next actionable task instead of the whole
+list. Pass `--parallel-groups` to chain only within each `## N.` group when the groups are
+genuinely independent. Already-ticked tasks are skipped (`--include-done` imports them closed).
+Re-running refuses rather than duplicating; `status` exits non-zero when a bead and its checkbox
+disagree, and never rewrites `tasks.md` — ticking a checkbox stays the job of `/opsx:apply`.
+
+The loop for an agent implementing a change: `import` once, then per task `bd update <id> --claim`,
+implement, tick the checkbox in `tasks.md`, `bd close <id>`, and `bd ready` for the next one. When
+every bead is closed, `/opsx:archive` folds the change into `openspec/specs/`.
+
+Issues live in a local Dolt database under `.beads/` (gitignored). `export.auto` is on, so beads
+also writes `.beads/issues.jsonl` after write commands, throttled to once per 60 seconds — that
+file *is* committed, which is how the task graph stays visible to anyone reading the repo without
+running `bd`.
+
+Four things to know before editing the tracker directly:
+
+- `issues.jsonl` is a passive export, not a sync channel. It shares a snapshot; it does not merge
+  two machines' issue databases. Cross-machine sync would be `bd dolt push` / `bd dolt pull` over
+  `refs/dolt/data` on `origin` (`sync.remote` is configured, nothing has been pushed).
+- If two branches conflict in `issues.jsonl`, do not hand-merge it. The database is the source of
+  truth: take either side, then regenerate with `bd export -o .beads/issues.jsonl`.
+- In a `bd create --graph` plan, an edge `{from_key, to_key, type: "blocks"}` records *from depends
+  on to* — the `from` bead is the blocked one. The name reads backwards; the script comments it.
+- `bd init` set `core.hooksPath` to `.beads/hooks` for this checkout. Adding a conventional
+  `.git/hooks` script will not run it; add it under `.beads/hooks` instead.
 
 ## Source-of-truth order
 
@@ -138,9 +212,17 @@ arc-reserve/
 |   |-- test/integration/             Lifecycle and market happy paths
 |   |-- test/invariant/               Stateful financial invariants
 |   `-- deployments/31337.json        Last local addresses; regenerate after Anvil restart
-|-- frontend/
-|   |-- src/app/                      Marketplace, asset, engine, issuer, verifier routes
-|   |-- src/components/               Charts, transaction panels, controls, shared UI
+|-- frontend/                       React + Vite SPA (D-035)
+|   |-- index.html                    SPA shell; Vite entry
+|   |-- vite.config.ts                Vite + Tailwind plugins, alias, Vitest config
+|   |-- components.json               shadcn/ui generator config
+|   |-- Dockerfile                    Multi-stage; VITE_* are BUILD args, not runtime env
+|   |-- src/index.css                 Tailwind v4 theme; ArcReserve palette as design tokens
+|   |-- src/App.tsx                   Landing page; exercises the ported data layer
+|   |-- src/components/ui/            shadcn/ui primitives (generated)
+|   |-- src/components/data-source.tsx  DataSourceBadge + DataPanel (D-019)
+|   |-- src/lib/api.ts                `/v1` client and the { data, meta } envelope
+|   |-- src/lib/queries.ts            react-query bindings, `["api", route, ...]` keys
 |   |-- src/lib/contracts.ts          Minimal ABIs and environment addresses
 |   `-- src/lib/data.ts               Explicit demo fixtures
 |-- backend/                          Indexer and read API (milestones A-E)
@@ -149,6 +231,12 @@ arc-reserve/
 |   |-- src/config.ts                 Validated environment; refuses non-testnet chains
 |   |-- src/chain/identity.ts         Startup guards and fresh-chain detection
 |   `-- src/api/                      /v1 routes, envelope, Zod response schemas
+|-- openspec/                         OpenSpec change proposals and capability specs
+|   |-- changes/                      Active proposals: proposal.md, design.md, tasks.md
+|   `-- specs/                        Capability specs derived from archived changes
+|-- .beads/                           Beads issue database (Dolt), config, and git hooks
+|-- scripts/
+|   `-- openspec-beads.mjs            Turns a change's tasks.md into dependency-linked beads
 `-- docs/
     |-- SYSTEM_SPEC.md                Canonical implementation-level specification
     |-- ARCHITECTURE.md               Components, trust boundaries, and flows
@@ -338,35 +426,39 @@ borrowing. See `docs/MARKET_MAKING.md`.
 
 ## Frontend truth boundary
 
-The frontend intentionally mixes executable controls and visual fixtures.
+**Rebuilt 2026-09-12 (D-035).** The frontend is a React + Vite SPA. Read this section as the
+current state, and `docs/FRONTEND.md` §1 and §3 onward as the specification for what must be
+ported back.
 
-Live when contract addresses and a wallet are configured:
+Working today:
 
-- mUSD approval;
-- offering purchase;
-- holder revenue claim and claimable read;
-- normal redemption;
-- issuer reserve deposit and revenue deposit;
-- asset submission;
-- verifier NAV/status actions; and
-- keeper `slide`, `sweep`, and `rebalanceToNAV` calls.
+- the `/v1` client with the `{ data, meta }` envelope and typed response shapes;
+- react-query bindings for every route (assets, metrics, candles, nav-history, positions,
+  activity, per-account);
+- the fixture adapter over `data.ts`, and `DataSourceBadge` / `DataPanel` (D-019);
+- wagmi + viem providers with the injected connector; and
+- one landing page that reads the asset list and badges its provenance.
 
-Mock or static today:
+Not working today — these existed before the rebuild and were deliberately not ported:
+
+- every wallet write: mUSD approval, offering purchase, revenue claim, normal redemption, issuer
+  reserve and revenue deposits, asset submission, verifier NAV/status actions, and keeper
+  `slide` / `sweep` / `rebalanceToNAV`;
+- the marketplace, asset, engine, issuer, and verifier routes, and routing itself; and
+- the candle chart and the engine position chart.
+
+Still mock or absent by design:
 
 - OHLC candles and period switching;
-- spot, TWAP, NAV, and floor numbers shown in most cards;
-- market list and issuer profile;
-- liquidity balances and ranges;
-- keeper history;
-- portfolio balances and protocol statistics;
+- keeper history; portfolio balances and protocol statistics;
 - sell execution; and
 - full/partial offering settlement preview.
 
 `frontend/src/lib/data.ts` is the fixture source. Do not call it indexed or live data.
 
-The candle chart uses Recharts with a custom candle shape. TradingView Lightweight Charts is not
-installed. A future chart should consume indexed canonical pool swaps as specified in
-`docs/BACKEND_INDEXER.md`.
+The candle chart is gone with the rebuild; Recharts is no longer installed and TradingView
+Lightweight Charts never was. A replacement should consume indexed canonical pool swaps as
+specified in `docs/BACKEND_INDEXER.md`.
 
 ## Backend and indexer: next major subsystem
 
@@ -418,15 +510,19 @@ Frontend:
 
 ```powershell
 cd frontend
-Copy-Item .env.example .env.local
+Copy-Item .env.example .env.local   # optional; without VITE_API_URL the app runs on fixtures
 npm install
 npm run typecheck
 npm run lint
+npm run test
 npm run build
-npm run dev
+npm run dev                         # http://localhost:3000 (strictPort; backend CORS default)
 ```
 
 If PowerShell blocks `npm.ps1`, use `npm.cmd run <script>` on this Windows machine.
+
+The container build is `docker compose build && docker compose up -d` in `frontend/`. `VITE_*`
+values are build arguments there, because Vite inlines them into the bundle.
 
 Anvil addresses are ephemeral. Regenerate the deployment and update `.env.local` after restarting a
 fresh chain. The checked-in `deployments/31337.json` may describe an older local run.
@@ -446,9 +542,10 @@ Last contract verification:
 - overall Solidity sources: 85.17% lines, 84.33% statements, 59.05% branches, 85.41% functions
   (measured 2026-09-11).
 
-Last frontend verification: `npm.cmd run typecheck`, `npm.cmd run lint`, and
-`npm.cmd run build` all passed. Next.js generated the marketplace, asset, engine, issuer, and verifier
-routes successfully.
+Last frontend verification (2026-09-12, after the D-035 rebuild): `npm run typecheck`,
+`npm run lint`, `npm run test` (25 tests, 3 files), and `npm run build` all passed. The Docker
+image was **not** built — no Docker daemon was running on the machine; `docker compose config`
+validates.
 
 Coverage is not an audit. The local pool is a callback harness, not an economic AMM simulator.
 
@@ -483,11 +580,18 @@ Do not combine steps 7-9 into the current direct offering without a migration an
 - `CompanyVestingWallet` exists but nothing wires it: the issuer receives no token allocation
   (D-031). Do not resurrect vesting flows without a new decision.
 - `contracts/deployments/31337.json` is a snapshot, not a durable address registry.
-- `EngineControls` uses a fixed tick pair suitable only for the seeded demo and may revert after a
-  previous range update or when token ordering differs.
+- `EngineControls` is gone with the D-035 rebuild. When keeper controls are ported, do not restore
+  its fixed tick pair: derive ticks from `positions()`, `tickSpacing()`, and `assetIsToken0()`.
 - Sell is intentionally not implemented in the frontend.
-- Frontend mojibake was cleaned up; a byte scan on 2026-08-27 found only valid UTF-8 punctuation in
-  `frontend/src`. Keep files UTF-8 when editing on Windows.
+- Keep frontend files UTF-8 when editing on Windows; a byte scan on 2026-08-27 found only valid
+  UTF-8 punctuation in `frontend/src`.
+- `VITE_*` variables are inlined by Vite at build time. They are not runtime configuration, they all
+  ship inside the browser bundle, and the Docker image must be rebuilt to repoint at another API.
+- The Vite dev server is pinned to port 3000 (`strictPort`). The backend's `CORS_ORIGIN` defaults to
+  `http://localhost:3000`, so a different port breaks every `/v1` read in the browser.
+- `npx shadcn@latest add` currently mis-resolves the `@/lib/utils` alias here: it writes
+  `import { cn } from "cn"` and installs an unrelated `cn` package. Rewrite the import and
+  `npm uninstall cn` after adding a component (`frontend/README.md`).
 - The mock pool models only a linear stand-in price impact — no impact curve, tick crossing, fee
   growth, MEV, or liquidity exhaustion.
 - `collectFees` cannot separate fees from principal at the generic manager interface level.
@@ -507,3 +611,59 @@ A change is complete only when:
 5. frontend typecheck, lint, and build pass for UI changes;
 6. documentation updates distinguish current implementation from target policy; and
 7. no claim of ownership, guarantee, peg, or dividend is introduced without legal/product approval.
+
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+
+## Agent Context Profiles
+
+The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
+
+- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
+- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
+- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
+
+## Session Completion
+
+This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
+
+1. **File issues for remaining work** - Create beads for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **Handle git/sync by active profile**:
+   ```bash
+   # Conservative/minimal/default: report status and proposed commands; wait for approval.
+   git status
+
+   # Team-maintainer opt-in only, unless current instructions forbid it:
+   git pull --rebase
+   git push
+   git status
+   ```
+5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
+
+**Critical rules:**
+- Explicit user or orchestrator instructions override this Beads block.
+- Do not commit or push without clear authority from the active profile or the current user request.
+- If a required sync or push is blocked, stop and report the exact command and error.
+<!-- END BEADS INTEGRATION -->

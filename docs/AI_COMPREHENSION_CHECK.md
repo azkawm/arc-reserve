@@ -165,12 +165,16 @@ Added 2026-08-27:
     20%, solvent vault, and 30-minute cooldown for rebalances; max shift is 1,200 ticks.
 26. Remove liquidity, collect fees, and return idle mUSD remain available for recovery. New risk
     actions are blocked.
-27. Wallet writes are real when configured. Since Milestone E the marketplace and asset page read
-    `/v1` with a provenance badge per panel; issuer/verifier/engine panels, issuer profile copy,
-    keeper history, and the settlement/lock-and-earn previews are still fixtures. No API URL ⇒
-    labelled fixture mode; a failing API ⇒ error state, never a fixture.
-28. Recharts, now consuming `/v1` candles and drawing overlays from `/nav-history` + `/metrics`;
-    on a fresh Anvil the chart is empty/`MOCK_DISABLED` until a keeper swap produces candles.
+27. **Amended 2026-09-12 (D-035).** None — the frontend was rebuilt on React + Vite and no wallet
+    write is currently wired. What is ported is the read layer: the `/v1` client, the react-query
+    bindings, the fixture adapter, and the provenance components. Only the landing page consumes
+    them. The marketplace, asset, issuer, verifier, and engine routes, both charts, and all writes
+    existed before the rebuild and must be ported back. No API URL ⇒ labelled fixture mode; a
+    failing API ⇒ error state, never a fixture. Saying "wallet writes are live" is now wrong.
+28. Neither, currently: **there is no chart.** Recharts was removed with the D-035 rebuild and
+    TradingView Lightweight Charts was never installed. The replacement must consume `/v1` candles
+    with overlays from `/nav-history` + `/metrics`; on a fresh Anvil it will be empty or
+    `MOCK_DISABLED` until a keeper swap produces candles.
 29. Since task 10 it emits canonical `Swap` events, so real `canonical_swap` candles exist after
     any swap — but it still has no price impact or tick crossing, so its candles record demo
     trades rather than price discovery.

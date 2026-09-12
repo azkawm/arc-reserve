@@ -255,16 +255,25 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-Last verified on 2026-08-17:
+Last verified on 2026-09-12, after the D-035 rebuild onto React + Vite:
 
-- TypeScript `tsc --noEmit`: passed;
-- ESLint: passed;
-- Next.js 15.5.9 optimized production build: passed; and
-- marketplace, asset detail, engine, issuer, and verifier routes prerendered successfully.
+- TypeScript `tsc -b`: passed;
+- ESLint 10 (flat config, mirrors the backend's): passed;
+- Vitest: 25 tests across 3 files, all passed; and
+- Vite production build: passed (`dist/` bundle emitted).
 
-The frontend has no dedicated unit or browser test suite yet. Add tests when live/backend data replaces
-fixtures, particularly for unit formatting, provenance labels, transaction state, and stale/error
-behavior.
+The frontend now has a test runner: **Vitest + Testing Library (jsdom)**, configured in
+`vite.config.ts` with `vitest.setup.ts`. What is covered today:
+
+| File | Covers |
+| --- | --- |
+| `src/lib/format.test.ts` | Money display — truncation never rounds up, thousand grouping, price padding to three decimals, compact abbreviation, basis points, absent-vs-zero (`—` vs `0.000`) |
+| `src/lib/api.test.ts` | D-019 — fixture mode is configured not fallback, no network call in fixture mode, backend error codes surfaced, a non-envelope response rejected, an unreachable backend reported as `NETWORK`, fixture envelopes labelled `mock` + `stale` |
+| `src/App.test.tsx` | Fixture mode renders, admits itself as fixture, badges the panel `Mock`, and keeps spot/floor/backing in distinct columns |
+
+There is no browser/e2e suite. Gaps worth closing as the routes are ported: transaction state
+machines (submitted → receipt confirmed), stale and error rendering per panel, and tick↔price
+conversion under both token orderings.
 
 ## 12. Formatting note
 
