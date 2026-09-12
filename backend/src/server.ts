@@ -84,6 +84,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     client: deps.client,
     startedAt: deps.startedAt ?? Math.floor(Date.now() / 1000),
     version: deps.version,
+    logger,
   });
 
   const chains = new ChainRegistry(config, deps.db, deps.client);

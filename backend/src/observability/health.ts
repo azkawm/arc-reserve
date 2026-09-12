@@ -2,6 +2,8 @@ import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
 import type { ArcPublicClient } from '../chain/client.js';
 import type { CursorPosition } from '../api/envelope.js';
+import type { Logger } from 'pino';
+import { loadAbi } from '../chain/abis.js';
 import type { HealthPayload, HealthStatus } from '../api/schemas/health.js';
 
 export interface HealthDeps {
@@ -10,6 +12,28 @@ export interface HealthDeps {
   client: ArcPublicClient;
   startedAt: number;
   version: string;
+  logger?: Logger;
+}
+
+/**
+ * How far the last trade may sit from NAV before it is worth saying out loud. Not read from the
+ * contract: the manager's own deviation guard was removed in D-039, so there is no on-chain
+ * number to inherit, and inventing agreement with one that no longer exists would be worse than
+ * choosing a threshold openly.
+ */
+const PRICE_DIVERGENCE_WARN_BPS = 500;
+
+/**
+ * Warn once per transition, not once per poll. The frontend polls health after every confirmed
+ * transaction, so logging on state rather than on edges would bury the signal in its own noise.
+ */
+const warned = new Map<string, { stale: boolean; divergence: boolean }>();
+
+interface RiskRow {
+  asset_id: string;
+  current_nav: string | null;
+  nav_updated_at: bigint | null;
+  last_price: string | null;
 }
 
 interface ChainRow {
@@ -112,6 +136,42 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     (row) => Number(row.chain_id) === config.CHAIN_ID && row.worker === 'arc-events',
   );
 
+  // Per-asset exposure, for the chain this process indexes. Everything here comes from the read
+  // model except navStaleAfter, which is one registry-level call and the only RPC this adds.
+  let risks: HealthPayload['risks'] = [];
+  if (database.ok) {
+    const navStaleAfter = await readNavStaleAfter(client, config.addresses.registry);
+    const { rows } = await db.query<RiskRow>(
+      `SELECT a.asset_id, a.current_nav::text, a.nav_updated_at,
+              (SELECT c.close_raw::text
+                 FROM candles c
+                WHERE c.chain_id = a.chain_id AND c.pool = d.pool AND c.interval_seconds = 3600
+                ORDER BY c.bucket_start DESC LIMIT 1) AS last_price
+         FROM assets a
+         LEFT JOIN asset_deployments d ON d.chain_id = a.chain_id AND d.asset_id = a.asset_id
+        WHERE a.chain_id = $1
+        ORDER BY a.asset_id`,
+      [config.CHAIN_ID],
+    );
+
+    risks = rows.map((row) => {
+      const expiresAt =
+        navStaleAfter === null || row.nav_updated_at === null
+          ? null
+          : Number(row.nav_updated_at) + navStaleAfter;
+      const navStale = expiresAt !== null && expiresAt <= now;
+
+      const nav = row.current_nav === null ? 0n : BigInt(row.current_nav);
+      const lastPriceVsNavBps =
+        row.last_price === null || nav === 0n
+          ? null
+          : Number(((BigInt(row.last_price) - nav) * 10_000n) / nav);
+
+      announce(deps.logger, row.asset_id, navStale, lastPriceVsNavBps, expiresAt);
+      return { assetId: row.asset_id, navExpiresAt: expiresAt, navStale, lastPriceVsNavBps };
+    });
+  }
+
   const status = deriveStatus({
     databaseOk: database.ok,
     rpcOk: rpc.ok,
@@ -160,6 +220,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     // AssetSystemDeployed, so the count is a discovery signal, not a constant.
     watchedContracts: 3 + (config.addresses.companyVesting ? 1 : 0),
     anomalies: { open: openAnomalies, indexedChain: openOnIndexedChain, byChain: anomaliesByChain },
+    risks,
     allowMockMarketData: config.ALLOW_MOCK_MARKET_DATA,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   };
@@ -205,6 +266,70 @@ function deriveStatus(input: {
     );
 
   return degraded ? 'degraded' : 'healthy';
+}
+
+/** The registry's NAV validity window. Null rather than a guess if the read fails. */
+async function readNavStaleAfter(
+  client: ArcPublicClient,
+  registry: string,
+): Promise<number | null> {
+  try {
+    const value = await client.readContract({
+      address: registry as `0x${string}`,
+      abi: loadAbi('AssetRegistry'),
+      functionName: 'navStaleAfter',
+    });
+    return Number(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One line when a risk turns on, one when it clears. A WARN in a log someone is watching is a
+ * real control; the alternative — a pager that does not exist — would imply coverage we do not
+ * have, which is worse than saying nothing.
+ */
+function announce(
+  logger: Logger | undefined,
+  assetId: string,
+  navStale: boolean,
+  divergenceBps: number | null,
+  navExpiresAt: number | null,
+): void {
+  if (logger === undefined) return;
+
+  const diverged = divergenceBps !== null && Math.abs(divergenceBps) >= PRICE_DIVERGENCE_WARN_BPS;
+  const previous = warned.get(assetId) ?? { stale: false, divergence: false };
+
+  if (navStale !== previous.stale) {
+    if (navStale) {
+      logger.warn(
+        { assetId, navExpiresAt },
+        'NAV is stale: nothing on chain enforces this, and redemption still prices off it',
+      );
+    } else {
+      logger.info({ assetId }, 'NAV republished, no longer stale');
+    }
+  }
+
+  if (diverged !== previous.divergence) {
+    if (diverged) {
+      logger.warn(
+        { assetId, divergenceBps, thresholdBps: PRICE_DIVERGENCE_WARN_BPS },
+        'last traded price has diverged from NAV',
+      );
+    } else {
+      logger.info({ assetId, divergenceBps }, 'traded price back within range of NAV');
+    }
+  }
+
+  warned.set(assetId, { stale: navStale, divergence: diverged });
+}
+
+/** Tests need each case to start from no remembered state. */
+export function resetRiskWarnings(): void {
+  warned.clear();
 }
 
 async function probeRpc(client: ArcPublicClient): Promise<{

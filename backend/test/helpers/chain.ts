@@ -27,6 +27,8 @@ export interface StubChain {
   code?: Record<string, boolean>;
   /** Lowercase address -> exact bytecode, for tests that inspect code (e.g. the mock-pool check). */
   bytecode?: Record<string, string>;
+  /** Function name -> value, for the few view calls the service makes outside a snapshot. */
+  reads?: Record<string, unknown>;
   /** Block number -> hash. A number that is absent behaves like a block past the head. */
   blocks?: Record<string, string>;
   failWith?: Error;
@@ -44,6 +46,7 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
     code = {},
     bytecode = {},
     blocks = {},
+    reads = {},
     failWith,
   } = options;
 
@@ -62,6 +65,14 @@ export function stubClient(options: StubChain = {}): ArcPublicClient {
       if (exact !== undefined) return exact;
       const has = code[address.toLowerCase()] ?? true;
       return has ? '0x60806040' : '0x';
+    },
+    async readContract({ functionName }: { functionName: string }) {
+      if (failWith) throw failWith;
+      const value = reads[functionName];
+      // An unstubbed read throws, exactly as an unreachable contract would — so a caller that
+      // forgets to handle failure fails in the test rather than in production.
+      if (value === undefined) throw new Error(`no stubbed read for ${functionName}`);
+      return value;
     },
     async getBlock({ blockNumber }: { blockNumber: bigint }) {
       if (failWith) throw failWith;

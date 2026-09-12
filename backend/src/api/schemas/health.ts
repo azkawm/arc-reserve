@@ -72,6 +72,27 @@ export const healthSchema = z.object({
       z.object({ chainId: z.number().int(), open: z.number().int().nonnegative() }),
     ),
   }),
+  /**
+   * Per-asset exposure on the indexed chain. Since D-039 nothing on-chain reads `isNAVStale`,
+   * and normal-mode redemption prices at `min(nav, backing)` with no par cap — so a stale NAV
+   * that is too HIGH overpays redeemers out of the shared reserve, and this is the only control
+   * that exists. `navExpiresAt` is the point of it: `navStale` says the horse has gone, the
+   * deadline lets someone republish before it does.
+   */
+  risks: z.array(
+    z.object({
+      assetId: z.string(),
+      navExpiresAt: z.number().int().nullable(),
+      navStale: z.boolean(),
+      /**
+       * Last indexed trade against NAV, in basis points, signed. Derived from the read model
+       * rather than a live pool read: health is polled after every confirmed transaction, and
+       * fanning out an RPC call per asset per poll is how a rate-limited endpoint starts
+       * refusing the reads that matter. Null when the asset has never traded.
+       */
+      lastPriceVsNavBps: z.number().int().nullable(),
+    }),
+  ),
   /** Whether this process is permitted to serve synthetic market data at all (D-019). */
   allowMockMarketData: z.boolean(),
   staleAfterSeconds: z.number().int().positive(),
