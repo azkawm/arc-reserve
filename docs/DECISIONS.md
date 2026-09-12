@@ -696,6 +696,72 @@ zero expiry, which made the kill switch illusory).
 wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
 that a real deployment verifies identity offchain through a licensed provider.
 
+## D-035: The market flywheel — trading raises the floor
+
+Status: accepted 2026-09-12 (owner). **Not built.** This is the core market feature, recorded as a
+to-do with its full scope rather than discovered mid-build.
+
+**The loop.**
+```
+discovery sells SOLAR01 above market   →  mUSD proceeds
+proceeds credited to the PROTECTED RESERVE  →  backing per investor token rises
+higher backing → canLevelUp() true     →  levelUp() ratchets the published floor one spacing
+reserveFloor position moves up under the new level  →  rebalanceToFloor
+repeat
+```
+Why it matters: until now, **trading did nothing to backing**. The reserve only grew from issuer
+deposits, the revenue split, and yield. This closes the loop D-011 always described — realised
+market surplus becomes floor accretion — and it is the first mechanism in which `levelUp()` has a
+reason to fire on its own. It is the product thesis made mechanical, not a demo nicety.
+
+**What already exists.** `rebalanceToFloor` is implemented and already enforces that the floor
+position sits at or below the published floor tick (`RangeAboveFloor`), ordering-aware. `levelUp()`
+exists. The manager holds a **single token pot** (`collect` pays `address(this)`, the mint callback
+spends from the same balance), so moving value between positions needs no new accounting.
+
+**The missing piece — the only genuinely new vault surface.** No path exists from market proceeds
+into `redemptionReserve`. `returnStablecoinToVault` credits `marketMakingAllocation`, and all seven
+`redemptionReserve +=` sites are fed from issuer deposits, revenue, or yield — none reachable by the
+market manager. A new market-manager-only `creditMarketSurplus(uint256)` is required.
+
+**Non-negotiable properties of that crossing** (this is the first path letting market capital reach
+investor capital, so the rule in `CLAUDE.md` about bucket separation is bent deliberately, once,
+in one direction):
+- **One-way only.** Nothing may move reserve back out to fund trading, ever.
+- **Market-manager only.** Not a keeper action, not an admin action.
+- **Realised surplus only** — proceeds above cost, never the market allocation's principal.
+  Crossing principal would convert market-making capital into backing and flatter the numbers.
+
+**Atomic rebalance with a funded anchor** (the other half, also new):
+- `slide`/`sweep` become money movement rather than bookkeeping: burn → collect → move ticks →
+  re-mint, in one transaction, so the anchor is never observably empty and the path can be triggered
+  by a swap.
+- The recovered tokens support a **different** liquidity at the new range, so `L'` must be computed —
+  requiring `LiquidityAmounts`/`SqrtPriceMath`, which the repo does not have
+  (`src/libraries/` holds only `DecimalMath` and `TickPriceMath.getSqrtRatioAtTick`).
+- **Anchor top-up from the manager's idle inventory** (owner's choice): after a move the anchor holds
+  only the token the market left it with, and a straddling range needs both. Top up from inventory;
+  **degrade gracefully to single-sided when inventory is exhausted**, emitting the shortfall rather
+  than reverting. The manager cannot mint, so SOLAR01 inventory is finite and the flywheel has a
+  fuel gauge.
+- Every precondition failure **skips silently and never reverts the swap**, with a
+  `RebalanceSkipped(reason)` event so a skip is explainable on stage.
+- Tick source is `pool.slot0()` post-swap; re-centre preserving width, **floor-snap** to spacing
+  (negative ticks truncate toward zero in Solidity — the existing `meanTick--` correction shows the
+  pattern), clamp to `maxTickShift`.
+
+**Testing dependency.** The mock pool computes `amount = liquidity × constant` with no concept of
+range or price, so it **cannot validate `L'`**. This feature needs Uniswap V3 **fork tests**, which
+the repo has never had. Wrong liquidity math silently under-deploys capital rather than reverting,
+so shipping it without fork tests is not acceptable even under D-027.
+
+**Scope discipline (owner, 2026-09-12).** Build the *flow*; do not add governance ceremony around
+it. No timelocks, no multisig, no approval delays, no maker-checker — those are documented
+production paths (D-027, D-029) and demonstrating them is not required. The distinction that does
+hold: **existing role gates stay**, because they cost nothing, are already built, and are themselves
+demo material (the refusals). And the three properties of `creditMarketSurplus` above are
+load-bearing, not ceremony — without them the reserve is not a reserve.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:
