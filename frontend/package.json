@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ArcReserve frontend — React + Vite (hackathon, testnet only)",
+  "description": "ArcReserve frontend \u2014 React + Vite (hackathon, testnet only)",
   "engines": {
     "node": ">=20.19"
+  },
+  "overrides": {
+    "use-sync-external-store": "^1.4.0"
   },
   "scripts": {
     "dev": "vite",

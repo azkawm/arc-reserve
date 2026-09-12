@@ -73,6 +73,27 @@ not at a compose service name.
 The image was not built and run during scaffolding — no Docker daemon was available on the
 machine it was authored on. `docker compose config` validates.
 
+## Dependency notes
+
+`package.json` carries one `overrides` entry:
+
+```json
+"overrides": { "use-sync-external-store": "^1.4.0" }
+```
+
+Without it, `npm install` prints a wall of `ERESOLVE overriding peer dependency` warnings. The cause
+is four levels down: `@wagmi/connectors` → `@walletconnect/ethereum-provider` → `@reown/appkit` →
+`valtio@1.13.2`, which pins `use-sync-external-store@1.2.0` — a version whose peer range stops at
+React 18. Every *other* copy in the tree already resolved to 1.4.0, which does list React 19, so the
+override just unifies them on a version that admits the React we actually run.
+
+It is cosmetic, not a correctness fix: the tree only ever contained **one** React (`react@19.3.0`,
+everything deduped to it), and the emitted bundle is byte-identical with and without the override.
+Removing the entry brings the warnings back; it does not break the app.
+
+The deprecation warnings that remain on install (`@walletconnect/*`, `@metamask/sdk`, `uuid@9`) come
+from wagmi's connector dependencies and cannot be resolved from here.
+
 ## shadcn/ui
 
 `components.json` is configured, so components can be added with:
