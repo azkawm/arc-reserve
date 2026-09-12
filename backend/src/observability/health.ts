@@ -4,6 +4,8 @@ import type { ArcPublicClient } from '../chain/client.js';
 import type { CursorPosition } from '../api/envelope.js';
 import type { Logger } from 'pino';
 import { loadAbi } from '../chain/abis.js';
+import { ApiError } from '../lib/errors.js';
+import type { ChainRegistry } from '../api/chain-context.js';
 import type { HealthPayload, HealthStatus } from '../api/schemas/health.js';
 
 export interface HealthDeps {
@@ -13,6 +15,8 @@ export interface HealthDeps {
   startedAt: number;
   version: string;
   logger?: Logger;
+  /** Resolves any chain in the database to its own client and registry. Absent: own chain only. */
+  chains?: ChainRegistry;
 }
 
 /**
@@ -30,6 +34,7 @@ const PRICE_DIVERGENCE_WARN_BPS = 500;
 const warned = new Map<string, { stale: boolean; divergence: boolean }>();
 
 interface RiskRow {
+  chain_id: string;
   asset_id: string;
   current_nav: string | null;
   nav_updated_at: bigint | null;
@@ -136,40 +141,77 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     (row) => Number(row.chain_id) === config.CHAIN_ID && row.worker === 'arc-events',
   );
 
-  // Per-asset exposure, for the chain this process indexes. Everything here comes from the read
-  // model except navStaleAfter, which is one registry-level call and the only RPC this adds.
+  // Per-asset NAV exposure for EVERY chain in the database this process can read — not only the
+  // one it indexes. One API URL serves every chain, and this block is the only control between a
+  // stale NAV and mispriced redemptions; scoped to the indexed chain, another chain's risk would
+  // be absent from the documented URL, and absent reads exactly like all-clear.
+  //
+  // Each chain is resolved the way the asset routes resolve it: its own registry from its chains
+  // row, read through its own RPC. Never the configured registry — the same deployer at the same
+  // nonce put different contracts at one address on two chains. A chain that cannot be read here
+  // is NAMED in riskCoverage.notComputed, so omission can never pass for safety.
   let risks: HealthPayload['risks'] = [];
+  const riskCoverage: HealthPayload['riskCoverage'] = { computed: [], notComputed: [] };
   if (database.ok) {
-    const navStaleAfter = await readNavStaleAfter(client, config.addresses.registry);
     const { rows } = await db.query<RiskRow>(
-      `SELECT a.asset_id, a.current_nav::text, a.nav_updated_at,
+      `SELECT a.chain_id::text, a.asset_id, a.current_nav::text, a.nav_updated_at,
               (SELECT c.close_raw::text
                  FROM candles c
                 WHERE c.chain_id = a.chain_id AND c.pool = d.pool AND c.interval_seconds = 3600
                 ORDER BY c.bucket_start DESC LIMIT 1) AS last_price
          FROM assets a
          LEFT JOIN asset_deployments d ON d.chain_id = a.chain_id AND d.asset_id = a.asset_id
-        WHERE a.chain_id = $1
-        ORDER BY a.asset_id`,
-      [config.CHAIN_ID],
+        ORDER BY a.chain_id, a.asset_id`,
     );
 
-    risks = rows.map((row) => {
-      const expiresAt =
-        navStaleAfter === null || row.nav_updated_at === null
-          ? null
-          : Number(row.nav_updated_at) + navStaleAfter;
-      const navStale = expiresAt !== null && expiresAt <= now;
+    const staleAfterByChain = new Map<number, number>();
+    for (const chainId of [...new Set(rows.map((row) => Number(row.chain_id)))]) {
+      const reader = await riskReaderFor(deps, chainId);
+      if (reader.kind === 'unreadable') {
+        riskCoverage.notComputed.push({ chainId, reason: reader.reason });
+        continue;
+      }
+      const navStaleAfter = await navPolicyFor(chainId, reader.client, reader.registry, now);
+      if (navStaleAfter === null) {
+        // Never read successfully: how long a NAV stays valid on this chain is unknown, so no
+        // deadline exists to report. Said as such, rather than a null deadline — which would read
+        // exactly like an asset that simply has no NAV.
+        riskCoverage.notComputed.push({
+          chainId,
+          reason: `could not read navStaleAfter from the registry on chain ${chainId}`,
+        });
+        continue;
+      }
+      riskCoverage.computed.push(chainId);
+      staleAfterByChain.set(chainId, navStaleAfter);
+    }
 
-      const nav = row.current_nav === null ? 0n : BigInt(row.current_nav);
-      const lastPriceVsNavBps =
-        row.last_price === null || nav === 0n
-          ? null
-          : Number(((BigInt(row.last_price) - nav) * 10_000n) / nav);
+    risks = rows
+      .filter((row) => staleAfterByChain.has(Number(row.chain_id)))
+      .map((row) => {
+        const chainId = Number(row.chain_id);
+        const navStaleAfter = staleAfterByChain.get(chainId) ?? null;
+        const expiresAt =
+          navStaleAfter === null || row.nav_updated_at === null
+            ? null
+            : Number(row.nav_updated_at) + navStaleAfter;
+        const navStale = expiresAt !== null && expiresAt <= now;
 
-      announce(deps.logger, row.asset_id, navStale, lastPriceVsNavBps, expiresAt);
-      return { assetId: row.asset_id, navExpiresAt: expiresAt, navStale, lastPriceVsNavBps };
-    });
+        const nav = row.current_nav === null ? 0n : BigInt(row.current_nav);
+        const lastPriceVsNavBps =
+          row.last_price === null || nav === 0n
+            ? null
+            : Number(((BigInt(row.last_price) - nav) * 10_000n) / nav);
+
+        announce(deps.logger, chainId, row.asset_id, navStale, lastPriceVsNavBps, expiresAt);
+        return {
+          chainId,
+          assetId: row.asset_id,
+          navExpiresAt: expiresAt,
+          navStale,
+          lastPriceVsNavBps,
+        };
+      });
   }
 
   // Durable rollback history, per chain. Read for every chain in the database, like anomalies,
@@ -260,6 +302,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     watchedContracts: 3 + (config.addresses.companyVesting ? 1 : 0),
     anomalies: { open: openAnomalies, indexedChain: openOnIndexedChain, byChain: anomaliesByChain },
     risks,
+    riskCoverage,
     rollbacks,
     allowMockMarketData: config.ALLOW_MOCK_MARKET_DATA,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
@@ -308,6 +351,58 @@ function deriveStatus(input: {
   return degraded ? 'degraded' : 'healthy';
 }
 
+type RiskReader =
+  | { kind: 'readable'; client: ArcPublicClient; registry: `0x${string}` }
+  | { kind: 'unreadable'; reason: string };
+
+/** How this process reads a chain for risk: its own chain directly, any other through the registry. */
+async function riskReaderFor(deps: HealthDeps, chainId: number): Promise<RiskReader> {
+  if (deps.chains === undefined) {
+    return chainId === deps.config.CHAIN_ID
+      ? { kind: 'readable', client: deps.client, registry: deps.config.addresses.registry }
+      : { kind: 'unreadable', reason: 'this process has no way to read that chain' };
+  }
+  try {
+    const context = await deps.chains.resolve(chainId);
+    return { kind: 'readable', client: context.client, registry: context.registry };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    // The registry already says WHY — no RPC, an endpoint that would not verify, or one answering
+    // as a different chain. Replacing that with one fixed string would tell an operator whose URL
+    // is set, but wrong, to go and set it.
+    return { kind: 'unreadable', reason: error.message };
+  }
+}
+
+/**
+ * `navStaleAfter` is registry POLICY — set at deploy, changed only by an admin — so it is cached per
+ * (chain, registry) rather than read on every poll. Health is polled after every confirmed
+ * transaction, and on a free relay a read per chain per poll is how the reads that matter start
+ * getting refused. Keyed by registry as well as chain: the same address holds different contracts
+ * on different chains. A failed refresh keeps the value last actually read instead of blanking every
+ * deadline on each poll; a chain never read successfully returns null, and is reported as unknown.
+ */
+const NAV_POLICY_TTL_SECONDS = 600;
+const navPolicy = new Map<string, { value: number; readAt: number }>();
+
+async function navPolicyFor(
+  chainId: number,
+  client: ArcPublicClient,
+  registry: string,
+  now: number,
+): Promise<number | null> {
+  const key = `${chainId}:${registry.toLowerCase()}`;
+  const cached = navPolicy.get(key);
+  if (cached !== undefined && now - cached.readAt < NAV_POLICY_TTL_SECONDS) return cached.value;
+
+  const fresh = await readNavStaleAfter(client, registry);
+  if (fresh !== null) {
+    navPolicy.set(key, { value: fresh, readAt: now });
+    return fresh;
+  }
+  return cached?.value ?? null;
+}
+
 /** The registry's NAV validity window. Null rather than a guess if the read fails. */
 async function readNavStaleAfter(
   client: ArcPublicClient,
@@ -332,6 +427,7 @@ async function readNavStaleAfter(
  */
 function announce(
   logger: Logger | undefined,
+  chainId: number,
   assetId: string,
   navStale: boolean,
   divergenceBps: number | null,
@@ -339,37 +435,41 @@ function announce(
 ): void {
   if (logger === undefined) return;
 
+  // Keyed by chain AND asset: nothing guarantees an assetId is unique across chains, and a shared
+  // key would let one chain's transition silence the other's.
+  const key = `${chainId}:${assetId}`;
   const diverged = divergenceBps !== null && Math.abs(divergenceBps) >= PRICE_DIVERGENCE_WARN_BPS;
-  const previous = warned.get(assetId) ?? { stale: false, divergence: false };
+  const previous = warned.get(key) ?? { stale: false, divergence: false };
 
   if (navStale !== previous.stale) {
     if (navStale) {
       logger.warn(
-        { assetId, navExpiresAt },
+        { chainId, assetId, navExpiresAt },
         'NAV is stale: nothing on chain enforces this, and redemption still prices off it',
       );
     } else {
-      logger.info({ assetId }, 'NAV republished, no longer stale');
+      logger.info({ chainId, assetId }, 'NAV republished, no longer stale');
     }
   }
 
   if (diverged !== previous.divergence) {
     if (diverged) {
       logger.warn(
-        { assetId, divergenceBps, thresholdBps: PRICE_DIVERGENCE_WARN_BPS },
+        { chainId, assetId, divergenceBps, thresholdBps: PRICE_DIVERGENCE_WARN_BPS },
         'last traded price has diverged from NAV',
       );
     } else {
-      logger.info({ assetId, divergenceBps }, 'traded price back within range of NAV');
+      logger.info({ chainId, assetId, divergenceBps }, 'traded price back within range of NAV');
     }
   }
 
-  warned.set(assetId, { stale: navStale, divergence: diverged });
+  warned.set(key, { stale: navStale, divergence: diverged });
 }
 
-/** Tests need each case to start from no remembered state. */
+/** Tests need each case to start from no remembered state: no warnings, no cached policy. */
 export function resetRiskWarnings(): void {
   warned.clear();
+  navPolicy.clear();
 }
 
 async function probeRpc(client: ArcPublicClient): Promise<{

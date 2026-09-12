@@ -81,6 +81,8 @@ export const healthSchema = z.object({
    */
   risks: z.array(
     z.object({
+      /** Every row names its chain: an assetId is not guaranteed unique across chains. */
+      chainId: z.number().int(),
       assetId: z.string(),
       navExpiresAt: z.number().int().nullable(),
       navStale: z.boolean(),
@@ -99,6 +101,15 @@ export const healthSchema = z.object({
    * makes visible is a rollback nobody expected — on Hedera, which has no reorgs, any count at all
    * is a defect; on a relay-fronted chain, a count that climbs is worth reading before trusting.
    */
+  /**
+   * Which chains `risks` covers. A chain in the database this process cannot read — no RPC for it —
+   * is listed in notComputed with the reason, so that chain's risk is never silently absent: an
+   * absent row would read exactly like a chain with nothing to worry about.
+   */
+  riskCoverage: z.object({
+    computed: z.array(z.number().int()),
+    notComputed: z.array(z.object({ chainId: z.number().int(), reason: z.string() })),
+  }),
   rollbacks: z.array(
     z.object({
       chainId: z.number().int(),

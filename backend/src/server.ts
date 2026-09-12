@@ -10,7 +10,7 @@ import { registerHealthRoute } from './api/routes/health.js';
 import { registerAssetRoutes } from './api/routes/assets.js';
 import { registerAccountRoutes } from './api/routes/accounts.js';
 import { registerCandleRoutes } from './api/routes/candles.js';
-import { ChainRegistry } from './api/chain-context.js';
+import { ChainRegistry, type ChainClientFactory } from './api/chain-context.js';
 
 export interface ServerDeps {
   config: Config;
@@ -19,6 +19,8 @@ export interface ServerDeps {
   logger: Logger;
   version: string;
   startedAt?: number;
+  /** Builds clients for chains other than the indexed one. Tests inject stubs; defaults to viem. */
+  clientFactory?: ChainClientFactory;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -78,16 +80,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       .send({ error: { code: 'BAD_REQUEST', message: `unknown route ${request.method} ${request.url}` } }),
   );
 
+  // Built before health: health reports NAV risk for every chain this process can read, and it
+  // must resolve those chains exactly as the asset routes do — each chain's own registry, through
+  // that chain's own RPC.
+  const chains = new ChainRegistry(config, deps.db, deps.client, deps.clientFactory);
+
   await registerHealthRoute(app, {
     config,
     db: deps.db,
     client: deps.client,
+    chains,
     startedAt: deps.startedAt ?? Math.floor(Date.now() / 1000),
     version: deps.version,
     logger,
   });
 
-  const chains = new ChainRegistry(config, deps.db, deps.client);
   const apiDeps = { config, db: deps.db, client: deps.client, chains, logger };
   await registerAssetRoutes(app, apiDeps);
   await registerAccountRoutes(app, apiDeps);

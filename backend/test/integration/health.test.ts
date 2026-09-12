@@ -27,6 +27,31 @@ beforeEach(async () => {
 const ASSET = `0x${'a7'.repeat(32)}`;
 const POOL = '0x75537828f2ce51be7289709686a69cbfdbb714f1';
 
+/** A second chain's own registry. Distinct on purpose: registries are per chain. */
+const OTHER_REGISTRY = `0x${'b1'.repeat(20)}`;
+
+/** The same asset id on a second chain, with that chain's own root addresses. */
+async function seedOtherChainAsset(
+  chainId: number,
+  navUpdatedAt: number,
+  registry: string,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO chains (chain_id, name, finality_confirmations, registry_address,
+                         factory_address, stablecoin_address, start_block)
+     VALUES ($1, 'other', 1, $2, $3, $4, 0)`,
+    [chainId, registry, `0x${'b2'.repeat(20)}`, `0x${'b3'.repeat(20)}`],
+  );
+  await db.query(
+    `INSERT INTO assets (chain_id, asset_id, issuer, name, category, metadata_uri, metadata_hash,
+                         maturity_timestamp, status, current_nav, nav_updated_at, submitted_block,
+                         submitted_at, updated_block)
+     VALUES ($1, $2, $3, 'Solar Indonesia 01', 'Renewable energy', 'ipfs://x', $4, 0, 2,
+             1000000, $5, 1, 1, 1)`,
+    [chainId, ASSET, `0x${'f3'.repeat(20)}`, `0x${'cd'.repeat(32)}`, navUpdatedAt],
+  );
+}
+
 /** An asset with a published NAV and, optionally, one traded price to compare against it. */
 async function seedAsset(navUpdatedAt: number, lastPriceRaw?: bigint): Promise<void> {
   await db.query(
@@ -270,16 +295,115 @@ describe('GET /v1/health', () => {
     expect(body.data.risks[0]!.lastPriceVsNavBps).toBe(946);
   });
 
-  it('still answers when the registry read fails, without inventing a deadline', async () => {
+  it('reports a chain whose NAV policy it never read as unknown, not as a null deadline', async () => {
+    // No stubbed read: the call throws, as an unreachable registry would. A null deadline would
+    // read exactly like "this asset has no NAV"; the honest statement is "not computed, and why".
     await registerChain(db, config);
     await seedAsset(Math.floor(Date.now() / 1000) - 60);
 
-    // No stubbed read: the call throws, as an unreachable registry would.
     const server = await serve(stubClient());
     const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
 
-    expect(body.data.risks[0]!.navExpiresAt).toBeNull();
-    expect(body.data.risks[0]!.navStale).toBe(false);
+    expect(body.data.risks).toEqual([]);
+    expect(body.data.riskCoverage.computed).toEqual([]);
+    expect(body.data.riskCoverage.notComputed).toEqual([
+      { chainId: 31337, reason: 'could not read navStaleAfter from the registry on chain 31337' },
+    ]);
+  });
+
+  it('keeps the NAV policy it last read when a later read fails', async () => {
+    // Policy, not state: a relay hiccup on one poll must not blank every deadline on that poll.
+    const now = Math.floor(Date.now() / 1000);
+    await registerChain(db, config);
+    await seedAsset(now - 3600);
+
+    const first = await serve(stubClient({ reads: { navStaleAfter: 172_800 } }));
+    const before = envelope.parse((await first.inject({ method: 'GET', url: '/v1/health' })).json());
+    await first.close();
+
+    // Same process, same cache: the registry read now fails.
+    const second = await serve(stubClient());
+    const after = envelope.parse((await second.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(before.data.risks[0]!.navExpiresAt).toBe(now - 3600 + 172_800);
+    expect(after.data.risks[0]!.navExpiresAt).toBe(now - 3600 + 172_800);
+    expect(after.data.riskCoverage.notComputed).toEqual([]);
+  });
+
+  it('computes risk for another chain it can read, and keeps same-id assets apart', async () => {
+    // One API URL serves every chain, so risk cannot stop at the indexed chain. The same assetId is
+    // seeded on BOTH chains on purpose: nothing guarantees uniqueness across chains, and rows keyed
+    // by assetId alone would collapse into one.
+    const now = Math.floor(Date.now() / 1000);
+    await registerChain(db, config);
+    await seedAsset(now - 3600);
+    // Chain 84532 gets a client that genuinely IS 84532 — it answers eth_chainId as 84532 and its
+    // registry answers navStaleAfter — so both chains are truly computed. (An earlier version
+    // borrowed Anvil for this, which only "worked" because nothing verified the endpoint.)
+    await seedOtherChainAsset(84532, now - 7200, OTHER_REGISTRY);
+
+    const withBase = testConfig({ RPC_HTTP_URL_84532: 'http://base-sepolia.test' });
+    const server = await buildServer({
+      config: withBase,
+      db,
+      client: stubClient({ reads: { navStaleAfter: 172_800 } }),
+      clientFactory: () => stubClient({ chainId: 84532, reads: { navStaleAfter: 172_800 } }),
+      logger,
+      version: '0.1.0',
+    });
+    app = server;
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.riskCoverage.computed.sort()).toEqual([31337, 84532]);
+    expect(body.data.riskCoverage.notComputed).toEqual([]);
+    const byChain = new Map(body.data.risks.map((risk) => [risk.chainId, risk]));
+    expect(body.data.risks).toHaveLength(2);
+    expect(byChain.get(31337)?.assetId).toBe(ASSET);
+    expect(byChain.get(84532)?.assetId).toBe(ASSET);
+    expect(byChain.get(31337)?.navExpiresAt).toBe(now - 3600 + 172_800);
+    expect(byChain.get(84532)?.navExpiresAt).toBe(now - 7200 + 172_800);
+  });
+
+  it('names a chain whose RPC answers as a different chain, rather than trusting its numbers', async () => {
+    // The one control that must be right cannot take its deadline from the wrong chain.
+    const now = Math.floor(Date.now() / 1000);
+    await registerChain(db, config);
+    await seedAsset(now - 3600);
+    await seedOtherChainAsset(84532, now - 7200, OTHER_REGISTRY);
+
+    const server = await buildServer({
+      config: testConfig({ RPC_HTTP_URL_84532: 'http://hashio.test' }),
+      db,
+      client: stubClient({ reads: { navStaleAfter: 172_800 } }),
+      clientFactory: () => stubClient({ chainId: 296, reads: { navStaleAfter: 999 } }),
+      logger,
+      version: '0.1.0',
+    });
+    app = server;
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.risks.map((risk) => risk.chainId)).toEqual([31337]);
+    expect(body.data.riskCoverage.notComputed).toHaveLength(1);
+    expect(body.data.riskCoverage.notComputed[0]!.chainId).toBe(84532);
+    expect(body.data.riskCoverage.notComputed[0]!.reason).toContain('answers as chain 296');
+  });
+
+  it('names a chain it cannot read instead of leaving its risk out', async () => {
+    // No RPC for 84532 in this process. Its asset exists and is at risk just the same; the report
+    // must say "not computed here", never imply "nothing to report".
+    const now = Math.floor(Date.now() / 1000);
+    await registerChain(db, config);
+    await seedAsset(now - 3600);
+    await seedOtherChainAsset(84532, now - 7200, OTHER_REGISTRY);
+
+    const server = await serve(stubClient({ reads: { navStaleAfter: 172_800 } }));
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.risks.map((risk) => risk.chainId)).toEqual([31337]);
+    expect(body.data.riskCoverage.computed).toEqual([31337]);
+    expect(body.data.riskCoverage.notComputed).toHaveLength(1);
+    expect(body.data.riskCoverage.notComputed[0]!.chainId).toBe(84532);
+    expect(body.data.riskCoverage.notComputed[0]!.reason).toContain('RPC_HTTP_URL_84532');
   });
 
   it('reports rollbacks from the durable record without degrading status', async () => {

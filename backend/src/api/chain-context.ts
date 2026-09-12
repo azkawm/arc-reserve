@@ -24,6 +24,13 @@ interface ChainRow {
   registry_address: string;
 }
 
+/** Builds a client for a chain. Injectable so tests can hand a chain a client that really is it. */
+export type ChainClientFactory = (
+  chainId: SupportedChainId,
+  rpcUrl: string,
+  pollIntervalMs: number,
+) => ArcPublicClient;
+
 export class ChainRegistry {
   private readonly clients = new Map<SupportedChainId, ArcPublicClient>();
 
@@ -31,6 +38,7 @@ export class ChainRegistry {
     private readonly config: Config,
     private readonly db: Database,
     primaryClient: ArcPublicClient,
+    private readonly createClient: ChainClientFactory = createChainClientFor,
   ) {
     // The indexed chain always uses the client the process was built with: it is the one
     // `assertChainReady` verified, and in tests it is the stub the test injected.
@@ -64,10 +72,10 @@ export class ChainRegistry {
       );
     }
 
-    return { chainId: supported, client: this.clientFor(supported), registry: registryOf(row) };
+    return { chainId: supported, client: await this.clientFor(supported), registry: registryOf(row) };
   }
 
-  private clientFor(chainId: SupportedChainId): ArcPublicClient {
+  private async clientFor(chainId: SupportedChainId): Promise<ArcPublicClient> {
     const existing = this.clients.get(chainId);
     if (existing !== undefined) return existing;
 
@@ -82,7 +90,32 @@ export class ChainRegistry {
       );
     }
 
-    const client = createChainClientFor(chainId, rpcUrl, this.config.POLL_INTERVAL_MS);
+    const client = this.createClient(chainId, rpcUrl, this.config.POLL_INTERVAL_MS);
+
+    // The primary client was verified at startup; this one has not been. A URL is only a claim
+    // about which chain it reaches, and viem does not compare eth_chainId on calls. Unverified, a
+    // copy-paste slip — Hashio's URL under Arc — reads Arc's recorded addresses on Hedera, where the
+    // same address holds a DIFFERENT contract: reverts at best, plausible values labelled onchain
+    // at worst, including the NAV deadlines health derives through this client. One read per chain
+    // for the life of the process, and only a verified client is cached.
+    let answered: number;
+    try {
+      answered = await client.getChainId();
+    } catch {
+      // Not cached: a transient failure is retried on the next request, never trusted.
+      throw new ApiError(
+        'CHAIN_UNAVAILABLE',
+        `could not verify the RPC for chain ${chainId}: it did not answer eth_chainId`,
+      );
+    }
+    if (answered !== chainId) {
+      throw new ApiError(
+        'CHAIN_UNAVAILABLE',
+        `RPC_HTTP_URL_${chainId} answers as chain ${answered}, not ${chainId}; ` +
+          'refusing to read one chain through another chain\'s endpoint',
+      );
+    }
+
     this.clients.set(chainId, client);
     return client;
   }

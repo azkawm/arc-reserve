@@ -7,6 +7,7 @@ import { createLogger } from '../../src/observability/logger.js';
 import { envelopeSchema } from '../../src/api/envelope.js';
 import { assetListSchema } from '../../src/api/schemas/assets.js';
 import type { Config } from '../../src/config.js';
+import type { ChainClientFactory } from '../../src/api/chain-context.js';
 import type { Database } from '../../src/db/client.js';
 
 /**
@@ -83,13 +84,20 @@ afterAll(async () => {
   await closeTestDatabase();
 });
 
-async function serve(config: Config) {
-  app = await buildServer({ config, db, client: stubClient(), logger, version: '0.1.0' });
+async function serve(config: Config, clientFactory?: ChainClientFactory) {
+  app = await buildServer({
+    config,
+    db,
+    client: stubClient(),
+    logger,
+    version: '0.1.0',
+    ...(clientFactory === undefined ? {} : { clientFactory }),
+  });
   return app;
 }
 
-async function assets(config: Config, query = '') {
-  const server = await serve(config);
+async function assets(config: Config, query = '', clientFactory?: ChainClientFactory) {
+  const server = await serve(config, clientFactory);
   const response = await server.inject({ method: 'GET', url: `/v1/assets${query}` });
   return { status: response.statusCode, json: response.json() as unknown };
 }
@@ -105,10 +113,15 @@ describe('?chainId= selects the chain', () => {
   });
 
   it('serves another indexed chain when that chain has an RPC configured', async () => {
-    // The URL only has to exist: this route reads the head for the envelope and tolerates a
-    // failure there, and with no deployment row it makes no contract calls at all.
-    const config = testConfig({ RPC_HTTP_URL_84532: 'http://127.0.0.1:8545' });
-    const { status, json } = await assets(config, `?chainId=${BASE_SEPOLIA}`);
+    // The endpoint must genuinely answer as 84532: the registry verifies eth_chainId before it will
+    // read through a client. (This test used to point 84532 at Anvil, and passed only because that
+    // check did not exist.)
+    const config = testConfig({ RPC_HTTP_URL_84532: 'http://base-sepolia.test' });
+    const { status, json } = await assets(
+      config,
+      `?chainId=${BASE_SEPOLIA}`,
+      () => stubClient({ chainId: BASE_SEPOLIA }),
+    );
     expect(status).toBe(200);
 
     const body = list.parse(json);
@@ -116,6 +129,22 @@ describe('?chainId= selects the chain', () => {
     expect(body.data.map((asset) => asset.assetId)).toEqual([BASE_ASSET]);
     // The configured chain's asset is not reachable from the other chain's response.
     expect(body.data.map((asset) => asset.assetId)).not.toContain(ANVIL_ASSET);
+  });
+
+  it('refuses an RPC that answers as a different chain than the one it is configured for', async () => {
+    // A wrong URL is worse than a missing one: on these chains the same address holds different
+    // contracts, so reading Base Sepolia's addresses through another chain's endpoint returns
+    // plausible values under the wrong chain's name. The registry must refuse, and say which ids.
+    const config = testConfig({ RPC_HTTP_URL_84532: 'http://hashio.test' });
+    const { status, json } = await assets(config, `?chainId=${BASE_SEPOLIA}`, () =>
+      stubClient({ chainId: 296 }),
+    );
+
+    expect(status).toBe(503);
+    const error = (json as { error: { code: string; message: string } }).error;
+    expect(error.code).toBe('CHAIN_UNAVAILABLE');
+    expect(error.message).toContain('answers as chain 296');
+    expect(error.message).toContain('84532');
   });
 
   it('refuses an indexed chain it has no RPC for, rather than reading the wrong chain', async () => {
