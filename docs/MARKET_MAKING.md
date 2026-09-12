@@ -54,6 +54,40 @@ reference and liquid reserve backing per outstanding token. It is neither spot n
 - `refreshDiscovery`: updates the discovery target range.
 - `rebalanceToNAV`: gradually changes the anchor after a verified NAV update.
 
+### The flywheel (D-035, Phase B-1)
+
+`swapExactInput(tokenIn, amountIn, minAmountOut, deadline)` is the **permissionless trading entry
+point** — the public buys and sells through the manager rather than the pool directly. After the
+trade settles, the crank turns:
+
+```
+buyer takes SOLAR01 out of the discovery range   →  the pool converts that inventory to mUSD
+harvest discovery (burn + collect)               →  the proceeds become REAL, in the manager
+creditMarketSurplus                              →  they cross into the PROTECTED RESERVE
+backing per investor token rises                 →  canLevelUp() turns true
+levelUp()                                        →  the published floor ratchets one spacing
+```
+
+Until this existed, **trading did nothing to backing** — the reserve only grew from issuer
+deposits, the revenue split and yield. Measured on a canonical-Uniswap fork, one trade moved the
+reserve 24,000 → 24,630.32 mUSD and backing 0.300000 → 0.307879, and the floor advanced.
+
+Three things about it that are deliberate rather than incidental:
+
+- **The harvest comes before the credit.** Proceeds from a converted position stay *inside* the
+  position until it is burned, so burning is what realises them. Skip the harvest and there is
+  nothing to credit.
+- **Every post-trade step can fail silently**, reporting `FlywheelSkipped(reason)`. A trader's swap
+  must never revert because the engine could not tidy up afterwards.
+- **Unspent input is refunded.** A swap that exhausts liquidity stops at the price limit; left in
+  the manager, the remainder would be indistinguishable from surplus and would be credited to the
+  reserve — turning a trader's own money into backing.
+
+The crossing is **one-way** (`MARKET_MANAGER_ROLE` only, nothing moves the reserve back toward
+trading) and capped at `max(0, manager mUSD balance − principalOutstanding)`, so borrowed capital
+can never be credited as earnings. Discovery is **not re-minted** after a harvest — that needs the
+`L'` liquidity maths, which is the unbuilt half of D-035; a keeper refills with `addLiquidity`.
+
 Each operation requires an active, unmatured asset; fresh NAV; acceptable price deviations; vault
 solvency; a completed cooldown; tick-aligned ranges; and a bounded tick shift. Active liquidity must
 be removed before a range changes. The keeper then remints explicitly with maximum inputs, minimum
@@ -150,7 +184,7 @@ for the post-hackathon hardening phase.
 | Floor level-up | A rebalance opportunistically advances the published floor; a controller that is unset, ineligible or reverting is skipped with a reason and never fails the rebalance |
 | Swaps | Both token directions, exact callback accounting, maximum input, minimum output, nonzero amount, and deadline |
 | Emergency recovery | Pause blocks new risk while existing liquidity can still be removed; unpause restores guarded operation |
-| Fees | Only configured positions can collect; the no-accrual path returns zero without changing reserve accounting |
+| Fees | Only configured positions can collect; the no-accrual path returns zero without changing reserve accounting. On a **fork against real Uniswap**, fees accrued by genuine swaps are collected on the first call (the position is poked first), and remain collectable after the position is fully removed |
 
 The focused suites are:
 

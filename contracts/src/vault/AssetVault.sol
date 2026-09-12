@@ -68,6 +68,8 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     event RedemptionReleased(address indexed recipient, uint256 amount);
     event MarketFundsReleased(address indexed marketManager, uint256 amount);
     event MarketFundsReturned(address indexed marketManager, uint256 amount);
+    /// @notice D-035: realised market surplus crossing into the protected reserve.
+    event MarketSurplusCredited(address indexed marketManager, uint256 amount, uint256 newReserve);
     event ReserveScheduleSet(
         uint256 startBacking,
         uint256 targetBacking,
@@ -293,6 +295,35 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         protocolFees += protocolAmount;
         _emitAllocation("REDEMPTION_RESERVE", int256(reserveAmount), redemptionReserve);
         _emitAllocation("PROTOCOL_FEES", int256(protocolAmount), protocolFees);
+        _syncShortfall();
+    }
+
+    /// @notice Credit realised market surplus into the protected reserve (D-035).
+    /// @dev    THE market flywheel's crossing point, and the only path from market capital into
+    ///         investor capital. Deliberately ONE-WAY: nothing moves the reserve back out to fund
+    ///         trading. `withdrawMarketAllocation` draws from `marketMakingAllocation`, a separate
+    ///         bucket, so there is no round trip through here.
+    ///
+    ///         `MARKET_MANAGER_ROLE` only - not a keeper action, not an admin action.
+    ///
+    ///         The vault deliberately does NOT check that `amount` is surplus rather than
+    ///         principal. It cannot see the manager's cost basis, so a check here would be theatre;
+    ///         the cap is enforced manager-side by `creditableSurplus()`. The funds transferred are
+    ///         real and the direction is one-way, so the worst a buggy manager can do is misreport
+    ///         which bucket capital came from - it can never inflate the reserve beyond what it
+    ///         actually hands over.
+    function creditMarketSurplus(uint256 amount)
+        external
+        onlyRole(MARKET_MANAGER_ROLE)
+        nonReentrant
+        whenNotPaused
+    {
+        _requireSystemLive();
+        stablecoin.safeTransferFrom(msg.sender, address(this), amount);
+        redemptionReserve += amount;
+        _emitAllocation("REDEMPTION_RESERVE", int256(amount), redemptionReserve);
+        emit MarketSurplusCredited(msg.sender, amount, redemptionReserve);
+        // Backing per investor token has just risen, so a shortfall may have cleared.
         _syncShortfall();
     }
 

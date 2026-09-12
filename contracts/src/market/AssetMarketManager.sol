@@ -46,6 +46,12 @@ contract AssetMarketManager is
     bytes32 public constant KEEPER_ROLE = keccak256("KEEPER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    /// @dev Uniswap V3's price bounds. A swap with its limit set at the extreme runs until the
+    ///      input is spent or liquidity is exhausted, whichever comes first.
+    uint160 private constant MIN_SQRT_RATIO = 4_295_128_739;
+    uint160 private constant MAX_SQRT_RATIO =
+        1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
+
     enum PositionKind {
         ReserveFloor,
         Anchor,
@@ -120,6 +126,10 @@ contract AssetMarketManager is
     /// @notice Published protected-floor level (D-025). Bound after deployment because the floor
     ///         controller is deployed once the market manager's pool ordering is known.
     IFloorController public floorController;
+    /// @notice Stable drawn from the vault's market allocation and not yet returned — the cost
+    ///         basis for D-035 surplus. Anything the manager holds ABOVE this was earned by the
+    ///         market, not borrowed from the vault, and is therefore creditable to the reserve.
+    uint256 public principalOutstanding;
     uint64 public lastRebalanceAt;
     uint64 private _callbackNonce;
     bytes32 private _activeMintCallback;
@@ -152,6 +162,13 @@ contract AssetMarketManager is
     /// @notice The opportunistic level-up on the rebalance path did not run, and why (D-036).
     ///         Never an error: a rebalance must not fail because the floor could not advance.
     event FloorLevelUpSkipped(bytes32 reason);
+    event SwapExactInput(
+        address indexed trader, address indexed tokenIn, uint256 amountIn, uint256 amountOut
+    );
+    /// @notice D-035: realised market surplus handed to the vault's protected reserve.
+    event SurplusCredited(uint256 amount);
+    /// @notice A flywheel step did not run, and why. Informational — the trade still settled.
+    event FlywheelSkipped(bytes32 reason);
     event SafetyPolicyUpdated(
         uint32 twapWindow,
         uint32 cooldown,
@@ -230,13 +247,26 @@ contract AssetMarketManager is
 
     function fundFromVault(uint256 stablecoinAmount) external onlyRole(KEEPER_ROLE) whenNotPaused {
         _enforceSafety(false);
+        principalOutstanding += stablecoinAmount;
         vault.withdrawMarketAllocation(stablecoinAmount);
         emit MarketAllocationFunded(stablecoinAmount);
     }
 
     function returnStablecoinToVault(uint256 amount) external onlyRole(KEEPER_ROLE) {
+        // Saturating: returning more than was drawn simply clears the basis rather than reverting.
+        principalOutstanding = amount >= principalOutstanding ? 0 : principalOutstanding - amount;
         stablecoin.forceApprove(address(vault), amount);
         vault.returnMarketAllocation(amount);
+    }
+
+    /// @notice Stable the manager holds beyond what it drew from the vault (D-035).
+    /// @dev    Conservative by construction. Stable locked inside pool positions is not in this
+    ///         balance, so an under-water manager reads 0 rather than over-crediting; the figure
+    ///         only goes positive once the market has actually returned more than was borrowed —
+    ///         inventory sold through discovery, or fees collected in mUSD. Both are real surplus.
+    function creditableSurplus() public view returns (uint256) {
+        uint256 balance = stablecoin.balanceOf(address(this));
+        return balance > principalOutstanding ? balance - principalOutstanding : 0;
     }
 
     /// @notice Asset inventory must be transferred in; this manager has no minting authority.
@@ -309,6 +339,24 @@ contract AssetMarketManager is
         emit PositionLiquidityRemoved(kind, liquidity, amount0, amount1);
     }
 
+    /// @notice Collect accrued swap fees for one position.
+    /// @dev    A Uniswap V3 pool only credits a position's `tokensOwed` when the position is
+    ///         *touched*. Fee growth accumulates globally as swaps cross the range, but it is not
+    ///         attributed until a mint or burn recomputes it. Collecting without that recompute
+    ///         therefore returns 0 even when real fees exist, and a keeper reading 0 would
+    ///         reasonably conclude there was nothing to collect. Confirmed on a Base Sepolia fork
+    ///         (`test/fork/BaseSepoliaMarket.t.sol`): before a poke this returned 0/0 after real
+    ///         swaps; after the position was touched the same call returned 491,447.
+    ///
+    ///         So poke first, with a zero-liquidity burn — the canonical way to force the recompute
+    ///         without changing the position.
+    ///
+    ///         The poke is CONDITIONAL, and that is not an optimisation. v3's `Position.update`
+    ///         reverts `NP` for a zero-liquidity burn against a position holding no liquidity, so
+    ///         an unconditional poke would break collecting *after* a full `removeLiquidity` — and
+    ///         that is exactly when a keeper collects the fees the removal left owed. With no
+    ///         liquidity there is nothing to recompute anyway: the burn that emptied the position
+    ///         already credited everything.
     function collectFees(PositionKind kind)
         external
         onlyRole(KEEPER_ROLE)
@@ -317,6 +365,9 @@ contract AssetMarketManager is
     {
         Position storage position = positions[kind];
         if (!position.configured) revert PositionNotConfigured();
+        if (position.liquidity != 0) {
+            pool.burn(position.tickLower, position.tickUpper, 0);
+        }
         (uint128 collected0, uint128 collected1) = pool.collect(
             address(this),
             position.tickLower,
@@ -363,6 +414,34 @@ contract AssetMarketManager is
             revert SlippageExceeded();
         }
         emit SwapExecuted(params.zeroForOne, amountIn, amountOut, params.sqrtPriceLimitX96);
+    }
+
+    /// @notice Trade against the asset's pool and turn the crank (D-035).
+    /// @dev    Permissionless: this is the public trading entry point, not a keeper action. The
+    ///         compliance perimeter still holds without extra checks — the pool pays the caller
+    ///         directly, so `AssetToken` rejects an unverified recipient, and an unverified seller
+    ///         cannot transfer tokens in.
+    ///
+    ///         After the trade settles, the flywheel runs: harvest what the market converted,
+    ///         cross the realised surplus into the protected reserve, and let the floor ratchet.
+    ///         Every one of those steps is allowed to fail silently with a reason — **a trader's
+    ///         swap must never revert because the engine could not tidy up afterwards.**
+    function swapExactInput(
+        address tokenIn,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        uint256 deadline
+    ) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+        if (block.timestamp > deadline) revert DeadlineExpired();
+        if (amountIn == 0) revert InvalidSwapDirection();
+        bool zeroForOne = tokenIn == address(token0);
+        if (!zeroForOne && tokenIn != address(token1)) revert InvalidPoolTokens();
+
+        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+        amountOut = _routeSwap(zeroForOne, amountIn, minAmountOut, tokenIn);
+        emit SwapExactInput(msg.sender, tokenIn, amountIn, amountOut);
+
+        _runFlywheel();
     }
 
     /// @notice Move the anchor after the price has left its range on the UPSIDE.
@@ -608,6 +687,99 @@ contract AssetMarketManager is
         try controller.levelUp() returns (int24) { }
         catch {
             emit FloorLevelUpSkipped("LEVEL_UP_REVERTED");
+        }
+    }
+
+    function _routeSwap(bool zeroForOne, uint256 amountIn, uint256 minAmountOut, address tokenIn)
+        private
+        returns (uint256 amountOut)
+    {
+        bytes memory data = _encodeSwapCallback(zeroForOne, amountIn);
+        _activeSwapCallback = keccak256(data);
+        (int256 amount0, int256 amount1) = pool.swap(
+            msg.sender,
+            zeroForOne,
+            int256(amountIn),
+            zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1,
+            data
+        );
+        _activeSwapCallback = bytes32(0);
+
+        int256 inputDelta = zeroForOne ? amount0 : amount1;
+        int256 outputDelta = zeroForOne ? amount1 : amount0;
+        if (inputDelta <= 0 || outputDelta >= 0) revert InvalidSwapDirection();
+        amountOut = uint256(-outputDelta);
+        if (amountOut < minAmountOut) revert SlippageExceeded();
+
+        // A swap that stops at the price limit leaves input unspent. Refund it — left here it
+        // would sit in the manager's balance and be miscounted as market surplus on the next
+        // credit, quietly converting a trader's own money into protected reserve.
+        uint256 spent = uint256(inputDelta);
+        if (spent < amountIn) IERC20(tokenIn).safeTransfer(msg.sender, amountIn - spent);
+    }
+
+    function _encodeSwapCallback(bool zeroForOne, uint256 amountIn) private returns (bytes memory) {
+        return abi.encode(
+            CallbackData({
+                token0: address(token0),
+                token1: address(token1),
+                maxAmount0: zeroForOne ? amountIn : 0,
+                maxAmount1: zeroForOne ? 0 : amountIn,
+                zeroForOne: zeroForOne,
+                nonce: ++_callbackNonce
+            })
+        );
+    }
+
+    /// @dev D-035, the flywheel. Discovery sells SOLAR01 above market, the proceeds become backing,
+    ///      higher backing lets the published floor ratchet, and the floor position follows it up.
+    ///      Until this existed, trading did nothing to backing at all.
+    function _runFlywheel() private {
+        _harvestDiscovery();
+        _creditSurplus();
+        _tryLevelUpFloor();
+    }
+
+    /// @dev Discovery sits above spot holding SOLAR01. When price rises through it the pool
+    ///      converts that inventory to mUSD — but the proceeds stay INSIDE the position until it is
+    ///      burned, so burning is what realises them. That is why the harvest comes before the
+    ///      credit rather than after. `collect` requests the maximum so accrued fees come too.
+    ///
+    ///      Not re-minted here: re-minting into a moved range needs the `L'` liquidity maths the
+    ///      repo does not have yet. A keeper refills through the existing `addLiquidity`, where the
+    ///      liquidity is supplied explicitly and guarded by its own slippage bounds.
+    function _harvestDiscovery() private {
+        Position storage position = positions[PositionKind.Discovery];
+        uint128 liquidity = position.liquidity;
+        if (!position.configured || liquidity == 0) {
+            emit FlywheelSkipped("NO_DISCOVERY_LIQUIDITY");
+            return;
+        }
+        position.liquidity = 0;
+        pool.burn(position.tickLower, position.tickUpper, liquidity);
+        (uint128 collected0, uint128 collected1) = pool.collect(
+            address(this),
+            position.tickLower,
+            position.tickUpper,
+            type(uint128).max,
+            type(uint128).max
+        );
+        emit PositionLiquidityRemoved(PositionKind.Discovery, liquidity, collected0, collected1);
+    }
+
+    /// @dev Guarded because the vault is pausable and pausing it must not break trading.
+    function _creditSurplus() private {
+        uint256 surplus = creditableSurplus();
+        if (surplus == 0) {
+            emit FlywheelSkipped("NO_SURPLUS");
+            return;
+        }
+        stablecoin.forceApprove(address(vault), surplus);
+        try vault.creditMarketSurplus(surplus) {
+            emit SurplusCredited(surplus);
+        } catch {
+            stablecoin.forceApprove(address(vault), 0);
+            emit FlywheelSkipped("CREDIT_REVERTED");
         }
     }
 

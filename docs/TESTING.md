@@ -63,6 +63,26 @@ forge test --match-test testName -vvvv
 forge test --rerun -vvvv
 ```
 
+### Fork tests (canonical Uniswap V3)
+
+Everything above runs against `MockUniswapV3Pool`. The fork suite runs the engine against the
+**real** Uniswap V3 on a pinned Base Sepolia block, and is **excluded from `forge test`** (see
+`no_match_path` in `foundry.toml`) because it hits an RPC:
+
+```bash
+FOUNDRY_PROFILE=fork forge test -vv      # needs BASE_SEPOLIA_RPC_URL
+```
+
+The block is pinned (46,710,000), so after the first run Foundry serves it from cache and the suite
+takes well under a second. Do not unpin it: results would drift with chain state.
+
+Two things to keep in mind when reading a green fork run:
+
+- It proves liquidity math, fee accrual and callback behaviour against real v3 code.
+- It proves **nothing about transaction admissibility.** A fork does not enforce EIP-7825's
+  per-transaction gas cap or Hedera's, which is how an 18.4M-gas `deployAssetSystem` passed every
+  fork rehearsal before being refused at precheck on the real chain.
+
 ## 3. Suite inventory
 
 | Suite | Tests | Main coverage |
@@ -77,6 +97,8 @@ forge test --rerun -vvvv
 | `ArcReserveLifecycleIntegrationTest` | 3 | Complete lifecycle, default/emergency path, full holder redemption |
 | `MarketMakingHappyPathTest` | 3 | Hikari-inspired slide, sweep, discovery refresh and remint |
 | `FinancialInvariantsTest` | 5 | Supply, accounting/solvency, claims, reserve, obligation equality |
+| `MarketFlywheelTest` | 9 | D-035 accounting and authority: `principalOutstanding` as cost basis, `creditableSurplus` cap (borrowed capital is never creditable, an under-water manager reads 0), market-manager-only crossing (not keeper, not admin), and that the crossing is one-way |
+| `BaseSepoliaMarketForkTest` | 9 | **Fork, canonical Uniswap V3.** Real pool identity; range/token asymmetry (below-spot ranges need stable only, above-spot need asset only, straddling needs both); a genuine swap driving the D-036 anchor signal; fee accrual and collection on live and emptied positions; **the D-035 flywheel end to end** — trade in, surplus credited, backing up, floor ratcheted — and the unspent-input refund |
 
 Total: 247 (2026-09-05; the table above lists only the pre-task-1 suites — see `contracts/test/`
 for the compliance, schedule, floor, terms, and class-cap suites added since).

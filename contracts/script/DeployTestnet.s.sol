@@ -16,6 +16,7 @@ import { FloorController } from "../src/market/FloorController.sol";
 import { AssetMarketManager } from "../src/market/AssetMarketManager.sol";
 import { IdentityRegistry } from "../src/compliance/IdentityRegistry.sol";
 import { ModularCompliance } from "../src/compliance/ModularCompliance.sol";
+import { DemoRegistrar } from "../src/compliance/DemoRegistrar.sol";
 import { CountryAllowModule } from "../src/compliance/modules/CountryAllowModule.sol";
 import { TransferLockModule } from "../src/compliance/modules/TransferLockModule.sol";
 import { AssetFactory } from "../src/factory/AssetFactory.sol";
@@ -73,6 +74,7 @@ contract DeployTestnet is Script {
     address private registryAddress;
     address private factoryAddress;
     address private poolFactoryAddress;
+    address private demoRegistrarAddress;
     bool private poolIsCanonical;
     bool private predictedAssetIsToken0;
     uint64 private maturity;
@@ -183,6 +185,18 @@ contract DeployTestnet is Script {
         if (retail != address(0)) {
             identityRegistry.registerIdentity(retail, retail, COUNTRY_INDONESIA, CLASS_RETAIL, 0);
         }
+
+        // D-034 DEMO: the permissionless KYC stub. Without it only `deployer` (and whatever
+        // DEMO_INVESTOR / DEMO_RETAIL name) can hold SOLAR01, so a judge connecting a fresh wallet
+        // could not touch the demo at all. **Anyone can self-verify on this chain from here on**,
+        // for every asset series sharing this registry — label it that way, never as a real gate.
+        //
+        // Deployed here rather than bolted on afterwards so a fresh chain is usable immediately.
+        // `DeployDemoRegistrar` exists for the other case: attaching this to a system that is
+        // already live, without redeploying it and discarding its verified wallets.
+        DemoRegistrar demoRegistrar = new DemoRegistrar(address(identityRegistry));
+        demoRegistrarAddress = address(demoRegistrar);
+        identityRegistry.grantRole(identityRegistry.REGISTRY_AGENT_ROLE(), demoRegistrarAddress);
     }
 
     function _buildParams() private returns (AssetFactory.DeploymentParams memory params) {
@@ -310,7 +324,9 @@ contract DeployTestnet is Script {
             assetIsToken0,
             market.tickSpacing(),
             assetIsToken0 ? int24(-288_420) : int24(288_420),
-            30 minutes,
+            // D-035 demo pacing: 5s. The flywheel advances the floor one tick spacing per trade,
+            // so a 30-minute cooldown would let it fire once and then skip for the rest of a demo.
+            5 seconds,
             deployer
         );
         floorControllerAddress = address(floorController);
@@ -361,6 +377,7 @@ contract DeployTestnet is Script {
         vm.serializeAddress(root, "mockYieldSource", mockYieldSourceAddress);
         vm.serializeAddress(root, "floorController", floorControllerAddress);
         vm.serializeAddress(root, "identityRegistry", address(identityRegistry));
+        vm.serializeAddress(root, "demoRegistrar", demoRegistrarAddress);
         vm.serializeAddress(root, "compliance", address(compliance));
         vm.serializeAddress(root, "countryAllowModule", address(countryModule));
         vm.serializeAddress(root, "transferLockModule", address(lockModule));
@@ -387,7 +404,9 @@ contract DeployTestnet is Script {
         console2.log("Pool factory", poolFactoryAddress);
         console2.log("Pool is canonical", poolIsCanonical);
         console2.log("Identity registry", address(identityRegistry));
+        console2.log("Demo registrar", demoRegistrarAddress);
         console2.log("Compliance", address(compliance));
+        console2.log("DEMO: anyone can self-verify on this chain via DemoRegistrar.selfRegister()");
     }
 
     /// @dev The ten dev keys of Anvil's default mnemonic ("test test ... junk"). Publicly known;

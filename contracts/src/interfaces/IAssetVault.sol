@@ -11,6 +11,8 @@ interface IAssetVault {
     function releaseRedemption(address recipient, uint256 amount) external;
     function withdrawMarketAllocation(uint256 amount) external;
     function returnMarketAllocation(uint256 amount) external;
+    /// @notice Credit realised market surplus into the protected reserve (D-035). One-way.
+    function creditMarketSurplus(uint256 amount) external;
     function redemptionReserve() external view returns (uint256);
     function marketMakingAllocation() external view returns (uint256);
     function minimumRequiredReserve() external view returns (uint256);

@@ -757,8 +757,42 @@ to-do. Renumbering would silently shift every later code in both stacks.
 
 ## D-035: The market flywheel — trading raises the floor
 
-Status: accepted 2026-09-12 (owner). **Not built.** This is the core market feature, recorded as a
-to-do with its full scope rather than discovered mid-build.
+Status: accepted 2026-09-12 (owner). **Phase B-1 built and proven on a canonical-Uniswap fork
+(2026-09-12); the atomic re-mint half is not built.** This is the core market feature, recorded
+with its full scope rather than discovered mid-build.
+
+**What shipped (B-1).** `AssetVault.creditMarketSurplus` with all three non-negotiable properties
+below; `AssetMarketManager.principalOutstanding` as the cost basis and `creditableSurplus()` as the
+cap; and a permissionless `swapExactInput(tokenIn, amountIn, minAmountOut, deadline)` that trades
+against the pool and then turns the crank — harvest discovery, credit the surplus, ratchet the
+floor — with every post-trade step skipping via `FlywheelSkipped(reason)` rather than reverting the
+trade. Measured on a Base Sepolia fork: reserve 24,000 → 24,630.32 mUSD, backing 0.300000 →
+0.307879, floor ratcheted, in one trade.
+
+**Cost basis, since D-035 as written did not define one.** "Proceeds above cost" has no arithmetic
+meaning for SOLAR01 that arrived through `fundTokenInventory` — a transfer in, with no mUSD cost
+basis at all. The implemented rule uses the one boundary the decision does give ("never the market
+allocation's principal"): `creditable = max(0, manager mUSD balance − principalOutstanding)`. It is
+conservative by construction — stable locked inside pool positions is not in the balance, so an
+under-water manager reads 0 rather than over-crediting — and it only goes positive once the market
+has genuinely returned more than was borrowed.
+
+**The vault does not police it.** It cannot see the manager's cost basis, so a check there would be
+theatre; the cap is manager-side. The funds are real and the direction is one-way, so the worst a
+buggy manager can do is misreport which bucket capital came from — never inflate the reserve.
+
+**What is NOT built:** the atomic burn → collect → move → re-mint, the `L'` liquidity maths it
+needs, and the anchor top-up. B-1 harvests without re-minting, so no `L'` is required; a keeper
+refills through the existing `addLiquidity`, where liquidity is supplied explicitly and guarded by
+its own slippage bounds. Degradation when inventory is exhausted is **skip and emit**, not a range
+shift — an anchor moved off spot is no longer an anchor, so shifting would sacrifice the model to
+save a transaction.
+
+**One trap found while building, worth keeping written down.** A swap that exhausts liquidity stops
+at the price limit and leaves input unspent in the manager. Left there it is indistinguishable from
+market surplus and would be credited to the reserve on the next crank — quietly converting a
+trader's own money into protected backing. `swapExactInput` refunds the unspent remainder, and
+`test_swapExactInputRefundsInputItCouldNotSpend` pins it.
 
 **The loop.**
 ```
