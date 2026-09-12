@@ -225,6 +225,29 @@ describe('GET /v1/assets/:assetId/metrics', () => {
     expect(typeof body.data.offering.open).toBe('boolean');
   });
 
+  it('publishes when the NAV lapses, not only whether it has', async () => {
+    // Every keeper and liquidity path is blocked the moment a NAV goes stale, so the deadline
+    // is what lets a UI warn beforehand. `navStaleAfter` is a uint32, which viem hands back as
+    // a number: adding it to the bigint timestamp without saying so throws at request time.
+    const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+    const staleAfter = await view<number>(deployment.registry, 'AssetRegistry', 'navStaleAfter');
+
+    const expiresAt = body.data.nav.expiresAt;
+    expect(body.data.nav.staleAfterSeconds).toBe(Number(staleAfter));
+    expect(expiresAt).not.toBeNull();
+    expect(expiresAt).toBe(body.data.nav.timestamp + Number(staleAfter));
+    expect(body.data.nav.stale).toBe((expiresAt ?? 0) <= Math.floor(Date.now() / 1000));
+  });
+
+  it('says the market is ready rather than merely not broken', async () => {
+    // Three distinct states: prices live, pool warming up (its TWAP window is not covered yet
+    // and the price views revert on a timer), or genuinely unavailable. The demo pool answers
+    // immediately, so this deployment is ready.
+    const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
+    expect(body.data.marketStatus).toBe('ready');
+    expect(body.data.spot).not.toBeNull();
+  });
+
   it('exposes the D-023 reserve schedule with a target that moves with time', async () => {
     const body = await get(`/v1/assets/${deployment.assetId}/metrics`, metricsSchema);
     const schedule = body.data.reserveSchedule;

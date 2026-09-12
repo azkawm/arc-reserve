@@ -1,4 +1,4 @@
-import { getAddress, toFunctionSelector } from 'viem';
+import { BaseError, ContractFunctionRevertedError, getAddress, toFunctionSelector } from 'viem';
 import type { ArcPublicClient } from './client.js';
 import { loadAbi, type ContractName } from './abis.js';
 
@@ -24,6 +24,44 @@ async function safeRead<T>(read: () => Promise<T>): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/** Same, but keeps the error so the caller can tell one failure from another. */
+async function tryRead<T>(read: () => Promise<T>): Promise<{ value: T | null; error: unknown }> {
+  try {
+    return { value: await read(), error: null };
+  } catch (error) {
+    return { value: null, error };
+  }
+}
+
+/**
+ * A Uniswap V3 pool's `observe` reverts with the string `OLD` until its observation history
+ * covers the requested window — so for the first `twapWindow` seconds after a pool is
+ * initialised, every price view that consults the TWAP reverts. That is a deployment warming
+ * up on a timer, not a fault, and it fixes itself; rendering it as an error sends someone
+ * debugging a healthy chain. Anything else stays "unavailable".
+ */
+export function isColdOracle(error: unknown): boolean {
+  if (error instanceof BaseError) {
+    const reverted = error.walk((cause) => cause instanceof ContractFunctionRevertedError);
+    if (reverted instanceof ContractFunctionRevertedError && reverted.reason === 'OLD') return true;
+  }
+  // viem reports a require-string revert in the message, and wraps errors in errors, so the
+  // whole chain is searched rather than whichever layer happened to arrive here.
+  const text = causeChain(error);
+  return /revert/i.test(text) && /(^|[^A-Z])OLD([^A-Z]|$)/.test(text);
+}
+
+/** An error's message and those of its causes, a few levels deep. */
+function causeChain(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    messages.push(current.message);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return messages.join(' | ');
 }
 
 export interface AssetComponents {
@@ -137,6 +175,12 @@ export interface MarketSnapshot {
   positions: MarketPosition[];
   safety: { failure: number; spot: bigint; twap: bigint; nav: bigint } | null;
   /**
+   * True when the price views reverted only because the pool's TWAP window is not yet covered.
+   * Prices are still null — nothing is invented — but the caller can say "warming up" instead
+   * of "unavailable". `safetyState` reverts for the same reason, so it is null here too.
+   */
+  oracleWarmingUp: boolean;
+  /**
    * False when the pool is `MockUniswapV3Pool`. Every price derived from a non-canonical
    * pool is served with `mock` provenance, never `onchain` (D-019).
    */
@@ -150,6 +194,8 @@ export interface RegistrySnapshot {
   maturity: bigint;
   issuer: `0x${string}`;
   isNAVStale: boolean;
+  /** Seconds a published NAV stays valid (`uint32`). Null on a registry without the setting. */
+  navStaleAfter: number | null;
 }
 
 export interface FloorSnapshot {
@@ -497,7 +543,7 @@ async function readMarket(
   pool: `0x${string}`,
 ): Promise<MarketSnapshot> {
   const [
-    prices,
+    pricesResult,
     assetIsToken0,
     tickSpacing,
     twapWindow,
@@ -510,7 +556,7 @@ async function readMarket(
     safety,
     canonical,
   ] = await Promise.all([
-    safeRead(() => read<readonly [bigint, bigint, number]>(at, 'marketPrices')),
+    tryRead(() => read<readonly [bigint, bigint, number]>(at, 'marketPrices')),
     read<boolean>(at, 'assetIsToken0'),
     read<number>(at, 'tickSpacing'),
     read<number>(at, 'twapWindow'),
@@ -523,6 +569,9 @@ async function readMarket(
     safeRead(() => read<readonly [number, bigint, bigint, bigint]>(at, 'safetyState', [true])),
     poolIsCanonical(client, pool),
   ]);
+
+  const prices = pricesResult.value;
+  const oracleWarmingUp = prices === null && isColdOracle(pricesResult.error);
 
   const positions = await Promise.all(
     [0, 1, 2, 3].map(async (kind) => {
@@ -559,17 +608,19 @@ async function readMarket(
       safety === null
         ? null
         : { failure: Number(safety[0]), spot: safety[1], twap: safety[2], nav: safety[3] },
+    oracleWarmingUp,
     poolIsCanonical: canonical,
   };
 }
 
 async function readRegistry(read: Read, at: ReadOptions, assetId: string): Promise<RegistrySnapshot> {
-  const [status, navResult, maturity, issuer, isNAVStale] = await Promise.all([
+  const [status, navResult, maturity, issuer, isNAVStale, navStaleAfter] = await Promise.all([
     read<number>(at, 'statusOf', [assetId]),
     read<readonly [bigint, bigint]>(at, 'navOf', [assetId]),
     read<bigint>(at, 'maturityOf', [assetId]),
     read<`0x${string}`>(at, 'issuerOf', [assetId]),
     read<boolean>(at, 'isNAVStale', [assetId]),
+    safeRead(() => read<number>(at, 'navStaleAfter')),
   ]);
 
   return {
@@ -579,6 +630,7 @@ async function readRegistry(read: Read, at: ReadOptions, assetId: string): Promi
     maturity,
     issuer,
     isNAVStale,
+    navStaleAfter,
   };
 }
 

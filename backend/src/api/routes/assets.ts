@@ -265,7 +265,15 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         timestamp: Number(snapshot.registry.navTimestamp),
         // Recomputed by the registry at this block, never a stored boolean.
         stale: snapshot.registry.isNAVStale,
+        // A NAV expires on a timer, and every keeper and liquidity path is blocked once it
+        // does. Publishing the deadline lets a UI warn before that, not after.
+        staleAfterSeconds: snapshot.registry.navStaleAfter,
+        expiresAt:
+          snapshot.registry.navStaleAfter === null
+            ? null
+            : Number(snapshot.registry.navTimestamp) + snapshot.registry.navStaleAfter,
       },
+      marketStatus: marketStatusOf(snapshot),
       spot: spotField(snapshot, Number(cursor.blockNumber)),
       twap: twapField(snapshot),
       floorReference: {
@@ -655,6 +663,12 @@ function marketSpot(snapshot: AssetSnapshot): { value: string; provenance: Prove
     value: formatFixed(snapshot.market.spotPrice, STABLE_DECIMALS),
     provenance: snapshot.market.poolIsCanonical ? 'onchain' : 'mock',
   };
+}
+
+function marketStatusOf(snapshot: AssetSnapshot): 'ready' | 'warming_up' | 'unavailable' {
+  if (snapshot.market === null) return 'unavailable';
+  if (snapshot.market.spotPrice !== null && snapshot.market.twapPrice !== null) return 'ready';
+  return snapshot.market.oracleWarmingUp ? 'warming_up' : 'unavailable';
 }
 
 function spotField(snapshot: AssetSnapshot, sourceBlock: number) {

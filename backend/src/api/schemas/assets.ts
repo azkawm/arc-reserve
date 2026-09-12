@@ -70,10 +70,21 @@ const navSchema = z.object({
   raw: z.string(),
   timestamp: z.number().int(),
   stale: z.boolean(),
+  /** How long a published NAV stays valid, and when this one lapses. */
+  staleAfterSeconds: z.number().int().nullable(),
+  expiresAt: z.number().int().nullable(),
 });
+
+/**
+ * `ready` — prices below are live. `warming_up` — the pool exists but its TWAP window is not
+ * covered yet, so the price views revert; this clears itself within `twapWindow` seconds of the
+ * pool being initialised. `unavailable` — no pool, or a failure that will not clear on its own.
+ */
+export const marketStatusSchema = z.enum(['ready', 'warming_up', 'unavailable']);
 
 export const metricsSchema = z.object({
   nav: navSchema,
+  marketStatus: marketStatusSchema,
   spot: provenanced(amountSchema.extend({ sourceBlock: z.number().int() })).nullable(),
   twap: provenanced(amountSchema.extend({ windowSeconds: z.number().int() })).nullable(),
   floorReference: amountSchema.extend({ formula: z.string() }),
