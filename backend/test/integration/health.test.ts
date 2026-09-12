@@ -282,6 +282,39 @@ describe('GET /v1/health', () => {
     expect(body.data.risks[0]!.navStale).toBe(false);
   });
 
+  it('reports rollbacks from the durable record without degrading status', async () => {
+    // Recorded outside the cursor row on purpose: a deep rollback deletes the cursor, so a counter
+    // kept there is destroyed by the event it counts. A reorg is chain behaviour, not an unwell
+    // service, so the verdict stays healthy — the record exists to be seen, not to page.
+    await registerChain(db, config);
+    for (const [fromBlock, ancestor, blocks, deleted] of [
+      [90, 87, 3, true],
+      [120, 119, 1, false],
+    ] as const) {
+      await db.query(
+        `INSERT INTO indexer_rollbacks (chain_id, worker, from_block, ancestor_block,
+                                        blocks_discarded, logs_discarded, cursor_deleted)
+         VALUES (31337, 'arc-events', $1, $2, $3, 0, $4)`,
+        [fromBlock, ancestor, blocks, deleted],
+      );
+    }
+
+    const server = await serve(stubClient());
+    const body = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+
+    expect(body.data.status).toBe('healthy');
+    expect(body.data.rollbacks).toHaveLength(1);
+    const record = body.data.rollbacks[0]!;
+    expect(record.chainId).toBe(31337);
+    expect(record.count).toBe(2);
+    expect(record.last).toMatchObject({
+      fromBlock: 120,
+      ancestorBlock: 119,
+      blocksDiscarded: 1,
+      cursorDeleted: false,
+    });
+  });
+
   it('reports unhealthy with 503 when the chain is unreachable', async () => {
     await registerChain(db, config);
     const server = await serve(stubClient({ failWith: new Error('connect ECONNREFUSED') }));

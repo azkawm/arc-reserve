@@ -56,6 +56,23 @@ async function storedBlocks(): Promise<number[]> {
   return rows.map((row) => Number(row.number));
 }
 
+/** The durable rollback record. Uncertainty must never write one; a real rollback always does. */
+async function rollbackRecords(): Promise<
+  Array<{ from_block: string; ancestor_block: string; blocks_discarded: number; cursor_deleted: boolean }>
+> {
+  const { rows } = await db.query<{
+    from_block: string;
+    ancestor_block: string;
+    blocks_discarded: number;
+    cursor_deleted: boolean;
+  }>(
+    `SELECT from_block::text, ancestor_block::text, blocks_discarded, cursor_deleted
+       FROM indexer_rollbacks WHERE chain_id = $1 ORDER BY id`,
+    [config.CHAIN_ID],
+  );
+  return rows;
+}
+
 async function cursorBlock(): Promise<number> {
   const row = await db.one<{ block_number: string }>(
     "SELECT block_number::text FROM indexer_cursors WHERE worker = 'arc-events'",
@@ -74,6 +91,7 @@ describe('reconcileCursor under uncertainty', () => {
     expect(result).toBeNull();
     expect(await storedBlocks()).toEqual([88, 89, 90]);
     expect(await cursorBlock()).toBe(90);
+    expect(await rollbackRecords()).toEqual([]);
   });
 
   it('does not deepen a rollback when a hash read fails partway down the walk', async () => {
@@ -87,6 +105,7 @@ describe('reconcileCursor under uncertainty', () => {
     expect(result).toBeNull();
     expect(await storedBlocks()).toEqual([88, 89, 90]);
     expect(await cursorBlock()).toBe(90);
+    expect(await rollbackRecords()).toEqual([]);
   });
 
   it('does not roll back when one lagging relay node reports a head below the tip', async () => {
@@ -101,6 +120,7 @@ describe('reconcileCursor under uncertainty', () => {
     expect(result).toBeNull();
     expect(await storedBlocks()).toEqual([88, 89, 90]);
     expect(await cursorBlock()).toBe(90);
+    expect(await rollbackRecords()).toEqual([]);
   });
 
   it('still rolls back when the chain really is shorter than the cursor', async () => {
@@ -117,6 +137,11 @@ describe('reconcileCursor under uncertainty', () => {
     // backfills from START_BLOCK rather than resuming from a block that no longer exists.
     const cursors = await db.query("SELECT 1 FROM indexer_cursors WHERE worker = 'arc-events'");
     expect(cursors.rows).toHaveLength(0);
+    // The case that left no trace before: the cursor is gone, and the record must not be. It also
+    // outlives the full rebuild reconcileCursor ran after discarding blocks.
+    expect(await rollbackRecords()).toEqual([
+      { from_block: '90', ancestor_block: '87', blocks_discarded: 3, cursor_deleted: true },
+    ]);
   });
 
   it('still rolls back on a definite hash mismatch with readable history below it', async () => {
@@ -131,5 +156,8 @@ describe('reconcileCursor under uncertainty', () => {
     expect(result).toEqual({ commonAncestor: 89n, depth: 1 });
     expect(await storedBlocks()).toEqual([88, 89]);
     expect(await cursorBlock()).toBe(89);
+    expect(await rollbackRecords()).toEqual([
+      { from_block: '90', ancestor_block: '89', blocks_discarded: 1, cursor_deleted: false },
+    ]);
   });
 });

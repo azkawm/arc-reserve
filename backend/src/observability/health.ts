@@ -172,6 +172,45 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     });
   }
 
+  // Durable rollback history, per chain. Read for every chain in the database, like anomalies,
+  // because the API serves them all; unlike anomalies it never feeds the verdict below.
+  let rollbacks: HealthPayload['rollbacks'] = [];
+  if (database.ok) {
+    const { rows } = await db.query<{
+      chain_id: string;
+      count: string;
+      at: Date;
+      from_block: string;
+      ancestor_block: string;
+      blocks_discarded: number;
+      logs_discarded: number;
+      cursor_deleted: boolean;
+    }>(
+      `SELECT c.chain_id::text, c.count::text, r.rolled_back_at AS at, r.from_block::text,
+              r.ancestor_block::text, r.blocks_discarded, r.logs_discarded, r.cursor_deleted
+         FROM (SELECT chain_id, count(*) AS count FROM indexer_rollbacks GROUP BY chain_id) c
+         JOIN LATERAL (
+              SELECT * FROM indexer_rollbacks x
+               WHERE x.chain_id = c.chain_id
+               ORDER BY x.rolled_back_at DESC, x.id DESC
+               LIMIT 1
+         ) r ON TRUE
+        ORDER BY c.chain_id`,
+    );
+    rollbacks = rows.map((row) => ({
+      chainId: Number(row.chain_id),
+      count: Number(row.count),
+      last: {
+        at: Math.floor(row.at.getTime() / 1000),
+        fromBlock: Number(row.from_block),
+        ancestorBlock: Number(row.ancestor_block),
+        blocksDiscarded: row.blocks_discarded,
+        logsDiscarded: row.logs_discarded,
+        cursorDeleted: row.cursor_deleted,
+      },
+    }));
+  }
+
   const status = deriveStatus({
     databaseOk: database.ok,
     rpcOk: rpc.ok,
@@ -221,6 +260,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     watchedContracts: 3 + (config.addresses.companyVesting ? 1 : 0),
     anomalies: { open: openAnomalies, indexedChain: openOnIndexedChain, byChain: anomaliesByChain },
     risks,
+    rollbacks,
     allowMockMarketData: config.ALLOW_MOCK_MARKET_DATA,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   };

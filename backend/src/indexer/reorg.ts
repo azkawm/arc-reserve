@@ -107,6 +107,13 @@ export async function rollbackTo(
   logger?: Logger,
 ): Promise<RollbackCounts> {
   return db.withTransaction(async (tx) => {
+    // Read before anything moves: the cursor may be deleted below, and with it the only place
+    // that knew which block failed its check.
+    const cursorBefore = await tx.query<{ block_number: string }>(
+      'SELECT block_number::text FROM indexer_cursors WHERE chain_id = $1 AND worker = $2',
+      [chainId, ARC_EVENTS_WORKER],
+    );
+
     const { rows: logRows } = await tx.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM raw_logs
         WHERE chain_id = $1 AND block_number > $2`,
@@ -150,6 +157,23 @@ export async function rollbackTo(
 
     const counts = { blocks, logs: Number(logRows[0]?.count ?? '0') };
     if (counts.blocks > 0) {
+      // Durable, and outside everything that erases history: no cascade from indexed_blocks, not
+      // cleared by a rebuild. The cursor's own reorg_depth cannot do this job, because the cursor
+      // is exactly what a deep rollback deletes.
+      await tx.query(
+        `INSERT INTO indexer_rollbacks (chain_id, worker, from_block, ancestor_block,
+                                        blocks_discarded, logs_discarded, cursor_deleted)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          chainId,
+          ARC_EVENTS_WORKER,
+          cursorBefore.rows[0]?.block_number ?? ancestor.toString(),
+          ancestor.toString(),
+          counts.blocks,
+          counts.logs,
+          row === undefined,
+        ],
+      );
       logger?.warn({ ancestor: ancestor.toString(), ...counts }, 'rolled back reorged blocks');
     }
     return counts;

@@ -93,6 +93,26 @@ export const healthSchema = z.object({
       lastPriceVsNavBps: z.number().int().nullable(),
     }),
   ),
+  /**
+   * Every rollback the indexer has performed, per chain, from a durable record. Informational: a
+   * genuine reorg is chain behaviour, not an unwell service, so this never moves `status`. What it
+   * makes visible is a rollback nobody expected — on Hedera, which has no reorgs, any count at all
+   * is a defect; on a relay-fronted chain, a count that climbs is worth reading before trusting.
+   */
+  rollbacks: z.array(
+    z.object({
+      chainId: z.number().int(),
+      count: z.number().int().nonnegative(),
+      last: z.object({
+        at: z.number().int(),
+        fromBlock: z.number().int(),
+        ancestorBlock: z.number().int(),
+        blocksDiscarded: z.number().int().positive(),
+        logsDiscarded: z.number().int().nonnegative(),
+        cursorDeleted: z.boolean(),
+      }),
+    }),
+  ),
   /** Whether this process is permitted to serve synthetic market data at all (D-019). */
   allowMockMarketData: z.boolean(),
   staleAfterSeconds: z.number().int().positive(),
