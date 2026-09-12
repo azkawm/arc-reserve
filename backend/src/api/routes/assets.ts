@@ -483,7 +483,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       {
         assetIsToken0: market.assetIsToken0,
         tickSpacing: market.tickSpacing,
-        currentTick: market.meanTick,
+        currentTick: market.currentTick,
         positions,
       },
       ctx.meta(inputs, 'onchain'),
@@ -666,9 +666,12 @@ function marketSpot(snapshot: AssetSnapshot): { value: string; provenance: Prove
 }
 
 function marketStatusOf(snapshot: AssetSnapshot): 'ready' | 'warming_up' | 'unavailable' {
-  if (snapshot.market === null) return 'unavailable';
-  if (snapshot.market.spotPrice !== null && snapshot.market.twapPrice !== null) return 'ready';
-  return snapshot.market.oracleWarmingUp ? 'warming_up' : 'unavailable';
+  // Spot alone. Before D-036 this also required a TWAP, which the manager no longer publishes —
+  // leaving that condition in would have reported every healthy deployment unavailable for good.
+  // `warming_up` stays in the contract as a reserved value; nothing returns it today, because
+  // the pools are deployed with an observation cardinality of 1 and have no window to fill.
+  if (snapshot.market === null || snapshot.market.spotPrice === null) return 'unavailable';
+  return 'ready';
 }
 
 function spotField(snapshot: AssetSnapshot, sourceBlock: number) {
@@ -684,12 +687,13 @@ function spotField(snapshot: AssetSnapshot, sourceBlock: number) {
 }
 
 function twapField(snapshot: AssetSnapshot) {
+  // Null on every current deployment: the manager stopped publishing a time-weighted price
+  // (D-036). The field is kept, rather than removed, so a future TWAP has somewhere to land.
   if (snapshot.market === null || snapshot.market.twapPrice === null) return null;
   return {
     value: {
       value: formatFixed(snapshot.market.twapPrice, STABLE_DECIMALS),
       raw: snapshot.market.twapPrice.toString(),
-      windowSeconds: snapshot.market.twapWindow,
     },
     provenance: (snapshot.market.poolIsCanonical ? 'onchain' : 'mock') as Provenance,
   };

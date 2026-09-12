@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { getAddress } from 'viem';
+import { getAddress, toFunctionSelector } from 'viem';
 import { closeTestDatabase, testDatabase, truncateAll } from '../helpers/database.js';
 import { testConfig } from '../helpers/chain.js';
 import { ANVIL_RPC_URL, readLocalDeployment, requireAnvil, type LocalDeployment } from '../helpers/anvil.js';
@@ -37,6 +37,26 @@ import type { ArcPublicClient } from '../../src/chain/client.js';
  */
 
 const logger = createLogger('silent', false);
+
+/** Whether the deployed pool is the test harness rather than a real Uniswap V3 pool. */
+async function isMockPool(): Promise<boolean> {
+  const code = (await client.getCode({ address: deployment.pool as `0x${string}` })) ?? '0x';
+  return ['setOracleForTest', 'setSwapOutputBpsForTest']
+    .map((name) =>
+      toFunctionSelector(
+        loadAbi('MockUniswapV3Pool').find(
+          (item) => item.type === 'function' && item.name === name,
+        ) as never,
+      ).slice(2),
+    )
+    .some((selector) => code.includes(selector));
+}
+
+/** Whether this chain has ever emitted a real Swap, which decides what /candles owes. */
+async function hasCanonicalCandles(): Promise<boolean> {
+  const row = await db.maybe(`SELECT 1 FROM candles WHERE source = 'canonical_swap' LIMIT 1`);
+  return row !== null;
+}
 
 let deployment: LocalDeployment;
 let config: Config;
@@ -108,11 +128,15 @@ describe('GET /v1/assets', () => {
     expect(item.contracts?.pool).toBe(getAddress(deployment.pool));
   });
 
-  it('labels a price from the mock pool as mock, never onchain', async () => {
-    // The pool is MockUniswapV3Pool: a callback harness whose price does not move with
-    // trading. Publishing that as `onchain` is the silent substitution D-019 forbids.
+  it('labels the spot price by what the pool actually is, never by assumption', async () => {
+    // DeployLocal deploys either MockUniswapV3Pool or a real V3 pool depending on how it was
+    // run, so the fixed answer this test used to assert was measuring the deployment. What
+    // D-019 forbids is the mismatch in either direction: a mock pool published as `onchain`,
+    // or a canonical one understated as `mock`. The pool decides, and it is asked the same way
+    // the service asks — by looking for the test-only setters in its deployed bytecode.
+    const mockPool = await isMockPool();
     const body = await get('/v1/assets', assetListSchema);
-    expect(body.data[0]!.spot?.provenance).toBe('mock');
+    expect(body.data[0]!.spot?.provenance).toBe(mockPool ? 'mock' : 'onchain');
   });
 
   it('reports change24h as null rather than inventing a zero', async () => {
@@ -317,7 +341,11 @@ describe('GET /v1/assets/:assetId/activity', () => {
       ).toBe(true);
     }
 
-    const types = new Set(body.data.map((item) => item.type));
+    const history = await get(
+      `/v1/assets/${deployment.assetId}/activity?limit=200`,
+      activitySchema,
+    );
+    const types = new Set(history.data.map((item) => item.type));
     expect(types.has('StatusChange') || types.has('NAVUpdate') || types.has('ReserveDeposit')).toBe(
       true,
     );
@@ -451,15 +479,23 @@ function format(value: bigint, decimals: number): string {
 
 describe('GET /v1/assets/:assetId/candles', () => {
   it('refuses to serve a chart rather than fabricating one, when mock data is off', async () => {
-    // The default. No canonical pool has ever emitted a Swap here, so there is genuinely no
-    // price series — and an empty array would be indistinguishable from "never traded",
-    // which a chart draws as a flat line at zero.
+    // With mock data off there are exactly two honest answers, and which one applies depends
+    // on whether this chain has ever seen a real Swap: serve the canonical series, or refuse.
+    // Never an empty array, which is indistinguishable from "never traded" and which a chart
+    // draws as a flat line at zero.
+    const traded = await hasCanonicalCandles();
     const response = await app.inject({
       method: 'GET',
       url: `/v1/assets/${deployment.assetId}/candles?interval=3600`,
     });
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({ error: { code: 'MOCK_DISABLED' } });
+
+    if (traded) {
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ data: { source: 'canonical_swap' } });
+    } else {
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ error: { code: 'MOCK_DISABLED' } });
+    }
   });
 
   it('rejects an interval outside the six documented ones', async () => {
@@ -496,9 +532,13 @@ describe('GET /v1/assets/:assetId/candles', () => {
       expect(response.statusCode).toBe(200);
 
       const body = envelopeSchema(candlesSchema).parse(response.json());
-      expect(body.data.source).toBe('mock');
+      // The flag enables the synthetic series; it does not override real trades. On a chain
+      // that has traded, the canonical series is still the truthful answer.
+      expect(body.data.source).toBe((await hasCanonicalCandles()) ? 'canonical_swap' : 'mock');
       // The envelope agrees: nothing here is derived from chain activity.
-      expect(body.meta.provenance).toBe('mock');
+      expect(body.meta.provenance).toBe(
+        body.data.source === 'mock' || (await isMockPool()) ? 'mock' : 'derived',
+      );
       expect(body.data.candles.length).toBeGreaterThan(0);
 
       for (const candle of body.data.candles) {

@@ -256,6 +256,19 @@
   },
   {
     "type": "function",
+    "name": "creditableSurplus",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "executeSwap",
     "inputs": [
       {
@@ -448,32 +461,6 @@
   },
   {
     "type": "function",
-    "name": "maxMarketNAVDeviationBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxSpotTwapDeviationBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "maxTickShift",
     "inputs": [],
     "outputs": [
@@ -548,6 +535,19 @@
         "name": "configured",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "principalOutstanding",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -777,7 +777,7 @@
     "name": "setSafetyPolicy",
     "inputs": [
       {
-        "name": "twapWindow_",
+        "name": "",
         "type": "uint32",
         "internalType": "uint32"
       },
@@ -787,12 +787,12 @@
         "internalType": "uint32"
       },
       {
-        "name": "spotTwapBps_",
+        "name": "",
         "type": "uint16",
         "internalType": "uint16"
       },
       {
-        "name": "marketNavBps_",
+        "name": "",
         "type": "uint16",
         "internalType": "uint16"
       },
@@ -857,6 +857,40 @@
   },
   {
     "type": "function",
+    "name": "swapExactInput",
+    "inputs": [
+      {
+        "name": "tokenIn",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "sweep",
     "inputs": [
       {
@@ -908,19 +942,6 @@
         "name": "",
         "type": "address",
         "internalType": "contract IERC20"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "twapWindow",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint32",
-        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -1025,6 +1046,32 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FloorLevelUpSkipped",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FlywheelSkipped",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -1299,6 +1346,56 @@
   },
   {
     "type": "event",
+    "name": "SurplusCredited",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SwapExactInput",
+    "inputs": [
+      {
+        "name": "trader",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenIn",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amountRequested",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountSpent",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SwapExecuted",
     "inputs": [
       {
@@ -1476,11 +1573,6 @@
   {
     "type": "error",
     "name": "SlippageExceeded",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TickOutOfRange",
     "inputs": []
   }
 ]

@@ -211,6 +211,19 @@
   },
   {
     "type": "function",
+    "name": "creditMarketSurplus",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "creditRevenueReserve",
     "inputs": [
       {
@@ -1053,6 +1066,31 @@
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MarketSurplusCredited",
+    "inputs": [
+      {
+        "name": "marketManager",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newReserve",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

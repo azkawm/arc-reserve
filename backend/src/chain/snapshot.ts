@@ -1,4 +1,4 @@
-import { BaseError, ContractFunctionRevertedError, getAddress, toFunctionSelector } from 'viem';
+import { getAddress, toFunctionSelector } from 'viem';
 import type { ArcPublicClient } from './client.js';
 import { loadAbi, type ContractName } from './abis.js';
 
@@ -24,44 +24,6 @@ async function safeRead<T>(read: () => Promise<T>): Promise<T | null> {
   } catch {
     return null;
   }
-}
-
-/** Same, but keeps the error so the caller can tell one failure from another. */
-async function tryRead<T>(read: () => Promise<T>): Promise<{ value: T | null; error: unknown }> {
-  try {
-    return { value: await read(), error: null };
-  } catch (error) {
-    return { value: null, error };
-  }
-}
-
-/**
- * A Uniswap V3 pool's `observe` reverts with the string `OLD` until its observation history
- * covers the requested window — so for the first `twapWindow` seconds after a pool is
- * initialised, every price view that consults the TWAP reverts. That is a deployment warming
- * up on a timer, not a fault, and it fixes itself; rendering it as an error sends someone
- * debugging a healthy chain. Anything else stays "unavailable".
- */
-export function isColdOracle(error: unknown): boolean {
-  if (error instanceof BaseError) {
-    const reverted = error.walk((cause) => cause instanceof ContractFunctionRevertedError);
-    if (reverted instanceof ContractFunctionRevertedError && reverted.reason === 'OLD') return true;
-  }
-  // viem reports a require-string revert in the message, and wraps errors in errors, so the
-  // whole chain is searched rather than whichever layer happened to arrive here.
-  const text = causeChain(error);
-  return /revert/i.test(text) && /(^|[^A-Z])OLD([^A-Z]|$)/.test(text);
-}
-
-/** An error's message and those of its causes, a few levels deep. */
-function causeChain(error: unknown): string {
-  const messages: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
-    messages.push(current.message);
-    current = (current as { cause?: unknown }).cause;
-  }
-  return messages.join(' | ');
 }
 
 export interface AssetComponents {
@@ -161,25 +123,26 @@ export interface MarketPosition {
 
 export interface MarketSnapshot {
   spotPrice: bigint | null;
+  /**
+   * Null since D-036. The manager no longer publishes a time-weighted price: it returns 0 in
+   * that slot, meaning "not published". A 0 is never served as a price — rendering it as one
+   * would be the exact failure D-019 exists to prevent, just inverted.
+   */
   twapPrice: bigint | null;
-  meanTick: number | null;
+  /**
+   * The pool's own current tick, from `slot0`. It replaces the manager's `meanTick`, which was a
+   * mean over the TWAP window and is now always 0 — and which never matched what consumers read
+   * it as anyway, namely "where the market is right now".
+   */
+  currentTick: number | null;
   assetIsToken0: boolean;
   tickSpacing: number;
-  twapWindow: number;
   rebalanceCooldown: number;
   lastRebalanceAt: bigint;
-  maxSpotTwapDeviationBps: number;
-  maxMarketNAVDeviationBps: number;
   maxTickShift: number;
   paused: boolean;
   positions: MarketPosition[];
   safety: { failure: number; spot: bigint; twap: bigint; nav: bigint } | null;
-  /**
-   * True when the price views reverted only because the pool's TWAP window is not yet covered.
-   * Prices are still null — nothing is invented — but the caller can say "warming up" instead
-   * of "unavailable". `safetyState` reverts for the same reason, so it is null here too.
-   */
-  oracleWarmingUp: boolean;
   /**
    * False when the pool is `MockUniswapV3Pool`. Every price derived from a non-canonical
    * pool is served with `mock` provenance, never `onchain` (D-019).
@@ -542,36 +505,37 @@ async function readMarket(
   at: ReadOptions,
   pool: `0x${string}`,
 ): Promise<MarketSnapshot> {
+  // This list is positional: a binding and its read are one edit, never two. Dropping a read
+  // without its binding shifts every later value up a slot, which fails as plausible wrong
+  // numbers rather than as an error.
   const [
-    pricesResult,
+    prices,
     assetIsToken0,
     tickSpacing,
-    twapWindow,
     rebalanceCooldown,
     lastRebalanceAt,
-    maxSpotTwapDeviationBps,
-    maxMarketNAVDeviationBps,
     maxTickShift,
     paused,
     safety,
     canonical,
+    slot0,
   ] = await Promise.all([
-    tryRead(() => read<readonly [bigint, bigint, number]>(at, 'marketPrices')),
+    safeRead(() => read<readonly [bigint, bigint, number]>(at, 'marketPrices')),
     read<boolean>(at, 'assetIsToken0'),
     read<number>(at, 'tickSpacing'),
-    read<number>(at, 'twapWindow'),
     read<number>(at, 'rebalanceCooldown'),
     read<bigint>(at, 'lastRebalanceAt'),
-    read<number>(at, 'maxSpotTwapDeviationBps'),
-    read<number>(at, 'maxMarketNAVDeviationBps'),
     read<number>(at, 'maxTickShift'),
     read<boolean>(at, 'paused'),
     safeRead(() => read<readonly [number, bigint, bigint, bigint]>(at, 'safetyState', [true])),
     poolIsCanonical(client, pool),
+    safeRead(() =>
+      read<readonly [bigint, number, number, number, number, number, boolean]>(
+        { address: pool, abi: 'IUniswapV3Pool', blockNumber: at.blockNumber },
+        'slot0',
+      ),
+    ),
   ]);
-
-  const prices = pricesResult.value;
-  const oracleWarmingUp = prices === null && isColdOracle(pricesResult.error);
 
   const positions = await Promise.all(
     [0, 1, 2, 3].map(async (kind) => {
@@ -592,15 +556,13 @@ async function readMarket(
 
   return {
     spotPrice: prices === null ? null : prices[0],
-    twapPrice: prices === null ? null : prices[1],
-    meanTick: prices === null ? null : prices[2],
+    // 0 is the manager saying "no TWAP is published", not a price of zero.
+    twapPrice: prices === null || prices[1] === 0n ? null : prices[1],
+    currentTick: slot0 === null ? null : slot0[1],
     assetIsToken0,
     tickSpacing: Number(tickSpacing),
-    twapWindow: Number(twapWindow),
     rebalanceCooldown: Number(rebalanceCooldown),
     lastRebalanceAt,
-    maxSpotTwapDeviationBps: Number(maxSpotTwapDeviationBps),
-    maxMarketNAVDeviationBps: Number(maxMarketNAVDeviationBps),
     maxTickShift: Number(maxTickShift),
     paused,
     positions,
@@ -608,7 +570,6 @@ async function readMarket(
       safety === null
         ? null
         : { failure: Number(safety[0]), spot: safety[1], twap: safety[2], nav: safety[3] },
-    oracleWarmingUp,
     poolIsCanonical: canonical,
   };
 }

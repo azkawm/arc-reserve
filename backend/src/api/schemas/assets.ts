@@ -76,9 +76,11 @@ const navSchema = z.object({
 });
 
 /**
- * `ready` — prices below are live. `warming_up` — the pool exists but its TWAP window is not
- * covered yet, so the price views revert; this clears itself within `twapWindow` seconds of the
- * pool being initialised. `unavailable` — no pool, or a failure that will not clear on its own.
+ * `ready` — the spot price below is live. `unavailable` — no pool, or a price read that failed.
+ * `warming_up` is reserved and is not returned by any current deployment: it described a pool
+ * whose TWAP window was not yet covered, and since D-036 no time-weighted price is published and
+ * pools are deployed with an observation cardinality of 1. The value stays in the enum so a
+ * consumer that already handles it keeps compiling.
  */
 export const marketStatusSchema = z.enum(['ready', 'warming_up', 'unavailable']);
 
@@ -86,7 +88,7 @@ export const metricsSchema = z.object({
   nav: navSchema,
   marketStatus: marketStatusSchema,
   spot: provenanced(amountSchema.extend({ sourceBlock: z.number().int() })).nullable(),
-  twap: provenanced(amountSchema.extend({ windowSeconds: z.number().int() })).nullable(),
+  twap: provenanced(amountSchema).nullable(),
   floorReference: amountSchema.extend({ formula: z.string() }),
   redemptionPrice: z.object({
     normal: decimalString.nullable(),

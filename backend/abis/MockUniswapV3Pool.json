@@ -64,12 +64,12 @@
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "tickLower",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "",
+        "name": "tickUpper",
         "type": "int24",
         "internalType": "int24"
       },
@@ -246,6 +246,44 @@
         "name": "secondsPerLiquidity",
         "type": "uint160[]",
         "internalType": "uint160[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owed0",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owed1",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
