@@ -123,6 +123,10 @@ Added 2026-08-27:
 2. Solidity plus passing tests, then canonical system/decision docs, then other docs, then frontend
    copy/fixtures.
 3. Spot, TWAP, verified NAV, protected floor reference, and redemption price.
+   **Amended by D-036 (2026-09-12):** TWAP is removed from the engine, so the canonical list is now
+   **four** — spot, verified NAV, protected floor reference, redemption price. An answer given
+   before that decision naming five is correct for its date; after Phase A ships, four is the
+   expected answer.
 4. No. It is a backing-aware reference and redemption remains liquidity- and mode-limited.
 5. Current purchase transfers mUSD, immediately accounts it 65/30/5 (issuer/reserve/market,
    D-023), enforces per-class caps (D-028), and immediately mints tokens. Target flow escrows

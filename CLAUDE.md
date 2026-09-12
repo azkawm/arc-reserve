@@ -70,7 +70,9 @@ Do not weaken these rules without an explicit product decision and corresponding
 2. **The market manager cannot mint.** It trades only inventory transferred to it.
 3. **Protected reserve and market inventory are different accounting buckets.** Market making may
    withdraw only the vault's market allocation.
-4. **NAV, market spot, TWAP, protected floor reference, and redemption price are distinct values.**
+4. **NAV, market spot, protected floor reference, and redemption price are distinct values.**
+   (Four since D-036 removed TWAP from the engine; the principle is unchanged — the remaining four
+   must never be collapsed into one another.)
 5. **Redemption is reserve-limited.** It is not an always-on promise to redeem at NAV.
 6. **Asset tokens burn before stablecoin leaves the vault during redemption.**
 7. **Revenue uses yield-eligible circulating supply.** Yield-excluded vesting balances do not dilute

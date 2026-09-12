@@ -128,7 +128,9 @@ Recorded 2026-09-12 from the owner's design session. Build order matters; the ch
 with the TWAP redeploy, the expensive half should not be rushed into it.
 
 **Phase A — rides with the TWAP redeploy (deletions and small additions, mock-testable):**
-1. Remove TWAP. `marketPrices()` keeps its 3-tuple (spot in the twap slot) — pinned in both boundary
+1. Remove TWAP (D-036). `marketPrices()` keeps its 3-tuple but returns **0** in the twap slot —
+   never spot, which would publish a real number under a false label. Remove `twapWindow()` too.
+   The 3-tuple shape itself is pinned in both boundary
    docs. Re-signal `slide`/`sweep` from **NAV** (slide when spot > NAV, sweep when spot < NAV),
    otherwise they are the same function with different labels.
 2. `SafetyFailure.SpotTwapDeviation` **stays at value 5, reserved and never returned.** Deleting it
@@ -141,10 +143,10 @@ with the TWAP redeploy, the expensive half should not be rushed into it.
    controller is unset; never revert the caller.
 5. Deploy scripts drop the three stepped `increaseObservationCardinalityNext` calls.
 6. `DeployLocal` keeps its `require(block.chainid == 31337)` guard.
-7. **Rebalance cooldown becomes configurable to zero, but is configured to 1 second** (owner,
-   2026-09-12). `setSafetyPolicy` currently rejects `cooldown_ == 0`; drop that clause from the
-   guard — you are editing the function anyway, since `twapWindow_` becomes dead. Then set the
-   deploy scripts to **1 second**, not 0. Reason: at 1s, two rebalances in the same block still
+7. **Rebalance cooldown is configured to 1 second** (owner, 2026-09-12).
+   ~~Drop the `cooldown_ == 0` clause from the guard.~~ **Withdrawn 2026-09-12** — the guard rejects
+   only zero, and 1 already passes, so removing it would weaken a check to enable something that
+   already works. Leave the zero-rejection in place. Reason for 1s: at 1s, two rebalances in the same block still
    trip `SafetyCheckFailed(Cooldown)` (`block.timestamp < lastRebalanceAt + 1` holds when equal),
    so the refusal stays demonstrable — it is one of the very few guards that bites instantly on a
    public chain, with no time-warping — while a demo sequence one second apart runs freely. Setting

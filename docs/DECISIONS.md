@@ -696,6 +696,46 @@ zero expiry, which made the kill switch illusory).
 wallet is offered a "Verify me (demo)" action calling `selfRegister()`, with copy stating plainly
 that a real deployment verifies identity offchain through a licensed provider.
 
+## D-036: TWAP is removed from the market engine
+
+Status: accepted 2026-09-12 (owner). Build authorised as Phase A of D-035's to-do.
+
+**The decision.** `AssetMarketManager` stops reading `pool.observe()`. The time-weighted price, the
+`twapWindow` / `maxSpotTwapDeviationBps` policy, and the spot/TWAP deviation gate are all removed.
+Owner's reasoning: "only ticks is sufficient for MVP" under hackathon scope (D-027).
+
+**What replaces the mitigation — stated plainly because it is a reduction.** `SECURITY.md`'s risk
+register named the spot/TWAP deviation gate as *the* mitigation for spot-price manipulation. After
+this change the only remaining market guard is `maxMarketNAVDeviationBps`, comparing **spot** to
+verified NAV. That bounds manipulation to the NAV deviation band but no longer detects a
+single-transaction spot move inside it. It is also **more sensitive**, because spot is noisier than
+a 30-minute average, so `MarketNAVDeviation` will fire more often — expected, not a regression.
+This entry must be rewritten in `SECURITY.md` rather than left to quietly become false.
+
+**Consequence for non-negotiable #4.** `CLAUDE.md` listed five values that must remain distinct.
+After this there are **four**: NAV, market spot, protected floor reference, redemption price. The
+principle is unchanged and the remaining four must still never be collapsed; only TWAP leaves the
+list. `AI_COMPREHENSION_CHECK.md` Q3 and its key inherit the same amendment.
+
+**Interface shape, and the trap inside it.** `marketPrices()` keeps its 3-tuple so no ABI breaks,
+and returns **0** in the TWAP slot — never spot. `twapWindow()` is removed.
+
+The architect's first instruction was "return spot in the twap slot", and both the backend and
+frontend sessions independently identified it as a silent mislabel: the API would have published
+the spot price with `windowSeconds: 1800` and provenance `onchain` — real number, honest
+provenance, false name, undetectable from values and caught by no existing test. Returning 0 makes
+the value self-describing, because a price of zero never occurs legitimately, and it **fails
+visibly rather than plausibly**. Recorded because the reasoning generalises: when removing a
+capability, the vacated field must carry an impossible value, not a plausible one.
+
+**Consumer obligations.** Backend: `/metrics.twap` becomes `null`, never an echo of spot;
+`marketStatus` keys on spot alone, or every deployment reports `warming_up` once twap is null.
+Frontend: delete the TWAP overlay, legend and the spot/TWAP gate row rather than re-point them;
+`slide`/`sweep` are explained as "market above/below verified value", not "above its own average".
+
+**`SafetyFailure.SpotTwapDeviation` stays at value 5, reserved and never returned** — see D-035's
+to-do. Renumbering would silently shift every later code in both stacks.
+
 ## D-035: The market flywheel — trading raises the floor
 
 Status: accepted 2026-09-12 (owner). **Not built.** This is the core market feature, recorded as a
