@@ -18,7 +18,7 @@ market manager, and pool.
 | mUSD | Six-decimal faucet token used only for local/test stablecoin flows |
 | Verified NAV | Six-decimal per-token reference published by a verifier |
 | Market spot | Pool price derived from `slot0` |
-| TWAP | Mean pool tick over the configured observation window |
+| ~~TWAP~~ | **Removed from the engine (D-036).** No time-weighted price is published; `marketPrices()` returns 0 in the `twapPrice` and `meanTick` slots |
 | Protected reserve | `AssetVault.redemptionReserve`; available only to authorized redemption flow |
 | Market allocation | `AssetVault.marketMakingAllocation`; the only vault category withdrawable by the market manager |
 | Protected floor reference | `min(NAV, liquid reserve backing per issued token)` under normal mode |
@@ -550,8 +550,8 @@ or mint asset supply beyond inventory explicitly transferred by a funder.
 2. asset not Active;
 3. maturity timestamp reached;
 4. NAV stale;
-5. spot/TWAP deviation above policy;
-6. TWAP/NAV deviation above policy;
+5. *(retired — `SpotTwapDeviation` keeps enum value 5 and is never returned, D-036)*;
+6. **spot**/NAV deviation above policy;
 7. vault insolvent or reserve below minimum; and
 8. cooldown not elapsed, when requested.
 
@@ -559,11 +559,12 @@ Default policy:
 
 | Parameter | Default |
 | --- | ---: |
-| TWAP window | 30 minutes |
-| Rebalance cooldown | 30 minutes |
-| Maximum spot/TWAP deviation | 300 bps |
-| Maximum market/NAV deviation | 2,000 bps |
+| Rebalance cooldown | 30 minutes (deploy scripts configure **1 second**) |
+| Maximum **spot**/NAV deviation | 2,000 bps |
 | Maximum endpoint tick shift | 1,200 ticks |
+
+`setSafetyPolicy` keeps five parameters for ABI stability, but the first (`twapWindow`) and third
+(`spotTwapBps`) are accepted and ignored, no longer validated, and emitted as 0.
 
 ### 10.3 Liquidity lifecycle
 
@@ -579,14 +580,22 @@ unwind capability.
 
 ### 10.4 Rebalances
 
-- `slide` additionally requires spot greater than TWAP.
-- `sweep` additionally requires spot less than TWAP.
+- `slide` additionally requires spot to have left the **anchor's own range on the upside** (D-036).
+- `sweep` additionally requires spot to have left the anchor range on the **downside**.
+- Both comparisons are made in price terms and resolve through `assetIsToken0`, since with the asset
+  as token1 a higher price is a lower tick. While spot is inside the band neither is callable.
 - `refreshDiscovery` has no separate price-direction check beyond the common safety gates.
 - `rebalanceToNAV` uses the common safety gates.
 
 The target position must have zero recorded liquidity. New endpoints must be valid tick-aligned
 ranges and each endpoint may move no farther than `maxTickShift`. A successful update records the
 current timestamp and starts cooldown. Remint is a separate transaction.
+
+Every successful rebalance then **opportunistically advances the published protected floor**
+(D-036), so the level tracks a rising reserve without a separate keeper call. It can never fail the
+rebalance: an unset controller, an ineligible level or a reverting controller are each swallowed and
+reported through `FloorLevelUpSkipped(reason)`. The call is deliberately not reentrancy-guarded —
+see `SECURITY.md` for the admin-trust assumption that makes that acceptable under D-027.
 
 ### 10.5 Canonical pool events and the demo price feed (task 10)
 

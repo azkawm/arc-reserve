@@ -49,7 +49,7 @@ Recommended instruction:
 21. What are the four market position kinds and the role of each?
 22. What exactly was adopted from Hikari, and what was explicitly rejected?
 23. Describe the complete range-change lifecycle in the current MVP.
-24. In what direction must spot be relative to TWAP for `slide` and `sweep`?
+24. What signal do `slide` and `sweep` require, and why is the token ordering relevant to it?
 25. List the common market safety gates and their important default thresholds.
 26. Which market actions remain possible while the manager is paused, and why?
 
@@ -92,8 +92,8 @@ Ask these when the task touches economics or integration:
    sequence, and which component must not mint?
 3. The company vesting wallet releases tokens immediately before a revenue deposit. Are the released
    tokens eligible for that new deposit? Are they eligible for earlier deposits?
-4. The NAV timestamp is three days old but spot and TWAP agree. May the keeper add liquidity or
-   rebalance?
+4. The NAV timestamp is three days old but spot sits exactly at the last published NAV. May the
+   keeper add liquidity or rebalance?
 5. The market manager is paused with active positions. Can the keeper add liquidity? Can it remove
    liquidity and return idle mUSD?
 6. The backend loses its RPC connection. May the frontend silently show fixture metrics as if they
@@ -164,9 +164,19 @@ Added 2026-08-27:
     protected-floor borrowing were rejected.
 23. Remove all active liquidity for the target position, pass safety and range checks, update ticks,
     then remint explicitly in a second keeper transaction.
-24. Slide requires spot above TWAP; sweep requires spot below TWAP.
-25. Active/unmatured asset, fresh NAV (two-day registry default), spot/TWAP within 3%, TWAP/NAV within
-    20%, solvent vault, and 30-minute cooldown for rebalances; max shift is 1,200 ticks.
+24. **Amended by D-036 (2026-09-12).** Slide requires spot to have left the **anchor position's own
+    range on the upside**; sweep requires it to have left on the downside. While spot is inside the
+    band neither is callable, including on a fresh deployment where spot starts mid-band. The
+    comparison is made in **price** terms and resolves through `assetIsToken0`, because with the
+    asset as token1 a higher price is a *lower* tick — so a tick-naive implementation would invert
+    on one chain and not the other. Before D-036 the answer was "spot above/below TWAP"; that is
+    correct for its date.
+25. Active/unmatured asset, fresh NAV (two-day registry default), **spot**/NAV within 20%, solvent
+    vault, and the rebalance cooldown (30-minute contract default; the deploy scripts configure 1
+    second); max shift is 1,200 ticks. **Amended by D-036:** the spot/TWAP gate is gone — the enum
+    value is reserved at 5 and never returned — and the surviving check reads spot directly rather
+    than a smoothed average, so it trips on a single trade. An answer naming a 3% spot/TWAP band is
+    correct only for a date before 2026-09-12.
 26. Remove liquidity, collect fees, and return idle mUSD remain available for recovery. New risk
     actions are blocked.
 27. Wallet writes are real when configured. Since Milestone E the marketplace and asset page read

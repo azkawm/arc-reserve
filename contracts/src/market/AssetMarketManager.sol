@@ -20,6 +20,20 @@ import { IFloorController } from "../interfaces/IFloorController.sol";
 
 /// @notice ARC Liquidity Engine for one canonical Uniswap V3 asset/mUSD pool.
 /// @dev Rebalances remove active liquidity before changing ranges; a keeper then remints explicitly.
+///
+///      D-036: THIS ENGINE NO LONGER USES A TWAP. `pool.observe` is never called, no time-weighted
+///      price is published, and the spot/TWAP deviation gate is gone. Consequences, all deliberate:
+///      - `marketPrices()` keeps its three-value shape for ABI stability but returns 0 in both the
+///        `twapPrice` and `meanTick` slots. A price of 0 cannot occur legitimately, so it reads as
+///        "not published" rather than as a plausible wrong number.
+///      - `maxMarketNAVDeviationBps` now compares SPOT to NAV and is the only market guard left.
+///        It reacts to a single trade instead of a half-hour average, so it fires more often than
+///        it used to. That is the trade, not a regression.
+///      - `slide` and `sweep` take their direction from the anchor position's own range rather
+///        than from spot-versus-TWAP: while spot sits inside the range the position is working,
+///        and once spot leaves it the position is single-sided and the anchor must follow.
+///      - `SafetyFailure.SpotTwapDeviation` keeps value 5, reserved and never returned, so no
+///        consumer's failure-code mapping shifts.
 contract AssetMarketManager is
     AccessControl,
     Pausable,
@@ -97,9 +111,9 @@ contract AssetMarketManager is
     bool public immutable assetIsToken0;
     int24 public immutable tickSpacing;
 
-    uint32 public twapWindow = 30 minutes;
     uint32 public rebalanceCooldown = 30 minutes;
-    uint16 public maxSpotTwapDeviationBps = 300;
+    /// @notice Maximum deviation between SPOT and verified NAV. Since D-036 removed the TWAP this
+    ///         is the only market guard, and it reads spot directly rather than a smoothed average.
     uint16 public maxMarketNAVDeviationBps = 2_000;
     int24 public maxTickShift = 1_200;
 
@@ -135,6 +149,9 @@ contract AssetMarketManager is
     );
     event MarketAllocationFunded(uint256 amount);
     event TokenInventoryFunded(address indexed funder, uint256 amount);
+    /// @notice The opportunistic level-up on the rebalance path did not run, and why (D-036).
+    ///         Never an error: a rebalance must not fail because the floor could not advance.
+    event FloorLevelUpSkipped(bytes32 reason);
     event SafetyPolicyUpdated(
         uint32 twapWindow,
         uint32 cooldown,
@@ -348,21 +365,25 @@ contract AssetMarketManager is
         emit SwapExecuted(params.zeroForOne, amountIn, amountOut, params.sqrtPriceLimitX96);
     }
 
+    /// @notice Move the anchor after the price has left its range on the UPSIDE.
+    /// @dev    D-036: the signal is the anchor's own range, not spot-versus-TWAP. Orientation-aware,
+    ///         because with the asset as token1 a higher price is a LOWER tick.
     function slide(int24 newAnchorLower, int24 newAnchorUpper) external onlyRole(KEEPER_ROLE) {
-        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
-        if (spot <= twap) revert InvalidRange();
-        _rebalance("SLIDE", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, twap, nav);
+        (uint256 spot, uint256 nav) = _enforceSafety(true);
+        if (!_spotLeftAnchor(true)) revert InvalidRange();
+        _rebalance("SLIDE", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, nav);
     }
 
+    /// @notice Move the anchor after the price has left its range on the DOWNSIDE.
     function sweep(int24 newAnchorLower, int24 newAnchorUpper) external onlyRole(KEEPER_ROLE) {
-        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
-        if (spot >= twap) revert InvalidRange();
-        _rebalance("SWEEP", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, twap, nav);
+        (uint256 spot, uint256 nav) = _enforceSafety(true);
+        if (!_spotLeftAnchor(false)) revert InvalidRange();
+        _rebalance("SWEEP", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, nav);
     }
 
     function refreshDiscovery(int24 newLower, int24 newUpper) external onlyRole(KEEPER_ROLE) {
-        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
-        _rebalance("REFRESH_DISCOVERY", PositionKind.Discovery, newLower, newUpper, spot, twap, nav);
+        (uint256 spot, uint256 nav) = _enforceSafety(true);
+        _rebalance("REFRESH_DISCOVERY", PositionKind.Discovery, newLower, newUpper, spot, nav);
     }
 
     /// @notice Reposition the market-floor range so it sits at or below the published floor level.
@@ -380,10 +401,8 @@ contract AssetMarketManager is
             assetIsToken0 ? priceCeilingTick <= floorTick : priceCeilingTick >= floorTick;
         if (!withinFloor) revert RangeAboveFloor();
 
-        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
-        _rebalance(
-            "REBALANCE_TO_FLOOR", PositionKind.ReserveFloor, newLower, newUpper, spot, twap, nav
-        );
+        (uint256 spot, uint256 nav) = _enforceSafety(true);
+        _rebalance("REBALANCE_TO_FLOOR", PositionKind.ReserveFloor, newLower, newUpper, spot, nav);
     }
 
     function setFloorController(address controller) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -396,28 +415,28 @@ contract AssetMarketManager is
         external
         onlyRole(KEEPER_ROLE)
     {
-        (uint256 spot, uint256 twap, uint256 nav) = _enforceSafety(true);
+        (uint256 spot, uint256 nav) = _enforceSafety(true);
         _rebalance(
-            "REBALANCE_TO_NAV", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, twap, nav
+            "REBALANCE_TO_NAV", PositionKind.Anchor, newAnchorLower, newAnchorUpper, spot, nav
         );
     }
 
+    /// @notice The market price from `slot0`.
+    /// @dev    D-036: the engine no longer publishes a time-weighted price. The three-value shape
+    ///         is kept so no consumer has to re-decode, but `twapPrice` and `meanTick` are ALWAYS
+    ///         0 and carry no information. Returning spot in the `twapPrice` slot was considered
+    ///         and rejected: it would serve a plausible number under a wrong label, which is
+    ///         exactly the failure a consumer cannot detect. 0 is never a legitimate price, so it
+    ///         reads as "not published". Read the spot tick from `pool.slot0()` directly.
     function marketPrices()
         public
         view
         returns (uint256 spotPrice, uint256 twapPrice, int24 meanTick)
     {
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = twapWindow;
-        secondsAgos[1] = 0;
-        (int56[] memory cumulativeTicks,) = pool.observe(secondsAgos);
-        int56 delta = cumulativeTicks[1] - cumulativeTicks[0];
-        meanTick = int24(delta / int56(uint56(twapWindow)));
-        if (delta < 0 && delta % int56(uint56(twapWindow)) != 0) meanTick--;
-        uint160 twapSqrtPriceX96 = TickPriceMath.getSqrtRatioAtTick(meanTick);
         spotPrice = _stablePrice(sqrtPriceX96);
-        twapPrice = _stablePrice(twapSqrtPriceX96);
+        twapPrice = 0;
+        meanTick = 0;
     }
 
     function safetyState(bool includeCooldown)
@@ -434,41 +453,43 @@ contract AssetMarketManager is
             return (SafetyFailure.Matured, 0, 0, 0);
         }
         if (registry.isNAVStale(assetId)) return (SafetyFailure.StaleNAV, 0, 0, 0);
-        (spot, twap,) = marketPrices();
+        (spot,,) = marketPrices();
         (nav,) = registry.navOf(assetId);
-        if (DecimalMath.deviationBps(spot, twap) > maxSpotTwapDeviationBps) {
-            return (SafetyFailure.SpotTwapDeviation, spot, twap, nav);
-        }
-        if (DecimalMath.deviationBps(twap, nav) > maxMarketNAVDeviationBps) {
-            return (SafetyFailure.MarketNAVDeviation, spot, twap, nav);
+        // D-036: `SafetyFailure.SpotTwapDeviation` (value 5) is RESERVED and never returned. The
+        // value is kept so no consumer's failure-code mapping shifts underneath it.
+        if (DecimalMath.deviationBps(spot, nav) > maxMarketNAVDeviationBps) {
+            return (SafetyFailure.MarketNAVDeviation, spot, 0, nav);
         }
         if (!vault.isSolvent()) {
-            return (SafetyFailure.ReserveBelowMinimum, spot, twap, nav);
+            return (SafetyFailure.ReserveBelowMinimum, spot, 0, nav);
         }
         if (
             includeCooldown && lastRebalanceAt != 0
                 && block.timestamp < lastRebalanceAt + rebalanceCooldown
-        ) return (SafetyFailure.Cooldown, spot, twap, nav);
-        return (SafetyFailure.None, spot, twap, nav);
+        ) return (SafetyFailure.Cooldown, spot, 0, nav);
+        return (SafetyFailure.None, spot, 0, nav);
     }
 
+    /// @notice Update the market safety policy.
+    /// @dev    D-036: the FIRST and THIRD parameters (formerly `twapWindow` and `spotTwapBps`) are
+    ///         ACCEPTED AND IGNORED. The TWAP is gone and both configure nothing. The five-parameter
+    ///         shape is retained deliberately so no caller has to re-encode, but their validation is
+    ///         dropped so a caller can pass 0 and mean "not applicable" rather than being forced to
+    ///         supply a meaningful-looking number for a dead knob — and they are emitted as 0 for
+    ///         the same reason. Setting 1800 here configures NOTHING. Left unnamed so the compiler
+    ///         cannot be told they are used.
     function setSafetyPolicy(
-        uint32 twapWindow_,
+        uint32,
         uint32 cooldown_,
-        uint16 spotTwapBps_,
+        uint16,
         uint16 marketNavBps_,
         int24 maxTickShift_
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (
-            twapWindow_ == 0 || cooldown_ == 0 || spotTwapBps_ == 0 || spotTwapBps_ > 10_000
-                || marketNavBps_ == 0 || marketNavBps_ > 10_000 || maxTickShift_ <= 0
-        ) revert InvalidPolicy();
-        twapWindow = twapWindow_;
+        if (cooldown_ == 0 || marketNavBps_ == 0 || marketNavBps_ > 10_000 || maxTickShift_ <= 0) revert InvalidPolicy();
         rebalanceCooldown = cooldown_;
-        maxSpotTwapDeviationBps = spotTwapBps_;
         maxMarketNAVDeviationBps = marketNavBps_;
         maxTickShift = maxTickShift_;
-        emit SafetyPolicyUpdated(twapWindow_, cooldown_, spotTwapBps_, marketNavBps_, maxTickShift_);
+        emit SafetyPolicyUpdated(0, cooldown_, 0, marketNavBps_, maxTickShift_);
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {
@@ -531,7 +552,6 @@ contract AssetMarketManager is
         int24 newLower,
         int24 newUpper,
         uint256 spot,
-        uint256 twap,
         uint256 nav
     ) private {
         Position storage position = positions[kind];
@@ -547,18 +567,67 @@ contract AssetMarketManager is
         lastRebalanceAt = uint64(block.timestamp);
         emit PositionConfigured(kind, newLower, newUpper);
         Position storage anchor = positions[PositionKind.Anchor];
-        emit Rebalanced(operation, spot, twap, nav, anchor.tickLower, anchor.tickUpper);
+        // D-036: the third argument is the retired `twapPrice` field. It is kept in the event so no
+        // indexer has to re-decode, and is ALWAYS 0 — emitting spot there would store a plausible
+        // number under a wrong label in every consumer's history.
+        emit Rebalanced(operation, spot, 0, nav, anchor.tickLower, anchor.tickUpper);
+
+        // Interactions last: every state change above is already committed.
+        _tryLevelUpFloor();
     }
 
-    function _enforceSafety(bool includeCooldown)
-        private
-        view
-        returns (uint256 spot, uint256 twap, uint256 nav)
-    {
-        (SafetyFailure failure, uint256 spot_, uint256 twap_, uint256 nav_) =
-            safetyState(includeCooldown);
+    /// @dev D-036: opportunistically advance the published floor whenever a rebalance happens, so
+    ///      the level tracks a rising reserve without needing a separate keeper call. It must never
+    ///      take the rebalance down with it: failing on cooldown or ceiling is a NORMAL outcome, so
+    ///      every path here is swallowed and reported as a skip reason instead.
+    ///
+    ///      Deliberately NOT `nonReentrant` (owner decision, D-036). The residual exposure is an
+    ///      admin-trust assumption, documented in SECURITY.md: `floorController` is set only by
+    ///      DEFAULT_ADMIN_ROLE, and an admin who can install a hostile controller can already pause
+    ///      the market, rewrite this policy and grant roles. A re-entering controller holds no role
+    ///      of its own, and every rebalance, funding and swap entry point is KEEPER_ROLE gated, so
+    ///      there is no path it can re-enter productively. `levelUp` also touches only the
+    ///      controller's own state, so there is no half-written manager state to catch. Note too
+    ///      that `levelUp` is already permissionless — bundling it here grants nobody a capability
+    ///      they did not already have.
+    function _tryLevelUpFloor() private {
+        IFloorController controller = floorController;
+        if (address(controller) == address(0)) {
+            emit FloorLevelUpSkipped("NO_CONTROLLER");
+            return;
+        }
+        try controller.canLevelUp() returns (bool eligible) {
+            if (!eligible) {
+                emit FloorLevelUpSkipped("NOT_ELIGIBLE");
+                return;
+            }
+        } catch {
+            emit FloorLevelUpSkipped("CAN_LEVEL_UP_REVERTED");
+            return;
+        }
+        try controller.levelUp() returns (int24) { }
+        catch {
+            emit FloorLevelUpSkipped("LEVEL_UP_REVERTED");
+        }
+    }
+
+    /// @dev True when the spot tick has left the anchor's range on the requested side, in PRICE
+    ///      terms. With the asset as token1 a higher price is a lower tick, so the comparison
+    ///      inverts - this is the orientation bug class `SECURITY.md` flags, handled explicitly.
+    function _spotLeftAnchor(bool upside) private view returns (bool) {
+        Position storage anchor = positions[PositionKind.Anchor];
+        if (!anchor.configured) revert PositionNotConfigured();
+        (, int24 spotTick,,,,,) = pool.slot0();
+        if (upside) {
+            return assetIsToken0 ? spotTick > anchor.tickUpper : spotTick < anchor.tickLower;
+        }
+        return assetIsToken0 ? spotTick < anchor.tickLower : spotTick > anchor.tickUpper;
+    }
+
+    function _enforceSafety(bool includeCooldown) private view returns (uint256 spot, uint256 nav) {
+        (SafetyFailure failure, uint256 spot_,, uint256 nav_) = safetyState(includeCooldown);
         if (failure != SafetyFailure.None) revert SafetyCheckFailed(failure);
-        return (spot_, twap_, nav_);
+        return (spot_, nav_);
     }
 
     function _validateRange(int24 lower, int24 upper) private view {

@@ -209,6 +209,11 @@ contract DeployLocal is Script {
                 AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
+
+        // D-036 demo pacing: 1-second rebalance cooldown, not 0, so two rebalances in the same
+        // block still trip SafetyCheckFailed(Cooldown) and the refusal stays demonstrable. First
+        // and third arguments are the retired TWAP knobs: accepted, ignored, passed as 0.
+        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
     }
 
     /// @dev Modular compliance for the series: Indonesia-only recipients, and a resale hold

@@ -255,28 +255,22 @@ contract DeployTestnet is Script {
                 AssetMarketManager.PositionKind.Discovery, 274_800, 276_000
             );
         }
-        if (poolIsCanonical) {
-            // Real pool: no test oracle. Grow the observation ring so the 30-minute TWAP can
-            // accumulate; the manager's TWAP-gated paths stay dormant until it has. 900 slots
-            // keep the 30-minute window covered even through a burst of ~2s blocks touching the
-            // pool every block. Grown in three steps because each fresh slot writes a storage
-            // word (~22.1k gas): a single 900-slot call is ~19.9M gas, over EIP-7825's 2^24
-            // per-transaction cap that Base Sepolia enforces (review 2026-09-12). Each 300-slot
-            // step is ~6.6M, safely under both Base's 16,777,216 and Hedera's 15,000,000.
-            // Growth is monotonic, so the calls are idempotent on retry.
-            for (uint16 target = 300; target <= 900; target += 300) {
-                (bool ok,) = deployment.pool
-                    .call(
-                        abi.encodeWithSignature(
-                            "increaseObservationCardinalityNext(uint16)", target
-                        )
-                    );
-                require(ok, "DeployTestnet: increaseObservationCardinalityNext failed");
-            }
-        } else {
+        // D-036: the engine no longer reads a TWAP, so the three stepped
+        // `increaseObservationCardinalityNext` calls that used to run here are GONE. A canonical
+        // pool therefore sits at observationCardinality 1 for the life of the deployment. That is
+        // correct and intended, not a misconfiguration - there is no consumer of the oracle to
+        // observe for. Do not "fix" it by re-adding the ring growth; it cost ~20M gas across three
+        // transactions and bought nothing but the TWAP that D-036 removed.
+        if (!poolIsCanonical) {
             int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
             MockUniswapV3Pool(deployment.pool).setOracleForTest(oneDollarTick, oneDollarTick);
         }
+
+        // D-036 demo pacing: a 1-second rebalance cooldown. Deliberately 1 and not 0 - two
+        // rebalances in the same block still trip SafetyCheckFailed(Cooldown), so the refusal stays
+        // demonstrable on a public chain, while a demo one second apart runs freely. The first and
+        // third arguments are the retired TWAP knobs: accepted, ignored, and passed as 0 to say so.
+        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
     }
 
     /// @dev D-023 / D-022 / D-028 policies: identical to the local demo configuration.

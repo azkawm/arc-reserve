@@ -26,7 +26,7 @@
 
 The design considers unauthorized role use, token-supply inflation, accounting-category confusion,
 direct stablecoin transfers, reentrancy at financial entry points, stale or rapidly moving NAV,
-spot manipulation relative to TWAP, market/NAV divergence, malicious callbacks, wrong callback
+spot manipulation, market/NAV divergence, malicious callbacks, wrong callback
 tokens or direction, expired execution, slippage, rounding across 6 and 18 decimals, double revenue
 claims, incorrect yield eligibility, and reserve runs.
 
@@ -70,8 +70,8 @@ the equality between token supply and outstanding obligations across randomized 
 | Unauthorized issuance | Immutable cap and role-gated mint | Admin can grant roles; production governance/timelock required |
 | Reserve category theft | Separate ledgers and scoped vault roles | Admin/role compromise remains critical |
 | NAV manipulation | Verifier role, per-update movement bound, staleness | Central verifier remains trusted; evidence/oracle system required |
-| Spot manipulation | TWAP and spot/TWAP deviation gate | Window/cardinality and economic attack cost untested on canonical pool |
-| Market/NAV divergence | TWAP/NAV emergency threshold | NAV itself may be wrong or stale within threshold |
+| Spot manipulation | **None (D-036).** The TWAP and the spot/TWAP deviation gate were removed; there is no smoothed reference left to compare spot against | **Accepted, not mitigated.** A keeper can act on a price pushed seconds earlier, and demo-pool liquidity is thin enough to make pushing it cheap. Bounded only by `maxTickShift`, the spot/NAV gate, and the cooldown. Tolerable solely because D-027 means MockUSD and no real value; restoring a TWAP is a prerequisite for anything real |
+| Market/NAV divergence | **spot**/NAV emergency threshold (2,000 bps) | NAV itself may be wrong or stale within threshold. Now reads spot directly, so it trips on a single trade rather than a half-hour average — more sensitive, and more easily tripped by an ordinary large trade |
 | Malicious pool callback | Immutable pool, active payload hash, direction/input checks | Canonical pool/factory integration needs fork validation |
 | Reentrancy | Guards and checks/effects ordering at financial entries | Malicious-token matrix is incomplete |
 | Revenue capture by transfer | Pre-transfer checkpoint hook | Admin-controlled exclusion remains a governance risk |
@@ -85,8 +85,20 @@ the equality between token supply and outstanding obligations across randomized 
 
 ## Security-sensitive implementation details
 
-- `slide` and `sweep` enforce spot/TWAP signal direction but do not prove the proposed raw tick move
-  represents that economic direction for the current token ordering.
+- `slide` and `sweep` take their direction from the anchor position's own range (D-036), resolved in
+  price terms through `assetIsToken0`. They still do not prove the keeper's proposed raw tick move
+  represents that economic direction; the signal is checked, the proposed move is not.
+- **The opportunistic floor level-up on the rebalance path is not reentrancy-guarded** (D-036, owner
+  decision). `slide`, `sweep`, `rebalanceToNAV`, `refreshDiscovery` and `rebalanceToFloor` make an
+  external call into `floorController` without `nonReentrant`. This is an explicit **admin-trust
+  assumption**: `floorController` is set only by `DEFAULT_ADMIN_ROLE`, and an admin who can install a
+  hostile controller can already pause the market, rewrite the safety policy and grant roles, so it
+  confers no privilege they lack. A re-entering controller holds no role of its own and every
+  rebalance, funding and swap entry point is `KEEPER_ROLE` gated, so there is no productive re-entry;
+  `levelUp` also writes only the controller's own state, leaving no half-written manager state to
+  catch. Note too that `levelUp` is already permissionless, so bundling it grants nobody a capability
+  they did not have. The call is wrapped in `try`/`catch` so a failing controller cannot break a
+  rebalance. **If a future change lets a rebalance move value, this assumption must be revisited.**
 - `removeLiquidity`, `collectFees`, and `returnStablecoinToVault` intentionally lack the manager's
   pause gate for recovery.
 - `RevenueDistributor.setYieldExcluded` is an admin policy control and can materially change the

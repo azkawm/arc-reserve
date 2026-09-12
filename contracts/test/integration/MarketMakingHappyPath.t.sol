@@ -47,7 +47,8 @@ contract MarketMakingHappyPathTest is ArcReserveTestBase {
         _removePosition(AssetMarketManager.PositionKind.Anchor, ANCHOR_LIQUIDITY);
         assertEq(_poolLiquidity(oldLower, oldUpper), 0, "old anchor must be empty");
 
-        _setOneDollarOracle(10);
+        // D-036: slide requires spot to have LEFT the anchor range on the upside.
+        _movePriceOutsideAnchor(true);
         int24 upwardShift = market.assetIsToken0() ? int24(60) : int24(-60);
         int24 newLower = oldLower + upwardShift;
         int24 newUpper = oldUpper + upwardShift;
@@ -89,7 +90,8 @@ contract MarketMakingHappyPathTest is ArcReserveTestBase {
         _removePosition(AssetMarketManager.PositionKind.Anchor, ANCHOR_LIQUIDITY);
         assertEq(_poolLiquidity(oldLower, oldUpper), 0, "old anchor must be empty");
 
-        _setOneDollarOracle(-10);
+        // D-036: sweep requires spot to have LEFT the anchor range on the downside.
+        _movePriceOutsideAnchor(false);
         int24 downwardShift = market.assetIsToken0() ? int24(-60) : int24(60);
         int24 newLower = oldLower + downwardShift;
         int24 newUpper = oldUpper + downwardShift;

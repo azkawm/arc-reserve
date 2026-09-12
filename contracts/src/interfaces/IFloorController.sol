@@ -13,4 +13,13 @@ interface IFloorController {
     /// @notice True when the published floor is still at or below `min(NAV, backing)`. A NAV
     ///         markdown can make this false without the floor having moved - see the contract.
     function isFloorCovered() external view returns (bool);
+
+    /// @notice True when `levelUp()` would succeed right now.
+    /// @dev    Added for the market manager's opportunistic level-up on the rebalance path (D-036).
+    function canLevelUp() external view returns (bool);
+
+    /// @notice Advance the published floor by one tick spacing in the price-up direction.
+    /// @dev    Permissionless. The market manager calls this inside a `try` and treats any failure
+    ///         as a skip, so a cooldown or ceiling revert never takes a rebalance down with it.
+    function levelUp() external returns (int24 newTick);
 }
