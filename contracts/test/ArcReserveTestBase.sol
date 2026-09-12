@@ -100,7 +100,9 @@ abstract contract ArcReserveTestBase is Test {
         });
         // D-026: the params ARE the term sheet, so they are hashed and approved before deployment.
         registry.approveAsset(assetId, 1e6, keccak256(abi.encode(params)));
-        AssetFactory.Deployment memory deployment = factory.deployAssetSystem(params);
+        // D-033: deployment is two transactions. See `AssetFactory` for why it cannot be one.
+        factory.beginAssetSystem(params);
+        AssetFactory.Deployment memory deployment = factory.completeAssetSystem(assetId, params);
         token = AssetToken(deployment.token);
         vault = AssetVault(deployment.vault);
         offering = PrimaryOffering(deployment.offering);

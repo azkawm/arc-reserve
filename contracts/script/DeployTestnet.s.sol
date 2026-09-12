@@ -123,7 +123,11 @@ contract DeployTestnet is Script {
         AssetFactory.DeploymentParams memory params = _buildParams();
         // D-026: the verifier approves the hash of the exact parameters that will be deployed.
         AssetRegistry(registryAddress).approveAsset(assetId, 1e6, keccak256(abi.encode(params)));
-        deployment = factory.deployAssetSystem(params);
+        // D-033: two transactions. A single deployment measured 18,424,318 gas against the
+        // canonical Uniswap factory (over Base's EIP-7825 2^24 cap) and 15,294,153 against the
+        // mock (over Hedera's 15,000,000 cap). Each phase fits under both.
+        factory.beginAssetSystem(params);
+        deployment = factory.completeAssetSystem(assetId, params);
         require(
             AssetMarketManager(deployment.marketManager).assetIsToken0() == predictedAssetIsToken0,
             "DeployTestnet: token-ordering prediction failed; pool initialized at the wrong price"

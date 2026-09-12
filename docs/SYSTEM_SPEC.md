@@ -94,12 +94,19 @@ stale after two days by default.
 
 ### 4.1 Factory preconditions
 
-`AssetFactory.deployAssetSystem` requires:
+Deployment is **two transactions** (D-033), not one: a single call measured 18,424,318 gas against
+the canonical Uniswap factory and 15,294,153 against the mock, over Base Sepolia's EIP-7825 cap
+(2²⁴ = 16,777,216) and Hedera's 15,000,000 respectively. Measured after the split (mock pool):
+phase 1 ≈ 8.54M, phase 2 ≈ 7.27M.
+
+`AssetFactory.beginAssetSystem(params)` deploys the token, vault, offering and revenue
+distributor, and requires:
 
 - caller has `ISSUER_ROLE` on the factory;
 - caller is the issuer stored for the asset ID;
 - registry state is Approved;
-- no previous deployment exists for the asset;
+- no previous deployment exists for the asset (`AlreadyDeployed()`), and no phase-1 record is
+  already open for it (`AlreadyBegun()`);
 - **`keccak256(abi.encode(params))` equals the registry's `termsHashOf(assetId)`** (D-026), else
   `TermsMismatch()`. Checked before structural validation, so nothing unapproved gets further;
 - the pool factory is allowlisted;
@@ -107,6 +114,34 @@ stale after two days by default.
 - supply, offering, reserve, redemption, operator, and pool parameters are valid;
 - `identityRegistry` is a non-zero address (the token is always permissioned); and
 - offering inventory does not exceed maximum supply.
+
+`AssetFactory.completeAssetSystem(assetId, params)` deploys the redemption controller, the pool
+and the market manager, then calls `setAssetContracts`, `activateAsset` and the D-032 role
+handoff, emitting `AssetSystemDeployed` once. It requires:
+
+- a phase-1 record for `assetId` (`NotBegun()`);
+- **the caller is the wallet that ran phase 1** — not merely the registry's current `issuerOf`, so
+  a half-built system cannot be adopted by another key (`UnauthorizedIssuer()`);
+- `params.assetId == assetId` (`AssetIdMismatch()`); and
+- `keccak256(abi.encode(params))` equals the hash **phase 1 recorded** (`TermsMismatch()`). This is
+  the phase-1 value, not the registry's current one, so a `reapproveTerms` between the phases
+  cannot swap the system being completed.
+
+Phase 2 is atomic, so a failed attempt (out of gas, a pool created underneath it) leaves the
+phase-1 record intact and the call can simply be repeated — a failure never burns the assetId.
+
+**The window between the phases.** Until phase 2 runs the asset stays `Approved` and the registry
+has never been told the component addresses, so the system is inert rather than merely unused:
+`offering.buy` fails `canIssue`, the distributor has no supply to divide, and the vault refuses its
+three direct inflows (`depositInitialReserve`, `depositReserve`, `depositAssetRevenue`) with
+`SystemNotActive()`. That vault gate keys on `Approved` specifically, not on "not Active" — a
+suspended asset in shortfall can only be cured by an issuer deposit, so blocking those states would
+deadlock D-023 enforcement.
+
+`abandonAssetSystem(assetId)` is the way out, callable by the phase-1 caller or the factory admin.
+It clears the pending record and renounces every factory role on the four orphans, leaving them
+permanently inert; a registry admin then `closeAsset`s the asset. There is deliberately **no TTL**:
+a short one races a slow issuer into losing a half-paid deployment, and a long one is useless.
 
 **Term-sheet binding (D-026).** `approveAsset(assetId, initialNAV, termsHash)` records the hash of
 the exact `DeploymentParams` the verifier reviewed. The struct *is* the canonical term sheet, and the

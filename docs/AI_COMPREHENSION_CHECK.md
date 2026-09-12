@@ -221,8 +221,10 @@ Scenario answers:
     backing)` and the cooldown has elapsed. No — `redeem()` keeps paying the continuous
     `min(NAV, backing)`, which is always ≥ the level.
 39. `keccak256(abi.encode(DeploymentParams))` must equal the `termsHash` stored at
-    `approveAsset`; otherwise `deployAssetSystem` reverts with `TermsMismatch()`. Changing terms
-    needs verifier re-approval.
+    `approveAsset`; otherwise `beginAssetSystem` reverts with `TermsMismatch()`. Changing terms
+    needs verifier re-approval. Since D-033 deployment is two transactions, and
+    `completeAssetSystem` re-checks the hash **recorded at phase 1** rather than the registry's
+    current one — so a `reapproveTerms` between the phases cannot swap the system being finished.
 40. Anvil 31337, Base Sepolia 84532, Hedera testnet 296 — testnets only, `MockUSD` everywhere.
     Permits: mock stablecoin, one admin key per chain, unaudited, demo-labelled institutional flows.
     Forbids: mainnet, real funds, real investors, copy implying a regulated offering, and any

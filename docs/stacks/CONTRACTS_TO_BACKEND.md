@@ -39,8 +39,16 @@ event OraclePolicyUpdated(uint32 staleAfter, uint16 maxMovementBps);
 ### AssetFactory
 ```solidity
 event PoolFactoryApprovalChanged(address indexed poolFactory, bool approved);
+event AssetSystemBegun(bytes32 indexed assetId, address indexed issuer, address token, address vault, address offering, address revenueDistributor);   // D-033 phase 1
+event AssetSystemAbandoned(bytes32 indexed assetId, address indexed caller);                                                                            // D-033
 event AssetSystemDeployed(bytes32 indexed assetId, address indexed issuer, (address token,address vault,address offering,address marketManager,address revenueDistributor,address redemptionController,address pool) deployment);
 ```
+**Discovery must stay on `AssetSystemDeployed`.** D-033 split deployment into two transactions, so
+`AssetSystemBegun` announces four component addresses for a system that is not finished and may be
+abandoned (`AssetSystemAbandoned`) — indexing those as live components would create an asset that
+never reaches Active and whose addresses are then orphaned. `AssetSystemDeployed` is still emitted
+exactly once, at completion, in its existing shape: **no backend change is required.** Index the
+two new events only if the UI wants to show a deployment in progress.
 
 ### AssetToken (ERC-20 + roles)
 ```solidity
@@ -250,9 +258,17 @@ Role hashes: `keccak256("VERIFIER_ROLE")`, `"ISSUER_ROLE"`, `"KEEPER_ROLE"`, `"R
 `"PAUSER_ROLE"`, `"FACTORY_ROLE"`, `"ISSUANCE_CONTROLLER_ROLE"`, `"REDEMPTION_CONTROLLER_ROLE"`,
 `"ALLOCATOR_ROLE"`, `"MARKET_MANAGER_ROLE"`; `DEFAULT_ADMIN_ROLE = bytes32(0)`.
 
-Note: after factory handoff the **factory itself still holds** `PAUSER_ROLE` on all six components
-and `KEEPER_ROLE` on the redemption controller and market manager. An "admin activity" view should
-not treat those grants as anomalies unless the contracts agent changes the handoff.
+Note (corrected 2026-09-12): the factory **keeps nothing**. D-032 made `_handoffAdministration`
+renounce every role each component's constructor gave it — `PAUSER_ROLE` on all six,
+`KEEPER_ROLE` on the redemption controller and market manager, `REVENUE_DEPOSITOR_ROLE` on the
+distributor, and `DEFAULT_ADMIN_ROLE` last — so a completed deployment ends with the factory
+holding zero roles. (This paragraph previously said the opposite; that was stale from before
+D-032.) An "admin activity" view **should** flag any role still held by a factory address after
+`AssetSystemDeployed`.
+
+Under D-033 the same is true of the abandon path: `abandonAssetSystem` renounces the factory's
+roles on the four phase-1 orphans, so a `RoleRevoked` burst with no `AssetSystemDeployed` is an
+abandoned deployment, not an anomaly.
 
 ## 7. Test fixtures the backend can reuse
 
@@ -289,6 +305,7 @@ not treat those grants as anomalies unless the contracts agent changes the hando
 | 2026-08-30 | **BREAKING** — D-022/D-023 dynamic revenue split. `RevenueDistributor.depositRevenue(uint256)` is now `depositRevenue(uint256 amount, uint256 periodId, bytes32 reportHash)`. The `RevenueDeposited` event gained `periodId` (indexed), `reportHash` and `behindSchedule` **before** the existing amount fields — re-generate the ABI, do not hand-patch the decoder. The `HOLDER_BPS`/`RESERVE_BPS`/`OPERATOR_BPS`/`PROTOCOL_BPS` constants are **removed**; splits are now the `onScheduleSplit()` / `behindScheduleSplit()` structs. New events `RevenueSplitsSet`, `ReportingPolicySet`. New views `activeSplit()`, `reportingDueAt()`, `isReportingOverdue()`, `lastPeriodId()`, `lastRevenueDepositAt()`, `revenueByPeriod(uint256)`. | Indexer: the applied split varies per deposit — read it from the event, never recompute from constants. `behindSchedule` on the event tells you which variant ran. Period totals are `revenueByPeriod`; a period can receive multiple deposits. `isReportingOverdue` is time-derived like the shortfall, so it can become true with no transaction. |
 | 2026-08-30 | **CHANGED** — D-023 reserve schedule on `AssetVault`. New events: `ReserveScheduleSet(startBacking, targetBacking, startTime, maturity, graceSeconds)`, `ReserveContribution(address indexed issuer, uint256 indexed periodId, uint256 amount, uint256 newReserve)`, `ReserveShortfallEntered(uint64 since, uint256 backing, uint256 targetBacking)`, `ReserveShortfallCleared(uint64 clearedAt, uint256 backing, uint256 targetBacking)`. New views: `reserveSchedule()`, `targetBackingAt(uint64)`, `targetBackingNow()`, `currentBacking()`, `isBehindSchedule()`, `shortfallStartedAt()`, `isInEnforcedShortfall()`, `shortfallSince()`. | Indexer: all backing values are **6-decimal mUSD per investor token**. Do not derive shortfall state from the events alone — a shortfall can begin with no transaction at all, because the target rises with time. Compute `isBehindSchedule` from indexed reserve + investorSupply against the stored schedule, or read `shortfallStartedAt()` (derived, always correct). `shortfallSince` is only as fresh as the last sync. A backend heartbeat calling the permissionless `syncShortfall()` keeps the event stream timely but is **not** required for enforcement. |
 | 2026-08-30 | **CHANGED** — D-031: no issuer token allocation. `deployments/<chainId>.json` no longer contains the `companyVesting` key and no `CompanyVestingWallet` is deployed. Total supply is 0 at deploy; only `PrimaryOffering` ever mints. | Backend: `COMPANY_VESTING_ADDRESS` is already optional in `config.ts` and degrades gracefully — drop it from `.env`/`.env.example` and from the `watchedContracts` count when convenient. No `IssuerAllocationChanged` events will be emitted in the demo, so `investorSupply == totalSupply`. |
+| 2026-09-12 | **CHANGED** — D-033 two-phase factory. `AssetFactory.deployAssetSystem(params)` is **retired** and replaced by `beginAssetSystem(params)` + `completeAssetSystem(bytes32 assetId, params)`, plus `abandonAssetSystem(bytes32)` and the view `isPending(bytes32)`. New events `AssetSystemBegun(bytes32 indexed assetId, address indexed issuer, address token, address vault, address offering, address revenueDistributor)` and `AssetSystemAbandoned(bytes32 indexed assetId, address indexed caller)`; new errors `AlreadyBegun()`, `NotBegun()`, `AssetIdMismatch()`. New `AssetVault` error `SystemNotActive()` on the three direct inflows while the asset is `Approved`. Also corrected §6, which wrongly claimed the factory keeps `PAUSER_ROLE`/`KEEPER_ROLE` after handoff — D-032 made it keep nothing. | **No backend change is required.** `AssetSystemDeployed` still fires exactly once, at completion, with its existing shape, so discovery and the `assets` read model are untouched. **Do not move discovery to `AssetSystemBegun`** — it announces four components for a system that is not finished and may be abandoned, which would create an asset that never reaches Active with orphaned addresses. Index the two new events only if you want to show a deployment in progress. One thing that *does* need doing: `backend/abis/AssetFactory.json` still lists `deployAssetSystem` — re-run `npm run sync-abis` after the next `forge build`. |
 
 ## 9. View surface the read API depends on (added 2026-08-30)
 

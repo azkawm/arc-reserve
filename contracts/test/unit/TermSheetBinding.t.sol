@@ -87,7 +87,8 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         AssetFactory.DeploymentParams memory params = _params(secondAsset);
         registry.approveAsset(secondAsset, 1e6, keccak256(abi.encode(params)));
 
-        AssetFactory.Deployment memory deployment = factory.deployAssetSystem(params);
+        factory.beginAssetSystem(params);
+        AssetFactory.Deployment memory deployment = factory.completeAssetSystem(secondAsset, params);
         assertTrue(deployment.token != address(0));
     }
 
@@ -100,7 +101,7 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         altered.maximumSupply = 1_000_000e18; // ten times the approved cap
 
         vm.expectRevert(AssetFactory.TermsMismatch.selector);
-        factory.deployAssetSystem(altered);
+        factory.beginAssetSystem(altered);
     }
 
     function test_aSingleChangedBasisPointIsRejected() public {
@@ -111,7 +112,7 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         altered.minimumReserveRatioBps = 1_999;
 
         vm.expectRevert(AssetFactory.TermsMismatch.selector);
-        factory.deployAssetSystem(altered);
+        factory.beginAssetSystem(altered);
     }
 
     function test_aSwappedIdentityRegistryIsRejected() public {
@@ -122,7 +123,7 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         altered.identityRegistry = address(0xdead);
 
         vm.expectRevert(AssetFactory.TermsMismatch.selector);
-        factory.deployAssetSystem(altered);
+        factory.beginAssetSystem(altered);
     }
 
     /// @dev Terms are checked before structural validation, so nothing unapproved gets further.
@@ -134,7 +135,7 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         altered.tokenPrice = 0; // both unapproved and structurally invalid
 
         vm.expectRevert(AssetFactory.TermsMismatch.selector);
-        factory.deployAssetSystem(altered);
+        factory.beginAssetSystem(altered);
     }
 
     // -----------------------------------------------------------------
@@ -149,12 +150,14 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         amended.fundraisingCap = 60_000e6;
 
         vm.expectRevert(AssetFactory.TermsMismatch.selector);
-        factory.deployAssetSystem(amended);
+        factory.beginAssetSystem(amended);
 
         registry.reapproveTerms(secondAsset, keccak256(abi.encode(amended)));
         assertEq(registry.termsHashOf(secondAsset), keccak256(abi.encode(amended)));
 
-        AssetFactory.Deployment memory deployment = factory.deployAssetSystem(amended);
+        factory.beginAssetSystem(amended);
+        AssetFactory.Deployment memory deployment =
+            factory.completeAssetSystem(secondAsset, amended);
         assertTrue(deployment.token != address(0));
     }
 
@@ -182,7 +185,8 @@ contract TermSheetBindingTest is ArcReserveTestBase {
         AssetFactory.DeploymentParams memory params = _params(secondAsset);
         bytes32 terms = keccak256(abi.encode(params));
         registry.approveAsset(secondAsset, 1e6, terms);
-        factory.deployAssetSystem(params);
+        factory.beginAssetSystem(params);
+        factory.completeAssetSystem(secondAsset, params);
 
         vm.expectRevert(AssetRegistry.InvalidStatus.selector);
         registry.reapproveTerms(secondAsset, keccak256("amended-after-the-fact"));

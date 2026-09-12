@@ -51,6 +51,12 @@ contract DeployLocal is Script {
     TransferLockModule private lockModule;
 
     function run() external returns (AssetFactory.Deployment memory deployment) {
+        // This script falls back to the publicly known Anvil key #0 and hands it protocol admin,
+        // faucets a mock stablecoin, and pins a test oracle. On a public chain that is a giveaway,
+        // not a deployment - and the mock path is small enough to have largely succeeded there.
+        // `DeployTestnet` is the only script allowed off Anvil (D-027).
+        require(block.chainid == 31_337, "DeployLocal: Anvil only (use DeployTestnet off 31337)");
+
         uint256 privateKey = vm.envOr("PRIVATE_KEY", DEFAULT_ANVIL_PRIVATE_KEY);
         address deployer = vm.addr(privateKey);
 
@@ -122,7 +128,9 @@ contract DeployLocal is Script {
         });
         // D-026: the verifier approves the hash of the exact parameters that will be deployed.
         registry.approveAsset(assetId, 1e6, keccak256(abi.encode(params)));
-        deployment = factory.deployAssetSystem(params);
+        // D-033: two transactions, because one does not fit under Base's or Hedera's gas cap.
+        factory.beginAssetSystem(params);
+        deployment = factory.completeAssetSystem(assetId, params);
 
         _configureCompliance(deployer, deployment);
         _configureMarket(deployment);

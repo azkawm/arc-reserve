@@ -397,8 +397,8 @@ yield grant, revenue splits — sit outside it and remain admin-settable, so "cl
 approved-X-deployed-Y gap" holds for factory parameters only. Accepted for the demo under the
 single admin key (D-029); the production path is a policy hash recorded at approval plus a
 permissionless `sealConfiguration()` that gates `buy()` until the live configuration matches.
-Folding the policies into `DeploymentParams` is rejected: it would push `deployAssetSystem`
-further past Hedera's 15M per-transaction gas cap.
+Folding the policies into `DeploymentParams` is rejected: it would push deployment further past
+Hedera's 15M per-transaction gas cap, which D-033 already had to split the factory to get under.
 
 **Two implementation choices worth recording.** A zero `termsHash` is rejected rather than treated as
 "unbound" - an unbound approval would let any parameters through, which is the exact hole this
@@ -409,8 +409,10 @@ rebinding. The gate is checked before structural parameter validation, so nothin
 the rest of the factory.
 
 `approveAsset(assetId, initialNAV, termsHash)` records the hash of the term sheet the verifier
-committee approved. `AssetFactory.deployAssetSystem(params)` requires
-`keccak256(abi.encode(params)) == termsHash` and reverts with `TermsMismatch()` otherwise. The
+committee approved. `AssetFactory.beginAssetSystem(params)` requires
+`keccak256(abi.encode(params)) == termsHash` and reverts with `TermsMismatch()` otherwise; under
+D-033 `completeAssetSystem` re-checks the hash phase 1 recorded, so both halves of the deployment
+are bound to one term sheet. The
 `DeploymentParams` struct is therefore the canonical term sheet; the offchain legal pack references
 the same hash. Amending terms after approval requires `reapproveTerms(assetId, newTermsHash)` by the
 verifier (and, in the institutional flow, restarts the approval time-lock). Closes the
@@ -556,6 +558,67 @@ looking at role holders would flag first in a system that calls itself instituti
 **Decision.** The factory renounces every role it holds, admin last because the grants to the
 protocol admin need it. `FactoryRoleHygiene.t.sol` asserts two things: the factory ends up holding
 nothing on any component, and nothing it gave up was left without a holder.
+
+## D-033: Deployment is two transactions (the factory split)
+
+Status: accepted 2026-09-12 (owner, explicit confirmation); **implemented 2026-09-12**
+(`AssetFactory.beginAssetSystem` / `completeAssetSystem` / `abandonAssetSystem`,
+`AssetVault._requireSystemLive`, `test/unit/TwoPhaseDeployment.t.sol`,
+`test/invariant/PendingSystemInvariants.t.sol`).
+
+**The finding.** `deployAssetSystem` did not fit in one transaction on either target chain.
+Measured on a Base Sepolia fork: **18,424,318 gas** against the canonical Uniswap V3 factory, over
+EIP-7825's `2^24 = 16,777,216` per-transaction cap that Base Sepolia enforces *at precheck*, by
+~9.8%. The mock path measured **15,294,153**, over Hedera's hard **15,000,000** cap by ~2%. It was
+the only transaction over either cap. Local Anvil forks do not enforce the cap, which is why every
+rehearsal passed — fork rehearsals validate logic and ordering, not chain-level transaction policy.
+
+**Decision.** Split at the pool boundary, which is where the cost is: the pool creation and the
+market manager that depends on it are roughly half the deployment.
+
+| Phase | Deploys | Measured (mock pool) |
+| --- | --- | --- |
+| `beginAssetSystem(params)` | token, vault, offering, revenue distributor | **8,538,854** |
+| `completeAssetSystem(assetId, params)` | redemption controller, pool, market manager, then `setAssetContracts` + `activateAsset` + the D-032 renounce | **7,270,255** |
+
+Both are under Hedera's 15M; phase 2 leaves ~4.3M of headroom for the canonical pool's own code
+deposit on Base. `deployAssetSystem` is **retired** rather than repurposed — a name that used to
+mean "fully deployed and Active" must not come to mean "half deployed".
+
+**Binding the two halves.** Phase 1 stores the params hash it validated, and phase 2 re-checks
+against *that stored hash*, not the registry's current one — so a `reapproveTerms` between the
+phases cannot swap the system being finished. Phase 2 is also bound to the **wallet that ran phase
+1**, not merely to `registry.issuerOf`: otherwise a re-assigned issuer could adopt someone else's
+half-built system.
+
+**The window between the phases is inert, not merely unused.** The asset stays `Approved` and the
+registry is never told the addresses, so `offering.buy` fails `canIssue` and the distributor has no
+supply to divide. The gap was the vault: three inflows (`depositInitialReserve`, `depositReserve`,
+`depositAssetRevenue`) had no status gate, and phase 1 grants `REVENUE_DEPOSITOR_ROLE`, so funds
+could reach a vault with no redemption controller and no way out. They now revert
+`SystemNotActive()`.
+
+That gate keys on `Approved` **specifically, not on "not Active"** — a deliberate narrowing of the
+original "inflows require Active" phrasing. Gating on Active would also block `Suspended`,
+`Defaulted` and `Matured`; a suspended asset in shortfall can only be cured by an issuer deposit,
+and `resumeAsset` requires clearing it, so the stricter version would deadlock exactly the case
+D-023 enforcement is built around. `Approved` is precisely the unfinished window: `Pending` cannot
+reach a vault (none exists), and every later state means `activateAsset` has run. The property is
+asserted in the invariant suite, not only in unit tests — a prober holding every relevant role
+attempts all three inflows across randomized sequences and the vault's balance stays zero.
+
+**Recovery.** `abandonAssetSystem(assetId)` — the phase-1 caller or the factory admin — clears the
+pending record and renounces the factory's roles on the four orphans, leaving them permanently
+inert; a registry admin then `closeAsset`s the asset. Deliberately **no TTL**: short enough to
+matter would race a slow issuer into losing a half-paid deployment, and long enough to be safe
+would be useless. Phase 2 is atomic, so a failed attempt leaves the phase-1 record intact and can
+simply be retried — a failure never burns the assetId.
+
+**Consequences.** `DeployLocal` and `DeployTestnet` both call the two phases. The backend event
+surface is **unchanged**: `AssetSystemDeployed` is still emitted exactly once, at completion, in
+its existing shape, and component discovery must stay on it rather than on the new
+`AssetSystemBegun` (which announces components for a system that may be abandoned). `DeployLocal`
+also gained the `require(block.chainid == 31337)` guard it never had.
 
 ## Open decisions
 

@@ -820,3 +820,174 @@ Interface changes: none yet (the split will carry CHANGED rows).
 Needs: owner — confirm the factory split (it is now required for any testnet, not a choice
 between chains); ideally confirm directly in Contract Arch's window, since that session takes
 build orders only from the owner.
+
+## 2026-09-12 — contracts — Exact canonical-path gas; the factory split is needed for Base too
+Branch: main   Commit: (uncommitted — measurement only; no source files changed)
+What: measured `DeployTestnet` on a local Base Sepolia fork (pre-Osaka ruleset so every transaction
+executes, `--slow`, throwaway key; all 44 receipts consistent), against main including the stepped ring fix.
+- `deployAssetSystem`: **18,424,318 gas used** (forge limit 25,448,588). Over Base Sepolia's EIP-7825 cap
+  of 16,777,216 by 1,647,102 (~9.8%) even with an exact limit, and over Hedera's 15,000,000 by 3,424,318.
+  It is the only transaction over either cap.
+- Stepped `increaseObservationCardinalityNext`: 6,678,078 / 6,700,316 / 6,700,316, all under both caps —
+  the ring fix is confirmed.
+- Canonical path total 67,363,819 gas (≈0.0004 ETH at 0.006 gwei). The mock path (Hedera) measured
+  15,294,153 for `deployAssetSystem`.
+
+Consequence: "defer Hedera, ship Base" no longer avoids the factory split; Base needs it too. One
+two-phase split sized under 15M serves both chains. Proposed shape, sized from `forge build --sizes`
+(the model reproduces both measured totals): phase 1 `beginAssetSystem(params)` — D-026 check,
+Token/Vault/Offering/Revenue, store partial deployment + params hash, asset stays Approved, ≈9–10M;
+phase 2 `completeAssetSystem(assetId, params)` — re-check the hash, Redemption + pool + MarketManager,
+`setAssetContracts`, `activateAsset`, D-032 renounce, `AssetSystemDeployed` emitted once in today's shape,
+≈10.5M canonical / ≈7.5M mock. Phase 2 is idempotent on retry, so the assetId is not burned.
+`deployAssetSystem` would be retired (CHANGED row); the backend event surface is unchanged.
+Interface changes: none yet.
+Needs: owner — rule on the two-phase factory split. The Base broadcast stays on hold until it lands.
+
+## 2026-09-12 — contracts — Forensics of the failed Base Sepolia broadcast: nothing completed, orphan inert
+Branch: main   Commit: (uncommitted — read-only forensics; no source files changed)
+What: the owner broadcast `DeployTestnet` to real Base Sepolia before the factory split landed, and the
+EIP-7825 precheck rejection happened as predicted. Chain-derived findings (not artifact-derived):
+- Deployer `0xE0Dc…1E61`: nonce **59**, stable across checks (nothing in flight), balance 0.0998 ETH.
+- Nonce sweep 0–60 with runtime-size fingerprints: contracts at nonces 0–8 (`MockUSD`, `AssetRegistry`,
+  the six ComponentDeployers, `AssetFactory` — exactly `_deployCore` in order) and nonce 11
+  (`IdentityRegistry`). Nonces 9,10,12,13,14 are the intervening CALLs.
+- **No deployment ever completed.** The only registry (`0x481C18A9…`) logs AssetSubmitted, NAVUpdated,
+  TermsApproved and AssetStatusChanged once each and **no AssetContractsSet**; the only factory
+  (`0xFEb03CF0…`) logs 2 RoleGranted + 1 PoolFactoryApprovalChanged and **no AssetSystemDeployed**.
+  Asset `0x618d32ff…` is Approved with all six `contracts_` zero. A precheck rejection consumes no
+  nonce, which matches.
+- The orphan is inert: no vault/offering/token/pool exists; `offering.buy` requires `canIssue` → Active,
+  and the asset can never reach Active because the only factory able to activate it needs 18.4M gas on a
+  chain capped at 16,777,216. MockUSD is a public-faucet token. Sole lingering privilege: the dead
+  factory still holds FACTORY_ROLE on the registry.
+- **Unexplained:** one failed run needs ~15 nonces but the deployer is at 59, and contracts exist at
+  nonces 15–18 (`MockUSD`, `ModularCompliance`, `CountryAllowModule`, `TransferLockModule`) and 39
+  (`MockYieldSource`) — all of which a script only reaches after a successful factory call. Something
+  other than a plain `DeployTestnet` run was executed against 84532; the owner should say what.
+- Caution for anyone reading `contracts/deployments/84532.json`: it is written during *simulation*, so it
+  names addresses whose on-chain occupants came from other attempts. It currently labels `0x28f9F554…`
+  as `registry` when that address holds a ModularCompliance, and it rewrote itself at 07:02 with no
+  nonce consumed. It should be deleted; a successful run regenerates it.
+
+Recovery recommendation: **(a) fresh full redeploy once the split factory exists**, not reuse of the live
+registry. A full canonical run is 67.4M gas ≈ 0.0004 ETH against a 0.0998 ETH balance, so cost decides
+nothing; reuse would need a bespoke one-off script (skip core, grant FACTORY_ROLE to the new factory,
+revoke from the old, `reapproveTerms` because the params hash changes with the new timestamps) run
+straight against a public chain, and would leave two TermsApproved events and a second privileged factory
+on one registry — the D-032 smell. Optional tidiness with (a): `closeAsset` the orphan and revoke the dead
+factory's FACTORY_ROLE.
+
+Also found: `DeployLocal` has **no chain guard**. Against Base Sepolia its mock path (15,294,153 gas) fits
+under the cap and would largely succeed, producing a real-looking deployment backed by a mock pool on a
+public chain. Adding `require(block.chainid == 31337)` in the split commit.
+Interface changes: none.
+Needs: owner — (1) confirm the split build (design frozen, architect signed off); (2) explain the extra
+runs against 84532 so any contract holding roles is accounted for before redeploying.
+
+## 2026-09-12 — contracts — Forensics addendum: replay confirmed, and a second deployer key
+Branch: main   Commit: (uncommitted — read-only)
+Testing the architect's replay hypothesis against constructor arguments:
+- **Confirmed.** `MockYieldSource` at nonce 39 (`0x238b5704…`) has `stablecoin()` = `0xBdEb4c03…`
+  (attempt 1's live MockUSD, nonce 0) and `vault()` = `0x6064c26f…` with **no code — never created**. A
+  contract can only be built against a never-existent vault if its payload came from a simulation and was
+  sent verbatim afterwards, i.e. a replayed broadcast tail. This also explains the MockUSD→ModularCompliance
+  adjacency: nonce 15 is a fresh attempt's first CREATE, nonces 16–18 are attempt 1's `_configureCompliance`
+  tail replayed behind it. The stale broadcast cache has been deleted, cutting off further replays.
+- **Not explained by replay: a second deployer key.** `FloorController 0xa21Ea231…` exists (4,698 B) but is
+  absent from the nonce-0–60 sweep of `0xE0Dc…1E61` (nonce 59, so all its nonces are accounted for), so a
+  different account created it. Its immutables are simulation values too: `registry()` = `0x28f9F554…`
+  (which on chain holds a ModularCompliance, not a registry) and `vault()` = `0x77CC0a1d…`, no code.
+  It is inert junk, and the live registry still shows only its constructor grants plus the single
+  FACTORY_ROLE grant, so nothing stray holds privileges there.
+- Non-finding: `ModularCompliance` exposes no `boundToken()` getter; that probe reverted and proves nothing.
+
+Needs: owner — besides confirming the split build, please say **which key(s) were used** against 84532. If a
+second key deployed anything privileged, its nonces should be swept before the fresh redeploy; that takes
+minutes once the address is known.
+
+## 2026-09-12 — contracts — CORRECTION to the forensics addendum: there is no second deployer key
+Branch: main   Commit: (uncommitted — read-only)
+Retracting the "second deployer key" claim in my previous entry. It was wrong, and the fault was in my
+instrument, not the chain.
+
+`FloorController 0xa21Ea231…` was created by `0xE0Dc359551aDe384cC4c90f89100016898aC1E61` — the same
+deployer — at **nonce 57**. Confirmed twice: Blockscout attribution, and the creation transaction itself
+(`0xcab92f19…`, from `0xE0Dc…1E61`, nonce 57, block 46701525).
+
+Cause: my first sweep sent 61 `eth_getCode` calls in a single JSON-RPC batch. The public RPC rate-limited
+the tail, and the code did `byId.get(i) || '0x'`, reading every dropped response as "no code at this
+address". Nonce 57 fell in the dropped range, so missing data became a confident negative. The sweep now
+chunks, verifies that every id returns, and fails loudly; the re-run surfaced the rate limiting at once.
+
+**Complete verified inventory — 18 contracts, all from the one deployer, every nonce 0–58 accounted for:**
+0 MockUSD · 1 AssetRegistry · 2–7 the six ComponentDeployers · 8 AssetFactory · 11 IdentityRegistry ·
+15 MockUSD · 16 ModularCompliance · 17 CountryAllowModule · 18 TransferLockModule · 39 MockYieldSource ·
+42 FloorController · 54 MockYieldSource · 57 FloorController.
+
+The `MockYieldSource → FloorController` pair repeating at 39→42 and 54→57, three nonces apart each time,
+is the script's post-factory tail (`_configureYield`, then `_configureFloor`) replayed twice with its
+intervening calls — which corroborates the replay hypothesis rather than complicating it.
+
+Everything else in the forensics stands: no `AssetContractsSet`, no `AssetSystemDeployed`, the single asset
+is Approved with zero `contracts_`, the orphan is inert, and the recovery recommendation is unchanged —
+(a) fresh redeploy after the split, plus the two cleanup transactions and the `DeployLocal` chain guard.
+Needs: owner — (1) confirm the split build; (2) say **what commands** were run against 84532 (retries,
+`--resume`, manual sends). Not *which keys*: there is only one deployer.
+
+## 2026-09-12 — contracts — D-033 two-phase factory split landed; both chains now deployable
+Branch: main   Commit: (uncommitted — owner commits on request)
+Owner confirmed the split ("confirmed: build the two-phase factory split"). Built, tested, documented.
+
+**Shape.** `deployAssetSystem` is retired (not repurposed — a name meaning "deployed and Active" must
+not come to mean "half deployed"). Replaced by:
+- `beginAssetSystem(params)` → token, vault, offering, revenue distributor; stores a
+  `PendingDeployment{token,vault,offering,revenueDistributor,initiator,termsHash}`; asset stays Approved;
+  emits `AssetSystemBegun`.
+- `completeAssetSystem(assetId, params)` → redemption controller, pool, market manager, then
+  `setAssetContracts`, `activateAsset`, D-032 full renounce, `AssetSystemDeployed` **once, in today's
+  shape**.
+- `abandonAssetSystem(assetId)` → phase-1 caller or factory admin; clears the record and renounces the
+  factory's roles on the four orphans; registry admin then `closeAsset`. **No TTL** (recorded decision).
+- New view `isPending(bytes32)`; new errors `AlreadyBegun` / `NotBegun` / `AssetIdMismatch`.
+
+**Measured gas (mock pool, `test_eachPhaseFitsUnderBothChainGasCaps`): phase 1 = 8,538,854, phase 2 =
+7,270,255.** Both under Hedera's 15,000,000; phase 2 leaves ~4.3M for the canonical pool's code deposit,
+so the Base path lands near 11.6M against the 16,777,216 cap. The measurement is a test assertion, not a
+comment, so it cannot rot silently.
+
+**Architect refinements, both implemented.** (1) Phase 2 is bound to `pending.initiator`, not
+`registry.issuerOf` — a re-assigned issuer cannot adopt someone else's half-built system; the window is
+documented in `SECURITY.md`'s compliance section. (2) The vault's three unguarded inflows
+(`depositInitialReserve`, `depositReserve`, `depositAssetRevenue`) now revert `SystemNotActive()`, and
+the rule is in the **invariant** suite: `test/invariant/PendingSystemInvariants.t.sol` runs a prober that
+is the asset's registry issuer, the phase-1 initiator (so the vault's immutable `issuer`) and the
+configured `revenueDepositor` — every attempt clears the role and issuer checks, so only the new gate
+stops it. 4,096 randomized calls, vault balance stays 0. Without the gate that invariant fails.
+
+**One deliberate deviation from the agreed wording, flagged for the architect.** The rule was phrased
+"vault inflows require Active". I implemented "revert while the asset is `Approved`" instead. Gating on
+Active would also block `Suspended`, `Defaulted` and `Matured` — and a suspended asset in shortfall can
+only be cured by an issuer deposit, while `resumeAsset` needs the shortfall cleared, so the literal
+version deadlocks exactly the case D-023 enforcement exists for. `Approved` is precisely the unfinished
+window: `Pending` cannot reach a vault, every later state means `activateAsset` ran. Covered both ways by
+`test_depositsWorkOnceActiveAndStillWorkWhileSuspended`. Say if you want it stricter.
+
+**Also in this change.** `DeployLocal` gained `require(block.chainid == 31337)` — it had no chain guard,
+falls back to the public Anvil key #0, and its mock path (15.29M) would largely have succeeded on Base.
+Both deploy scripts now call the two phases. Fixed stale doc rot found on the way: `CONTRACTS_TO_BACKEND`
+§6 still told the backend the factory *keeps* `PAUSER_ROLE`/`KEEPER_ROLE` after handoff, which D-032 made
+false — an "admin activity" view should now flag exactly the opposite.
+
+Testing: **277 tests pass, 0 fail** (22 suites); `forge fmt --check` clean; via-IR still off (owner
+preference) — no stack-too-deep, the phases are decomposed into helpers.
+
+Interface changes: **CHANGED rows filed in `CONTRACTS_TO_FRONTEND.md` and `CONTRACTS_TO_BACKEND.md`.**
+Backend event surface is unchanged — `AssetSystemDeployed` still fires once at completion in its existing
+shape, so discovery needs no change. Backend should **not** move discovery to `AssetSystemBegun`: it
+announces components for a system that may be abandoned. Frontend does not call the factory; no break.
+
+Needs: backend — re-run `npm run sync-abis`; `backend/abis/AssetFactory.json` still lists
+`deployAssetSystem`. Owner — the Base Sepolia broadcast hold can lift once this is committed; recovery
+recommendation is unchanged: (a) fresh full redeploy, plus the two optional cleanup transactions
+(`registry.closeAsset(0x618d32ff…)`, `registry.revokeRole(FACTORY_ROLE, 0xFEb03CF0…)`).

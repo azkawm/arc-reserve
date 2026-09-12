@@ -100,6 +100,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     error AssetNotClosed();
     error MaturityWindowOpen();
     error NothingToRelease();
+    error SystemNotActive();
 
     constructor(
         address stablecoin_,
@@ -128,6 +129,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     }
 
     function depositInitialReserve(uint256 amount) external nonReentrant whenNotPaused {
+        _requireSystemLive();
         if (msg.sender != issuer) revert UnauthorizedIssuer();
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
         redemptionReserve += amount;
@@ -254,6 +256,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
     /// @notice Scheduled sinking-fund contribution from the issuer, tagged with the reporting
     ///         period it settles (D-022 period tagging).
     function depositReserve(uint256 amount, uint256 periodId) external nonReentrant whenNotPaused {
+        _requireSystemLive();
         if (msg.sender != issuer) revert UnauthorizedIssuer();
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
         redemptionReserve += amount;
@@ -299,6 +302,7 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
         nonReentrant
         whenNotPaused
     {
+        _requireSystemLive();
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
         assetRevenue += amount;
         _emitAllocation("ASSET_REVENUE", int256(amount), assetRevenue);
@@ -506,6 +510,26 @@ contract AssetVault is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
+    }
+
+    /// @dev D-033: refuse funds while the asset's system has not been finished.
+    ///
+    ///      The factory deploys in two transactions, so between them a vault exists whose asset is
+    ///      still `Approved` and which the registry has never been told about. Money sent to it
+    ///      would be stranded: the market manager and redemption controller do not exist yet, and
+    ///      if the deployment is abandoned the factory renounces its admin and nothing can ever
+    ///      move the balance again.
+    ///
+    ///      The predicate is `Approved`, NOT `!= Active`. Gating on `Active` would also block
+    ///      `Suspended`, `Defaulted` and `Matured` — and a suspended asset in shortfall can only be
+    ///      cured by an issuer deposit, so that version would deadlock exactly the case D-023's
+    ///      enforcement is built around. `Approved` is precisely and only the unfinished window:
+    ///      `Pending` cannot reach a vault (none exists yet), and every later state means
+    ///      `activateAsset` has run.
+    function _requireSystemLive() private view {
+        if (registry.statusOf(assetId) == IAssetRegistry.AssetStatus.Approved) {
+            revert SystemNotActive();
+        }
     }
 
     function _syncShortfall() private returns (bool behind) {

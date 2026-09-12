@@ -117,6 +117,34 @@ the equality between token supply and outstanding obligations across randomized 
 - `ModularCompliance.canTransfer` is a view over untrusted modules: a malicious or buggy module can
   brick transfers. Module addition is admin-only and should be time-locked in production.
 
+### The between-phases deployment window (D-033, added 2026-09-12)
+
+Deployment is two transactions, so there is a window in which four of an asset's six components
+exist but the system is not live. It is bounded deliberately:
+
+- **The factory holds admin on the four orphans for the whole window.** That is the window's real
+  privilege: between the phases, one key (the factory, controlled by whoever can call phase 2) is
+  admin, pauser and revenue-depositor-granter on a live token, vault, offering and distributor.
+  The window is only as long as the issuer takes to send the second transaction, and nothing of
+  value can enter it — but it is a standing admin position, and a production deployment should
+  treat a long-lived pending record as an incident, not as housekeeping.
+- **Nothing can be funded or issued in the window.** The asset stays `Approved`, so
+  `offering.buy` fails `registry.canIssue`, the distributor reverts `NoYieldEligibleSupply` (no
+  supply exists yet), and the vault's three direct inflows revert `SystemNotActive()`. The vault
+  gate is the one that had to be added: phase 1 grants `REVENUE_DEPOSITOR_ROLE`, so without it a
+  role holder could push funds into a vault with no redemption controller and no way out.
+- **The gate keys on `Approved`, not on "not Active".** Blocking every non-Active state would stop
+  an issuer curing a shortfall while the asset is `Suspended` — and since `resumeAsset` requires
+  the shortfall cleared, that would be a deadlock. The narrow predicate is the safer one here.
+- **Phase 2 is bound to the phase-1 caller**, not to `registry.issuerOf`, so a re-assigned issuer
+  cannot adopt a half-built system. The corollary is an availability risk: if that key is lost,
+  the deployment cannot be completed and must be abandoned.
+- **`abandonAssetSystem` renounces rather than reassigns.** The four orphans are left permanently
+  adminless. This is correct only because they are guaranteed empty; if a future change lets value
+  into the window, abandonment must hand administration over instead of dropping it.
+- **No TTL, by design.** An automatic expiry would either race a slow issuer into losing a
+  half-paid deployment or be too long to matter. The factory admin can always clear a stale record.
+
 ## Incident response outline
 
 This is a design outline, not a production runbook:

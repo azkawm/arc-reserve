@@ -53,7 +53,7 @@ contract ComplianceGateTest is ArcReserveTestBase {
         // second line of defence, not something the terms binding makes redundant.
         registry.approveAsset(secondAsset, 1e6, keccak256(abi.encode(params)));
         vm.expectRevert(AssetFactory.InvalidConfiguration.selector);
-        factory.deployAssetSystem(params);
+        factory.beginAssetSystem(params);
     }
 
     function testUnverifiedWalletCannotBuy() public {
