@@ -3,14 +3,16 @@ import { describe, expect, it } from "vitest";
 import { ArcMonogram } from "@/components/landing/arc-monogram";
 
 describe("ArcMonogram", () => {
-  it("renders as a labelled, self-contained image with no external reference", () => {
-    const { container } = render(<ArcMonogram />);
-    const svg = screen.getByRole("img", { name: "ArcReserve" });
-    expect(svg.tagName.toLowerCase()).toBe("svg");
+  it("renders the logo mark from a local asset, with no third-party reference", () => {
+    render(<ArcMonogram />);
+    const img = screen.getByRole("img", { name: "ArcReserve" });
+    expect(img.tagName.toLowerCase()).toBe("img");
 
-    // No <image>/<use> element and no href/src that could point off-page — this is the concrete
-    // check behind the spec's "Logo is local" scenario.
-    expect(container.querySelector("image, use")).toBeNull();
-    expect(container.innerHTML).not.toMatch(/https?:\/\//);
+    // The concept-landing-page spec's "Logo is local" scenario: no fetch to a remote host such as
+    // lh3.googleusercontent.com. A root-relative path served from this app's own origin passes.
+    const src = img.getAttribute("src") ?? "";
+    expect(src).not.toMatch(/^https?:\/\//);
+
+    expect(screen.getByText("ArcReserve")).toBeInTheDocument();
   });
 });
