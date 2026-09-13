@@ -194,7 +194,7 @@ and lien exist as document hashes in the term sheet, not executed legal agreemen
 | --- | --- | --- |
 | **Contracts** (`contracts/`) | All financial logic, accounting, compliance, redemption, market-making | Solidity (Foundry), ERC-3643-shaped compliance |
 | **Backend** (`backend/`) | Onchain event indexer + a `/v1` read API with provenance labels (`onchain`/`derived`/`mock`) | Node.js, PostgreSQL, node-pg-migrate |
-| **Frontend** (`frontend/`) | Marketplace, asset pages, issuer/verifier/keeper panels, wallet transactions | Next.js |
+| **Frontend** (`frontend/`) | Marketplace, asset pages, issuer/verifier/keeper panels, wallet transactions | React + Vite, Tailwind, shadcn/ui (rebuilt 2026-09-12, D-035; routes and wallet panels being ported) |
 
 ### Key architectural principles
 

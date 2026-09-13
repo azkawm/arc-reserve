@@ -1364,6 +1364,7 @@ how judges get KYC-verified on 84532 (operator-run page vs pre-registered wallet
 contract allowing testnet self-registration) — without one, every judge wallet is unverified and
 cannot buy.
 
+<<<<<<< HEAD
 ## 2026-09-12 — contracts — D-039: NAV disconnected from the liquidity engine (subsumes D-038)
 Branch: main   Commit: (uncommitted)
 What: the owner's call — "NAV is only a tracing variable, read only, not involved in any liquidity
@@ -1410,3 +1411,45 @@ demo config and test baseline. Deploy scripts now pass 0 in the dead 4th slot.
 Needs: owner — commit and push (two earlier commits `80fc7dc`, `7a6269b` plus D-038 and the runbook
 are still unpushed); then the decision on redeploying Phase A + B-1 + DemoRegistrar to 84532.
 Backend — the `snapshot.ts` fix before that redeploy, not after.
+=======
+## 2026-09-12 — frontend — D-035: rebuilt on React + Vite; routes, charts and writes NOT ported
+Branch: feat/frontend   Commit: (this commit)
+What: on owner instruction, `frontend/` is now a React 19 + Vite 8 SPA with Tailwind CSS v4,
+shadcn/ui, Vitest + Testing Library, and a multi-stage Docker image behind nginx. The Next.js 15 App
+Router implementation was removed from the working tree (it remains in git history).
+Ported verbatim, because it encodes financial rules rather than framework choices: `lib/api.ts` (the
+`{ data, meta }` envelope, `ApiError` codes), `lib/queries.ts` (`["api", route, …]` keys, sub-backend
+`staleTime`), `lib/fixtures.ts`, `lib/data.ts`, `lib/format.ts`, `lib/contracts.ts`, `lib/wagmi.ts`,
+and `DataSourceBadge` / `DataPanel`. The brand palette is carried into the Tailwind theme tokens, so
+the product does not change appearance because the build tool did.
+**Deliberately NOT ported, and therefore currently broken in the product:** the marketplace, asset,
+issuer, verifier and engine routes; routing itself; the candle chart and the engine chart (Recharts
+is no longer installed); and every wallet write — mUSD approval, buy, claim, redeem, issuer reserve
+and revenue deposits, asset submission, verifier NAV/status actions, and keeper `slide` / `sweep` /
+`rebalanceToNAV`. Those worked before this change. `docs/FRONTEND.md` §1 and §3 onward are retained
+as their porting specification.
+Verified: `tsc -b`, `eslint .`, `vitest run` (25 tests / 3 files), and `vite build` all pass; the dev
+server serves 200 on port 3000. The Docker image was **not** built — no Docker daemon on this
+machine — though `docker compose config` validates. Do not report the container as proven.
+Interface changes (both boundary docs updated with CHANGED rows):
+- **A (contracts→frontend):** every frontend env var renamed `NEXT_PUBLIC_*` → `VITE_*`, read through
+  `import.meta.env`. No ABI, address, or `deployments/<chainId>.json` change. A future `sync-env.mjs`
+  must emit `VITE_*`.
+- **C (backend→frontend):** `NEXT_PUBLIC_API_URL` → `VITE_API_URL`. Envelope, routes, error codes and
+  provenance rules unchanged. Backend needs no change: `CORS_ORIGIN` still defaults to
+  `http://localhost:3000`, and the Vite dev server is pinned there with `strictPort` for exactly that
+  reason.
+Two traps for whoever ports the panels back: (1) Vite **inlines** `VITE_*` at build time, so they are
+Docker build arguments, not runtime env — repointing the container means rebuilding it; (2)
+`npx shadcn@latest add` currently mis-resolves the `@/lib/utils` alias and emits
+`import { cn } from "cn"` while installing an unrelated `cn` package — rewrite the import and
+`npm uninstall cn` (documented in `frontend/README.md`).
+One pre-existing inaccuracy found while porting: `format.ts`'s `formatPercent` docstring claimed
+`"1.80"` → `"+1.80%"`, but it trims trailing zeros and returns `"+1.8%"`. The docstring was wrong,
+not the code; the docstring was corrected rather than the display behaviour changed, since changing
+it is a UI decision.
+Needs: owner — (1) confirm whether the ported routes should come back in the order given by
+`AGENT_FRONTEND.md` tasks 0–4 (KYC gating first) now that they must be rebuilt anyway; (2) the
+frontend comprehension answers are still ungraded, and the answer key entries 27 and 28 were amended
+by this change.
+>>>>>>> 979b9d4dcf93fd0add599d39712f9f9b8c94258f

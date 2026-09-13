@@ -109,25 +109,32 @@ Anvil addresses are ephemeral. Regenerate the deployment after every fresh chain
 
 ## Frontend
 
+React + Vite + TypeScript, Tailwind CSS v4, shadcn/ui, Vitest, Docker. Rebuilt from Next.js on
+2026-09-12 (D-035).
+
 ```powershell
 cd frontend
-Copy-Item .env.example .env.local
+Copy-Item .env.example .env.local   # optional; without VITE_API_URL the app runs on fixtures
 npm install
 npm run typecheck
 npm run lint
+npm run test
 npm run build
-npm run dev
+npm run dev                         # http://localhost:3000
 ```
 
 If PowerShell blocks `npm.ps1`, run the same scripts through `npm.cmd`, for example
-`npm.cmd run build`.
+`npm.cmd run build`. In a container: `docker compose build && docker compose up -d`.
 
-Populate `.env.local` with the current deployment. The app provides marketplace, asset-detail,
-issuer, verifier, and ARC Engine routes.
+Populate `.env.local` with the current deployment, using `VITE_`-prefixed names. Vite inlines them
+at build time, so a change needs a dev-server restart and a Docker rebuild, and everything in that
+file ships inside the browser bundle.
 
-The frontend is hybrid. Selected wallet writes are live when configured, but most displayed metrics,
-liquidity values, profiles, activity, and OHLC candles are fixtures. Sell execution is intentionally
-not implemented. See [docs/FRONTEND.md](docs/FRONTEND.md).
+**Current state.** The backend `/v1` client, the fixture adapter, the provenance badge, and the
+wagmi + react-query providers are ported and exercised by a landing page. The marketplace, asset,
+issuer, verifier, and ARC Engine routes, both charts, and every wallet write existed before the
+rebuild and are **not** ported yet. Sell execution is intentionally not implemented. See
+[docs/FRONTEND.md](docs/FRONTEND.md) and D-035 in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Contract verification baseline
 
@@ -138,7 +145,9 @@ Last verified on 2026-08-27:
 - 5 stateful financial invariants; and
 - `AssetMarketManager` coverage of 98.17% lines, 95.50% statements, 73.91% branches, and
   100% functions.
-- frontend TypeScript, ESLint, and optimized Next.js production build all passed.
+- frontend TypeScript, ESLint, and the optimized production build all passed. (The frontend was
+  rebuilt on React + Vite on 2026-09-12, D-035; its current baseline is 25 Vitest tests plus
+  typecheck, lint, and build — see `docs/TESTING.md` §11.)
 
 Coverage is not an audit. The local pool is a deterministic callback/oracle harness, not a
 production AMM or an economic simulation.

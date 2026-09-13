@@ -54,7 +54,7 @@ export function formatCompact(value: string | null | undefined): string {
   return `${sign}${digits}`;
 }
 
-/** Signed percent, as the API sends it: `"1.80"` -> `"+1.80%"`. */
+/** Signed percent, with trailing zeros trimmed: `"1.80"` -> `"+1.8%"`. */
 export function formatPercent(value: string | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const sign = value.startsWith("-") ? "" : "+";

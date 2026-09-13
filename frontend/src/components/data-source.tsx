@@ -1,9 +1,10 @@
-"use client";
-
 import { AlertTriangle, CircleDot, FlaskConical, Loader2, Sigma } from "lucide-react";
 import type { Provenance, ResponseMeta } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /**
  * Provenance and state, rendered so they cannot be forgotten.
@@ -25,10 +26,17 @@ const DESCRIPTION: Record<Provenance, string> = {
   mock: "Demo fixture — not live market data",
 };
 
+/** Three provenances, three visibly different colours. Looking alike is the failure mode. */
+const TONE: Record<Provenance, string> = {
+  onchain: "border-provenance-live/25 bg-provenance-live/8 text-provenance-live",
+  derived: "border-provenance-derived/25 bg-provenance-derived/8 text-provenance-derived",
+  mock: "border-provenance-mock/25 bg-provenance-mock/8 text-provenance-mock",
+};
+
 export function DataSourceBadge({
   meta,
   provenance,
-  className = "",
+  className,
 }: {
   meta?: ResponseMeta;
   /** Overrides the envelope's provenance for a field that carries its own (spot, TWAP). */
@@ -39,11 +47,23 @@ export function DataSourceBadge({
   const Icon = effective === "mock" ? FlaskConical : effective === "derived" ? Sigma : CircleDot;
 
   return (
-    <span className={`data-badge ${effective} ${className}`} title={DESCRIPTION[effective]}>
-      <Icon size={11} />
+    <span
+      className={cn(
+        "inline-flex w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
+        TONE[effective],
+        className,
+      )}
+      title={DESCRIPTION[effective]}
+    >
+      <Icon size={11} aria-hidden="true" />
       {LABEL[effective]}
       {meta?.stale === true && effective !== "mock" && (
-        <b title={`Indexed block ${meta.indexedBlock}${meta.asOf === null ? "" : `, ${formatRelative(meta.asOf)}`}`}>
+        <b
+          className="border-current/30 ml-0.5 border-l pl-1.5 font-bold"
+          title={`Indexed block ${meta.indexedBlock}${
+            meta.asOf === null ? "" : `, ${formatRelative(meta.asOf)}`
+          }`}
+        >
           Stale
         </b>
       )}
@@ -53,8 +73,12 @@ export function DataSourceBadge({
 
 export function PanelLoading({ label = "Loading" }: { label?: string }) {
   return (
-    <div className="panel-state loading" role="status">
-      <Loader2 size={15} className="spin" />
+    <div
+      className="text-muted-foreground flex items-center gap-2 py-6 text-xs"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 size={15} className="animate-spin" aria-hidden="true" />
       <span>{label}…</span>
     </div>
   );
@@ -77,18 +101,18 @@ export function PanelError({ error, onRetry }: { error: Error; onRetry?: () => v
           : "The backend could not be reached.";
 
   return (
-    <div className="panel-state error" role="alert">
-      <AlertTriangle size={15} />
-      <div>
-        <strong>Unavailable</strong>
+    <Alert variant="destructive" role="alert">
+      <AlertTriangle size={15} aria-hidden="true" />
+      <AlertTitle>Unavailable</AlertTitle>
+      <AlertDescription className="gap-2">
         <span>{explanation}</span>
         {onRetry && (
-          <button type="button" onClick={onRetry}>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
             Retry
-          </button>
+          </Button>
         )}
-      </div>
-    </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -102,7 +126,7 @@ export function DataPanel<T>({
   loadingLabel,
 }: {
   query: {
-    data?: { data: T; meta: ResponseMeta };
+    data?: { data: T; meta: ResponseMeta } | undefined;
     error: Error | null;
     isPending: boolean;
     refetch: () => void;

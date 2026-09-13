@@ -1,0 +1,181 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/**
+ * ArcReserve's visual system, since the concept-landing-page change: the Stitch light design —
+ * parchment ground, ink-black text, a cerulean accent, Newsreader display serif over Inter body
+ * sans. This replaces the dark ground and lime accent shipped since D-035; see the decision
+ * record for why the reversal is deliberate rather than drift.
+ *
+ * Every brand primitive lives here, once, as a `--arc-*` variable. The `@theme` block below is
+ * the only place that maps them onto the Tailwind utility and shadcn contract, so a component
+ * never hardcodes a brand colour, font, or radius — it reaches for a utility class instead.
+ */
+:root {
+  /*
+   * Tailwind v4 derives sm/md/lg/xl from one `--radius` by fixed offsets (see `@theme` below).
+   * 0.25rem is chosen so the derived scale lands on the Stitch reference's own radius scale
+   * exactly: sm 0px, md 2px (Stitch's DEFAULT — buttons, inputs), lg 4px (Stitch's `lg` —
+   * alerts), xl 8px (Stitch's `xl` — cards). `rounded-full` is left at Tailwind's true 9999px
+   * for pills and dots; the reference's own `full: 0.75rem` token is not carried over; it reads
+   * as a browser/build quirk in the source (`arcreserve_..._2/code.html`'s inline
+   * `tailwind.config`) rather than an intentional pill shape, since every pill in the reference
+   * screenshot renders fully rounded, not with a visible 12px corner.
+   */
+  --radius: 0.25rem;
+
+  /* Ground and ink */
+  --arc-parchment: #fefffc;
+  --arc-linen: #f9faf7;
+  --arc-paper: #ffffff;
+  --arc-ink: #171717;
+  --arc-charcoal: #444141;
+  --arc-ash: #646464;
+  /* AA-safe on white (contrast ~4.6:1) — the faintest text tier that still reads as text. */
+  --arc-dim: #767676;
+  --arc-mist: #dee2de;
+
+  /* Accent */
+  --arc-cerulean: #0081c0;
+  /* A shade deeper than --arc-cerulean: 5.8:1 on white, so small button/link text clears AA
+     where the vivid value alone (4.3:1) would not. Use the vivid value for large/bold display
+     text and icons; use this one wherever the accent colour sits under real body-sized text. */
+  --arc-cerulean-deep: #006ba3;
+  --arc-signal-blue: #41a1cf;
+  --arc-dusk: #1f1f29;
+
+  /* Status */
+  --arc-error: #ba1a1a;
+
+  /*
+   * Provenance (D-019). Live, derived, and mock must never look alike, and must stay legible on
+   * the new light ground. Re-chosen for the palette reversal rather than carried over: the
+   * previous derived blue sits close to this system's own cerulean accent, which would have
+   * made "derived data" and "the brand colour" hard to tell apart at a glance. All three clear
+   * WCAG AA (>=4.5:1) as text on white, and differ in hue, not just lightness, so they hold up
+   * for red-green colour deficiency too. `DataSourceBadge` also gives each state its own icon —
+   * these variables are the colour half of that distinction, not the whole of it.
+   */
+  --provenance-live: #15803d;
+  --provenance-derived: #6d28d9;
+  --provenance-mock: #b45309;
+
+  /* shadcn/ui token contract, mapped onto the brand primitives */
+  --background: var(--arc-parchment);
+  --foreground: var(--arc-ink);
+  --card: var(--arc-paper);
+  --card-foreground: var(--arc-ink);
+  --popover: var(--arc-paper);
+  --popover-foreground: var(--arc-ink);
+  --primary: var(--arc-cerulean-deep);
+  --primary-foreground: #ffffff;
+  --secondary: var(--arc-linen);
+  --secondary-foreground: var(--arc-ink);
+  --muted: var(--arc-linen);
+  --muted-foreground: var(--arc-ash);
+  --accent: var(--arc-linen);
+  --accent-foreground: var(--arc-ink);
+  --destructive: var(--arc-error);
+  --destructive-foreground: #ffffff;
+  --border: var(--arc-mist);
+  --input: var(--arc-mist);
+  --ring: var(--arc-cerulean-deep);
+
+  --chart-1: var(--arc-cerulean);
+  --chart-2: var(--arc-signal-blue);
+  --chart-3: var(--provenance-mock);
+  --chart-4: var(--provenance-live);
+  --chart-5: var(--arc-error);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-dim: var(--arc-dim);
+  --color-provenance-live: var(--provenance-live);
+  --color-provenance-derived: var(--provenance-derived);
+  --color-provenance-mock: var(--provenance-mock);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Brand utilities beyond the shadcn contract, for landing-page sections written against the
+     Stitch vocabulary directly (`text-cerulean`, `bg-linen`, `border-mist`, and so on). */
+  --color-parchment: var(--arc-parchment);
+  --color-linen: var(--arc-linen);
+  --color-paper: var(--arc-paper);
+  --color-ink: var(--arc-ink);
+  --color-charcoal: var(--arc-charcoal);
+  --color-ash: var(--arc-ash);
+  --color-mist: var(--arc-mist);
+  --color-cerulean: var(--arc-cerulean);
+  --color-cerulean-deep: var(--arc-cerulean-deep);
+  --color-signal-blue: var(--arc-signal-blue);
+  --color-dusk: var(--arc-dusk);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-display: Newsreader, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-normal tracking-tight;
+  }
+
+  /*
+   * Reduced motion is enforced at the application level, not per component (D-035 kept this
+   * rule; the concept-landing-page change adds a scripted counterpart for the hero's WebGL
+   * canvas, since a CSS media query cannot stop a `requestAnimationFrame` loop — see
+   * `use-reduced-motion.ts`).
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

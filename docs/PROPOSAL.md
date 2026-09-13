@@ -197,7 +197,7 @@ jaminan baru berupa hash dokumen di term sheet, belum perjanjian legal yang diek
 | --- | --- | --- |
 | **Contracts** (`contracts/`) | Semua logika keuangan, akuntansi, kepatuhan, redemption, market-making | Solidity (Foundry), ERC-3643-shaped compliance |
 | **Backend** (`backend/`) | Indexer event onchain + API baca `/v1` dengan label provenance (`onchain`/`derived`/`mock`) | Node, PostgreSQL, node-pg-migrate |
-| **Frontend** (`frontend/`) | Marketplace, halaman aset, panel issuer/verifier/keeper, transaksi wallet | Next.js |
+| **Frontend** (`frontend/`) | Marketplace, halaman aset, panel issuer/verifier/keeper, transaksi wallet | React + Vite, Tailwind, shadcn/ui (dibangun ulang 2026-09-12, D-035; route dan panel wallet sedang di-port) |
 
 ### Prinsip arsitektur kunci
 

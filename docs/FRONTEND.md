@@ -1,11 +1,42 @@
 # Frontend Specification and Integration Status
 
-Status: implemented visual prototype with selected live wallet actions and mostly fixture-based reads.
+**Status (2026-09-12, D-035 + D-036 + `openspec/changes/concept-landing-page`): rebuilt on React +
+Vite; the public page is now a labelled concept landing page; the data layer has no consumer.**
 
-The frontend is under `frontend/` and uses Next.js 15 App Router, React 19, TypeScript, wagmi, viem,
-TanStack Query, Tailwind CSS, Lucide icons, and Recharts.
+`frontend/` is a React 19 + Vite 8 single-page app with TypeScript, Tailwind CSS v4, shadcn/ui
+components, wagmi, viem, TanStack Query, Lucide icons, Vitest, Playwright, and a Docker image. It
+replaces the Next.js 15 App Router implementation, which is retired and lives in git history.
 
-## 1. Routes
+What exists today: a marketing-shaped concept landing page (hero, illustrative telemetry, the dual
+participant engine, the five independent value references, the four-stage safety escalation ladder,
+a closing call to action) built from a Stitch design reference, carrying a persistent, non-dismissible
+"design concept — not the deployed protocol" banner and per-panel concept markers on every
+illustrative figure. It reads no live data and calls the backend nowhere. Separately, the `/v1`
+client, the fixture adapter, and the provenance components (`DataSourceBadge`, `DataPanel`) are all
+intact in `src/lib/` and `src/components/data-source.tsx` — they simply have **no consumer on this
+page**, since the page that exercised them (D-035's scaffold) was replaced. 83 Vitest tests and a
+12-case Playwright responsive suite (phone/tablet/desktop) pass; typecheck, lint, and build are clean.
+
+What does **not** exist today, and did exist before the D-035 rebuild: the marketplace, asset,
+issuer, verifier, and engine routes; the candle and engine charts; routing itself; and every live
+wallet write (buy, claim, redeem, issuer deposits, verifier actions, keeper range calls). The SOLAR01
+deep-dive, the yield/floor simulator, and the offerings table from the Stitch reference are also not
+built — deferred to a follow-up change (`openspec/changes/concept-landing-page/design.md`,
+Non-Goals).
+
+> **Read sections 1 and 3 onward as the porting specification, not as a description of the running
+> app.** They record how the previous implementation behaved, including its real-versus-mock
+> boundary, which is what the ported routes must reproduce. Section 2 has been updated to the
+> current environment contract.
+
+See `frontend/README.md` for commands, testing, and the Docker notes; D-035 in `DECISIONS.md` for why
+the Vite rewrite was accepted and what it cost; D-036 for the concept landing page's palette reversal;
+and `openspec/changes/concept-landing-page/` (proposal, design, specs, tasks) for the concept page's
+full rationale, including the specific claims it deliberately does not carry over from the Stitch
+reference (a fabricated audit attribution, guarantee language, an "instant" redemption promise, and
+others — see `design.md`'s Decisions section).
+
+## 1. Routes (previous implementation — the porting target)
 
 | Route | Purpose | Data status |
 | --- | --- | --- |
@@ -18,36 +49,46 @@ TanStack Query, Tailwind CSS, Lucide icons, and Recharts.
 Shared navigation and wallet controls are in `src/components/app-shell.tsx` and
 `src/components/wallet-button.tsx`.
 
-## 2. Environment
+## 2. Environment (current)
 
-The app expects:
+Vite exposes only `VITE_`-prefixed variables to client code. The app expects:
 
 ```text
-NEXT_PUBLIC_RPC_URL
-NEXT_PUBLIC_SITE_URL
-NEXT_PUBLIC_MUSD_ADDRESS
-NEXT_PUBLIC_REGISTRY_ADDRESS
-NEXT_PUBLIC_TOKEN_ADDRESS
-NEXT_PUBLIC_VAULT_ADDRESS
-NEXT_PUBLIC_OFFERING_ADDRESS
-NEXT_PUBLIC_MARKET_MANAGER_ADDRESS
-NEXT_PUBLIC_REVENUE_DISTRIBUTOR_ADDRESS
-NEXT_PUBLIC_REDEMPTION_CONTROLLER_ADDRESS
-NEXT_PUBLIC_ASSET_ID
+VITE_RPC_URL
+VITE_MUSD_ADDRESS
+VITE_REGISTRY_ADDRESS
+VITE_TOKEN_ADDRESS
+VITE_VAULT_ADDRESS
+VITE_OFFERING_ADDRESS
+VITE_MARKET_MANAGER_ADDRESS
+VITE_REVENUE_DISTRIBUTOR_ADDRESS
+VITE_REDEMPTION_CONTROLLER_ADDRESS
+VITE_ASSET_ID
+VITE_API_URL
 ```
+
+The typed surface is `frontend/src/vite-env.d.ts`; keep it in step with `.env.example`.
+`NEXT_PUBLIC_SITE_URL` was dropped in the rebuild — nothing read it.
 
 `contractsConfigured` becomes true only when all eight component addresses are nonzero. The app is
 configured for chain ID 31337 and the local RPC by default.
+
+`VITE_API_URL` governs the provenance mode (D-019): absent means configured fixture mode with a
+`Mock` badge on every panel; present means live reads where a *failed* request is an error state,
+never a fixture.
+
+**Vite inlines these at build time.** They are not runtime configuration: a change needs a dev-server
+restart, and the Docker image takes them as build arguments and must be rebuilt to repoint.
 
 The local deployment JSON does not automatically update `.env.local`. After every fresh Anvil
 restart:
 
 1. rerun `DeployLocal.s.sol`;
 2. copy current addresses and asset ID into `.env.local`;
-3. restart the Next.js dev server; and
+3. restart the Vite dev server (port 3000, `strictPort` — the backend's default `CORS_ORIGIN`); and
 4. reconnect the wallet to Anvil.
 
-Do not commit real secrets. All `NEXT_PUBLIC_*` variables are shipped to the browser.
+Do not commit real secrets. Every `VITE_*` variable is shipped inside the browser bundle.
 
 ## 3. Current data model
 

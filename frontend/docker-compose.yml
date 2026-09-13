@@ -1,0 +1,50 @@
+# ArcReserve frontend (hackathon demo, testnet only).
+#
+# The VITE_* values below are BUILD arguments, because Vite inlines them into the bundle.
+# Change one and you must rebuild: `docker compose build`. They are read from your shell or a
+# sibling `.env` file, and default to empty — an empty VITE_API_URL is a supported mode in which
+# the app runs on labelled fixtures (D-019).
+#
+# VITE_API_URL is resolved by the *browser*, not by this container, so it points at the host
+# (127.0.0.1:4000), not at a compose service name.
+services:
+  frontend:
+    build:
+      context: .
+      target: runtime
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_RPC_URL: ${VITE_RPC_URL:-}
+        VITE_ASSET_ID: ${VITE_ASSET_ID:-}
+        VITE_MUSD_ADDRESS: ${VITE_MUSD_ADDRESS:-}
+        VITE_REGISTRY_ADDRESS: ${VITE_REGISTRY_ADDRESS:-}
+        VITE_TOKEN_ADDRESS: ${VITE_TOKEN_ADDRESS:-}
+        VITE_VAULT_ADDRESS: ${VITE_VAULT_ADDRESS:-}
+        VITE_OFFERING_ADDRESS: ${VITE_OFFERING_ADDRESS:-}
+        VITE_MARKET_MANAGER_ADDRESS: ${VITE_MARKET_MANAGER_ADDRESS:-}
+        VITE_REVENUE_DISTRIBUTOR_ADDRESS: ${VITE_REVENUE_DISTRIBUTOR_ADDRESS:-}
+        VITE_REDEMPTION_CONTROLLER_ADDRESS: ${VITE_REDEMPTION_CONTROLLER_ADDRESS:-}
+    image: arcreserve-frontend:local
+    container_name: arcreserve-frontend
+    restart: unless-stopped
+    # Host 3000 keeps the backend's default CORS_ORIGIN (http://localhost:3000) valid.
+    ports:
+      - "127.0.0.1:3000:8080"
+
+  # Optional live-reload container: `docker compose --profile dev up frontend-dev`.
+  frontend-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    container_name: arcreserve-frontend-dev
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_RPC_URL: ${VITE_RPC_URL:-}
+    volumes:
+      - ./src:/app/src
+      - ./index.html:/app/index.html
+      - ./public:/app/public
+    ports:
+      - "127.0.0.1:3000:3000"
