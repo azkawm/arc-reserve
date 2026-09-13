@@ -1,0 +1,32 @@
+flowchart TB
+    Investor((Investor)) -->|buy / redeem / claim yield| FE[Frontend<br/>React + Vite]
+    FE -->|reads live data| BE[Backend Indexer<br/>events -> Postgres -> /v1 API]
+    BE -->|watches events| Chain
+
+    subgraph Chain[On-chain, same code on 3 chains]
+      direction TB
+      Registry[AssetRegistry + AssetFactory<br/>approves and deploys one asset series]
+      Token[AssetToken SOLAR01<br/>capped supply, KYC-gated transfers]
+      Vault[AssetVault<br/>5 separate money buckets]
+      Offering[PrimaryOffering<br/>mint on verified purchase]
+      Revenue[RevenueDistributor<br/>splits solar revenue]
+      Redeem[RedemptionController<br/>burn, then pay out]
+      Market[AssetMarketManager<br/>Uniswap V3 price floor]
+
+      Registry --> Token
+      Registry --> Vault
+      Offering -->|mints tokens, funds vault| Token
+      Offering -->|65 percent to issuer, 30 to reserve, 5 to market| Vault
+      Issuer((Solar project<br/>operator)) -->|deposits real revenue| Revenue
+      Revenue -->|60 percent yield, 25 reserve, 10 operator, 5 protocol| Vault
+      Vault -->|market allocation only| Market
+      Market -->|profit from trading goes back to reserve| Vault
+      Token -->|redeem at or below backing| Redeem
+      Redeem --> Vault
+    end
+
+    Market -->|liquidity position| U1[Uniswap V3 Pool]
+
+    U1 --- Base[Base Sepolia<br/>official Uniswap V3 factory]
+    U1 --- Hedera[Hedera Testnet<br/>we deployed our own real Uniswap V3 factory]
+    U1 --- Arc[Circle Arc Testnet<br/>we deployed our own real Uniswap V3 factory]
