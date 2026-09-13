@@ -317,24 +317,20 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         market.setSafetyPolicy(15 minutes, 0, 200, 1_500, 600);
 
         vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
-        market.setSafetyPolicy(15 minutes, 10 minutes, 200, 10_001, 600);
-
-        vm.expectRevert(AssetMarketManager.InvalidPolicy.selector);
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 1_500, 0);
 
-        // D-036: the first and third arguments are dead. Their validation is deliberately gone, so
-        // a caller may pass 0 and mean "not applicable" rather than inventing a plausible number
-        // for a knob that configures nothing - and an out-of-range basis-point value is accepted
-        // too, because nothing reads it.
-        market.setSafetyPolicy(0, 10 minutes, 10_001, 1_500, 600);
+        // D-036 and D-039: the first, third and fourth arguments are dead. Their validation is
+        // deliberately gone, so a caller may pass 0 and mean "not applicable" rather than inventing
+        // a plausible number for a knob that configures nothing - and an out-of-range basis-point
+        // value is accepted too, because nothing reads it.
+        market.setSafetyPolicy(0, 10 minutes, 10_001, 10_001, 600);
 
         // They are also emitted as 0, so no indexer records a policy that was never set.
         vm.expectEmit(false, false, false, true, address(market));
-        emit AssetMarketManager.SafetyPolicyUpdated(0, 10 minutes, 0, 1_500, 600);
+        emit AssetMarketManager.SafetyPolicyUpdated(0, 10 minutes, 0, 0, 600);
         market.setSafetyPolicy(15 minutes, 10 minutes, 200, 1_500, 600);
 
         assertEq(market.rebalanceCooldown(), 10 minutes);
-        assertEq(market.maxMarketNAVDeviationBps(), 1_500);
         assertEq(market.maxTickShift(), 600);
     }
 
@@ -375,16 +371,18 @@ contract AssetMarketManagerControlsTest is ArcReserveTestBase {
         _assertSafetyFailure(AssetMarketManager.SafetyFailure.Matured);
     }
 
-    /// @dev D-036: the guard now reads SPOT against NAV, and `safetyState`'s third return value is
-    ///      permanently 0 rather than a time-weighted price.
-    function testSafetyRejectsMarketNAVDeviationOnSpot() public {
+    /// @dev D-039: spot ~35% away from NAV is no longer a safety failure. `safetyState` still
+    ///      REPORTS both numbers — reporting is not gating — and its third return value is
+    ///      permanently 0 since D-036 retired the time-weighted price.
+    function testSafetyReportsButDoesNotRejectMarketNAVDeviation() public {
         _setFlatMarketOffset(3_000);
         (AssetMarketManager.SafetyFailure failure, uint256 spot, uint256 twap, uint256 nav) =
             market.safetyState(false);
 
-        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation));
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.None));
         assertEq(twap, 0, "the retired TWAP slot must report 0");
         assertGt(spot, nav, "market should be above NAV");
+        assertGt(nav, 0, "NAV must still be reported, just not enforced");
     }
 
     function testSafetyRejectsAccountingInsolventVault() public {

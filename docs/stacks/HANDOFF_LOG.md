@@ -1208,6 +1208,81 @@ Hedera's gas cap.** Green here proves logic and liquidity math, never that a tra
 accepted for broadcast — that is exactly how the 18.4M `deployAssetSystem` passed every rehearsal.
 Needs: owner — commit.
 
+## 2026-09-12 — contracts — D-038: NAV no longer gates slide/sweep
+Branch: main   Commit: (uncommitted — owner commits on request)
+Owner asked for NAV to stop gating `slide` and `sweep`. Done, with the containment that makes it
+safe, and with the honest note about what it does not fix.
+
+**What changed.** Those two no longer check NAV staleness or spot/NAV deviation. Everything else
+they enforced still applies: pause, status, maturity, solvency, cooldown, tick alignment,
+`maxTickShift`, empty position, and the D-036 anchor-range signal.
+
+**Why it is safe, resting on one fact:** `_rebalance` refuses a position that still holds liquidity,
+so these move ticks on an EMPTY range and no capital follows a stale or manipulated price. The
+capital that would eventually go there is still gated at `addLiquidity`, which keeps both NAV
+checks. `test_addLiquidityIsStillNavGated` pins exactly that, and deleting it would silently turn
+D-038 into "the engine ignores NAV".
+
+**New view `repositionSafetyState(bool)`,** same enum, never returns StaleNAV or MarketNAVDeviation.
+Added because otherwise the relaxation is invisible: a UI gating the slide/sweep buttons on
+`safetyState` would disable them during precisely the conditions under which they now work.
+**`safetyState` is unchanged** and remains the conservative superset, so nothing reading it breaks —
+it is simply now the wrong question for two of the eight entry points. CHANGED rows filed in both
+boundary docs; frontend must switch those two buttons over.
+
+**What this does NOT fix, and the owner should know:** a stale NAV still blocks `fundFromVault` and
+`addLiquidity`, so the D-035 flywheel still cannot refill discovery after a harvest — one turn, then
+`FlywheelSkipped("NO_DISCOVERY_LIQUIDITY")` until NAV is republished. Keeping the engine alive
+end-to-end through a stale oracle means relaxing the gate on capital deployment, which is a
+materially different decision and has not been taken.
+
+**Also recorded in SECURITY.md, found while checking this:** `isNAVStale` is consulted in exactly ONE
+place in the whole system — `AssetMarketManager.safetyState`. Redemption prices off NAV,
+`minimumRequiredReserve` sizes off NAV, and the floor's ceiling derives from NAV, all **without
+regard to its age**. Defensible, since the engine is the part that acts automatically on price, but
+it means a stale NAV silently prices redemptions. Currently masked because backing sits below NAV so
+backing binds; it stops being masked once backing climbs past NAV late in the term.
+
+Testing: 319 default (up 5), 9 fork, `forge fmt --check` clean. `AssetMarketManager` 19,277 B.
+Corrected four docs that my own earlier wording had just made wrong: MARKET_MAKING's "each operation
+requires fresh NAV", SYSTEM_SPEC §10.4, and two places in the DEMO.md runbook written an hour ago.
+Needs: owner — commit.
+
+## 2026-09-12 — contracts — Testnet broadcast runbook, and DEMO.md was stale in three places
+Branch: main   Commit: (uncommitted — owner commits on request)
+Wrote `DEMO.md` §13, the testnet broadcast runbook. Everything in that file was Anvil-only; there
+was no written procedure for putting a build on a public chain, which is how the first attempt
+burned 59 nonces and left 18 orphans. Every step in §13 is there because something went wrong
+without it.
+
+Covers: the pre-broadcast gate; `--slow` and **why** (batched sends make `run-latest.json` mis-pair
+hashes with function names — observed attributing 108,442 gas to a call that used 8,522,905, so
+verify by recipient + selector against the chain instead); the **byte-identical runtime check** as a
+standing step, which is the only thing that proves the live system IS the reviewed build; deriving
+`START_BLOCK` by binary search on historical `eth_getCode` rather than logs, because Alchemy's free
+tier caps `eth_getLogs` at 10 blocks and returns **empty rather than erroring** on a wider request,
+which looks exactly like "no events"; and the sequencing traps — DemoRegistrar against the live
+registry only, cleanup on the old system LAST and only after the new one is proven serving.
+
+**Three things in DEMO.md were already wrong and are now fixed**, which matters because other stacks
+follow it:
+- §4's documented `DeployLocal` command **fails**. Forge auto-loads `contracts/.env`, which carries
+  the funded testnet key, and that key has no balance on Anvil. The fallback to Anvil #0 only
+  applies when `PRIVATE_KEY` is unset. Now pins the key explicitly with the reason.
+- §11's recovery table still blamed "spot drifted more than 3% from TWAP". D-036 removed that gate;
+  it is spot vs NAV at 20% now. Also added four rows for failure modes that read as bugs:
+  slide/sweep uncallable mid-band, the NAV-staleness partial failure, and the thin-pool lockout.
+- §2 and §12 quoted 247 and 56 tests. Now 314 plus 9 fork.
+
+§13.5 is the demo-day section worth reading before any presentation: **republish NAV on the
+morning** (it goes stale at T+2 days and blocks every keeper and liquidity path while buy/claim/
+redeem keep working — a partial failure that presents as a broken engine), keep swaps modest, and
+note that **the flywheel is a Base-only demo** — the mock has no curve, so on Anvil the engine
+correctly reports `FlywheelSkipped("NO_SURPLUS")`.
+
+Interface changes: none. Docs only.
+Needs: owner — commit.
+
 ## 2026-09-12 — contracts — D-035 Phase B-1: the flywheel turns on a real pool
 Branch: main   Commit: (uncommitted — owner commits on request)
 Owner authorised Phase B ("Gooooo"). Built the surplus crossing and the public trading entry point;
@@ -1248,7 +1323,11 @@ Testing: default **314/314**, fork **9/9**, `forge fmt --check` clean, via_ir fa
 `AssetMarketManager` 15,625 → **18,289 B** (6,287 margin), `AssetVault` → 12,486 B.
 Interface changes: **CHANGED rows in both boundary docs.** Frontend gets a genuinely new user action
 — `swapExactInput` is the Sell/Trade path §7 previously listed as NOT provided; that line is retired.
-Backend: `redemptionReserve` now has a **fourth** growth source, so a projection driven only by
+Backend: [**CORRECTED 2026-09-12 — see the amended row in CONTRACTS_TO_BACKEND.md. Calling this a
+"fourth source" was wrong: `MarketSurplusCredited` is an annotation on an `AllocationChanged` that
+already carries the movement, and projecting both double-counts every credit.** The original
+wording is left below as written, per this log's append-only rule.]
+`redemptionReserve` now has a **fourth** growth source, so a projection driven only by
 deposits/revenue/yield will drift, and `SwapExactInput.amountIn` is the amount *requested* — a
 partial fill refunds the rest, so actual spend comes from the pool's own `Swap` event.
 Needs: owner — commit.
@@ -1284,3 +1363,50 @@ Needs: owner — (1) grade the frontend comprehension answers, still the largest
 how judges get KYC-verified on 84532 (operator-run page vs pre-registered wallets vs a DemoRegistrar
 contract allowing testnet self-registration) — without one, every judge wallet is unverified and
 cannot buy.
+
+## 2026-09-12 — contracts — D-039: NAV disconnected from the liquidity engine (subsumes D-038)
+Branch: main   Commit: (uncommitted)
+What: the owner's call — "NAV is only a tracing variable, read only, not involved in any liquidity
+activity or trading." D-038 had exempted only `slide`/`sweep` earlier the same day; D-039 removes
+the NAV gates from the whole engine. `safetyState` no longer returns `StaleNAV` (4) or
+`MarketNAVDeviation` (6); `maxMarketNAVDeviationBps` is deleted outright (state var, getter and
+policy validation); `repositionSafetyState` and `_enforceRepositionSafety` are deleted and
+`slide`/`sweep` are back on the single `_enforceSafety` path. `setSafetyPolicy` keeps its 5-param
+shape for ABI stability with the 4th parameter now accepted-and-ignored alongside the 1st and 3rd —
+validation dropped, emitted as 0. Codes 4, 5 and 6 are all reserved-never-returned so 7 and 8 do
+not shift under any consumer's mapping.
+What NAV still does, unchanged: prices redemption, sizes `minimumRequiredReserve`, caps the floor
+level, feeds the UI. None of those consult its age, and none of them are engine actions.
+The accepted risk, stated rather than buried: the engine will quote against a NAV nobody has
+refreshed, at a spot price arbitrarily far from it. There is **no on-chain mitigation any more** —
+`SECURITY.md`'s risk register now says "accepted, not mitigated" and names off-chain alerting on
+`isNAVStale` and spot/NAV divergence as the only remaining control. Worth a backend alert.
+Nothing in the system reads `isNAVStale` on-chain now; before today exactly one caller did.
+Testing: default **321/321** (was 314), `forge fmt` clean, via_ir false. `AssetMarketManager`
+18,289 → **17,858 B** (6,718 margin). New/inverted tests assert an *absence* of behaviour, which is
+the kind that erodes silently, so they check outcomes not just non-reverts:
+`test_addLiquidityIsNoLongerNavGated` asserts the liquidity actually lands;
+`test_fullEngineCycleWorksWithAStaleNav` runs fund → deploy → remove → slide → refresh discovery →
+collect → withdraw under a two-day-stale NAV; `test_tradingAndTheCrankRunWithAStaleNav` does the
+same for the public `swapExactInput` path. Fork suite not re-run (needs `BASE_SEPOLIA_RPC_URL`);
+nothing in the diff touches fork-only paths, but that is reasoning, not evidence.
+Interface changes: **CHANGED rows in both boundary docs, and a RETRACTION.** D-038's frontend row
+advertising `repositionSafetyState` is struck through — **that view never shipped and does not
+exist; do not build against it.** Both stacks go back to a single `safetyState`.
+Backend has one concrete break, named in its boundary row rather than left to be discovered:
+`backend/src/chain/snapshot.ts` reads `maxMarketNAVDeviationBps` at four sites (~172 declaration,
+~553 destructuring position, ~566 the read, ~603 serialisation) and that call will revert against a
+manager deployed from this commit. Corrected after the architect re-verified and found ~553, which
+I had dropped from my own grep output — a partial fix that misses the positional binding breaks
+silently rather than loudly, so all four matter. The existing 84532 deployment is
+unaffected until it is replaced. `common.ts` should KEEP `StaleNAV`/`MarketNAVDeviation` in its
+enum — they are reserved, and removing them would renumber the array.
+Docs: D-039 written and D-038 marked superseded (in full, since its reasoning is what D-039
+extends); `SECURITY.md` risk register + engine notes; `MARKET_MAKING.md` §policy/§operations/matrix;
+`SYSTEM_SPEC.md` §10.2/§10.4; `DEMO.md` §11 table + §13.5 (the morning NAV republish drops from
+**critical** to optional housekeeping); `TESTING.md`; `AI_COMPREHENSION_CHECK` Q25 and scenario 4
+(scenario 4's answer **inverts** — it is now the likeliest stale answer to see); `CLAUDE.md` rule 4,
+demo config and test baseline. Deploy scripts now pass 0 in the dead 4th slot.
+Needs: owner — commit and push (two earlier commits `80fc7dc`, `7a6269b` plus D-038 and the runbook
+are still unpushed); then the decision on redeploying Phase A + B-1 + DemoRegistrar to 84532.
+Backend — the `snapshot.ts` fix before that redeploy, not after.

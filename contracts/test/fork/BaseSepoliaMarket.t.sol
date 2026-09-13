@@ -433,7 +433,8 @@ contract BaseSepoliaMarketForkTest is Test {
 
         // Stop the swap two spacings past the band. Sizing by amount alone is hopeless on a thin
         // pool - a 40,000 mUSD order consumed every position and pinned the price at MIN_TICK,
-        // which then tripped the spot/NAV guard. The sqrtPriceLimit is the right instrument.
+        // which then tripped the spot/NAV guard that D-039 has since removed. The price limit is
+        // still the right instrument: a price pinned at MIN_TICK is a useless test either way.
         _pushAssetPriceUpTo(assetIsToken0 ? anchorUpper + 120 : anchorLower - 120);
 
         int24 tickAfter = _spotTick();

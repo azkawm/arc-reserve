@@ -549,22 +549,25 @@ or mint asset supply beyond inventory explicitly transferred by a funder.
 1. manager paused;
 2. asset not Active;
 3. maturity timestamp reached;
-4. NAV stale;
+4. *(retired — `StaleNAV` keeps enum value 4 and is never returned, D-039)*;
 5. *(retired — `SpotTwapDeviation` keeps enum value 5 and is never returned, D-036)*;
-6. **spot**/NAV deviation above policy;
+6. *(retired — `MarketNAVDeviation` keeps enum value 6 and is never returned, D-039)*;
 7. vault insolvent or reserve below minimum; and
 8. cooldown not elapsed, when requested.
+
+Values 4, 5 and 6 are reserved rather than removed so that 7 and 8 do not shift under any
+consumer's failure-code mapping.
 
 Default policy:
 
 | Parameter | Default |
 | --- | ---: |
 | Rebalance cooldown | 30 minutes (deploy scripts configure **1 second**) |
-| Maximum **spot**/NAV deviation | 2,000 bps |
 | Maximum endpoint tick shift | 1,200 ticks |
 
-`setSafetyPolicy` keeps five parameters for ABI stability, but the first (`twapWindow`) and third
-(`spotTwapBps`) are accepted and ignored, no longer validated, and emitted as 0.
+Those two are the whole engine policy. `setSafetyPolicy` keeps five parameters for ABI stability,
+but the first (`twapWindow`), third (`spotTwapBps`) and fourth (`marketNavBps`) are accepted and
+ignored, no longer validated, and emitted as 0.
 
 ### 10.3 Liquidity lifecycle
 
@@ -582,6 +585,10 @@ unwind capability.
 
 - `slide` additionally requires spot to have left the **anchor's own range on the upside** (D-036).
 - `sweep` additionally requires spot to have left the anchor range on the **downside**.
+- **No engine action is NAV-gated (D-039, superseding D-038)** — not staleness, not spot/NAV
+  deviation, and not only for these two. `repositionSafetyState`, which D-038 added to report the
+  narrower carve-out, has been deleted: `safetyState` is again the single view for every entry
+  point.
 - Both comparisons are made in price terms and resolve through `assetIsToken0`, since with the asset
   as token1 a higher price is a lower tick. While spot is inside the band neither is callable.
 - `refreshDiscovery` has no separate price-direction check beyond the common safety gates.

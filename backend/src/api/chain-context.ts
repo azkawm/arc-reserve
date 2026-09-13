@@ -17,11 +17,14 @@ export interface ChainContext {
   client: ArcPublicClient;
   /** The registry the indexer recorded for this chain, not the configured one. */
   registry: `0x${string}`;
+  /** The stablecoin the indexer recorded for this chain. Same reasoning as `registry`. */
+  stablecoin: `0x${string}`;
 }
 
 interface ChainRow {
   chain_id: string | number;
   registry_address: string;
+  stablecoin_address: string;
 }
 
 /** Builds a client for a chain. Injectable so tests can hand a chain a client that really is it. */
@@ -58,7 +61,7 @@ export class ChainRegistry {
     const supported = chainId as SupportedChainId;
 
     const row = await this.db.maybe<ChainRow>(
-      'SELECT chain_id, registry_address FROM chains WHERE chain_id = $1',
+      'SELECT chain_id, registry_address, stablecoin_address FROM chains WHERE chain_id = $1',
       [supported],
     );
     if (row === null) {
@@ -72,7 +75,12 @@ export class ChainRegistry {
       );
     }
 
-    return { chainId: supported, client: await this.clientFor(supported), registry: registryOf(row) };
+    return {
+      chainId: supported,
+      client: await this.clientFor(supported),
+      registry: registryOf(row),
+      stablecoin: row.stablecoin_address.toLowerCase() as `0x${string}`,
+    };
   }
 
   private async clientFor(chainId: SupportedChainId): Promise<ArcPublicClient> {

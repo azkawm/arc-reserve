@@ -1,0 +1,23 @@
+{
+  "assetId": "0xda699bc78ef95f03df4596582f7a3a29f8b95d5984d8b8fa279df0747959f4c4",
+  "chainId": 296,
+  "compliance": "0x898d2Dbb8De058531e44F2775b64A7a871F9eEd4",
+  "countryAllowModule": "0x08faA336409d3DCa8F47268D2AC6ad9444d640d8",
+  "demoRegistrar": "0x2243aA04e2Ca2d90fdd94F1A8A7028E00B6fB68c",
+  "factory": "0x7159C03Ce8746E5882aEE2debe2d2cceB68A5d19",
+  "floorController": "0x34c1Ac45EfB6Edc68d9Afc248797D3B5b21dBBa4",
+  "identityRegistry": "0xbAF79049B519e91673F82Fa30492059E8E7eBFF2",
+  "marketManager": "0xaA6C6A4CE2d5cA6e58e537dE3823828cb86478c2",
+  "mockUSD": "0x48D8dad3cF46F99CEc63466cD9AF8F8f56aa301C",
+  "mockYieldSource": "0x04CB5C9058524bD68F8f1b4Bc0fDfbED1F948ce0",
+  "offering": "0x753B1e50Fd3Db319DC4Aa03a7602478ef6392dD4",
+  "pool": "0xcb77d1068A3Cc3E846Fdaff14B80476f773c6d31",
+  "poolFactory": "0x96F77b632A809da97B2f7D5f38cd93B20f52e933",
+  "poolIsCanonical": true,
+  "redemptionController": "0xe8A6A3e1995CA92C3c9427499F4Ee9134B5071C0",
+  "registry": "0xECEbb2dA14751dd4EBD481CA8493ed6d6A6EA78C",
+  "revenueDistributor": "0xC4C11E4593C86B9Ab10bcB5ffaD279944E18ea8A",
+  "token": "0x2a92796fA4eB95C1F5B55EbeD403bB42e9026827",
+  "transferLockModule": "0x1D14b0650973CE0270745bBc64d3dd53ef02C668",
+  "vault": "0x1F5238616aabdCD588dBE07f6d938a998C9428c8"
+}

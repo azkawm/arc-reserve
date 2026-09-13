@@ -41,12 +41,20 @@ contract DeployLocal is Script {
     ///      is demonstrable without capping the main demo investor's raise.
     address private constant DEFAULT_ANVIL_RETAIL = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
 
+    uint256 private constant Q96 = 1 << 96;
+
     address private musdAddress;
     address private mockYieldSourceAddress;
     address private floorControllerAddress;
     address private registryAddress;
     address private factoryAddress;
     address private demoRegistrarAddress;
+    address private poolFactoryAddress;
+    /// @dev True when `UNISWAP_V3_FACTORY` pointed this run at a REAL v3-core factory instead of
+    ///      the mock. Everything mock-specific — the oracle setter, the deterministic seeding
+    ///      arithmetic — is skipped when it is true.
+    bool private poolIsReal;
+    bool private predictedAssetIsToken0;
     IdentityRegistry private identityRegistry;
     ModularCompliance private compliance;
     CountryAllowModule private countryModule;
@@ -65,7 +73,21 @@ contract DeployLocal is Script {
         vm.startBroadcast(privateKey);
         MockUSD musd = new MockUSD();
         AssetRegistry registry = new AssetRegistry(deployer);
-        MockUniswapV3Factory poolFactory = new MockUniswapV3Factory();
+        // DEMO: point this at a real locally-deployed v3-core factory to run the engine against a
+        // genuine AMM on Anvil — `UNISWAP_V3_FACTORY=0x… forge script …`. Unset, it keeps the mock,
+        // which is a callback harness with no curve: the D-035 flywheel can never turn against it
+        // because nothing converts a position's inventory, so it reports NO_SURPLUS forever.
+        // Only the explicit `UNISWAP_V3_FACTORY` is honoured here — NOT the `UNISWAP_FACTORY_ADDRESS`
+        // alias DeployTestnet accepts. contracts/.env is shared across chains and that alias holds a
+        // testnet factory address, which can never exist on a fresh Anvil; reading it made the
+        // documented "unset means mock" default revert instead (2026-09-13).
+        address factoryOverride = vm.envOr("UNISWAP_V3_FACTORY", address(0));
+        poolIsReal = factoryOverride != address(0);
+        require(
+            !poolIsReal || _isV3Factory(factoryOverride),
+            "DeployLocal: UNISWAP_V3_FACTORY is not a Uniswap V3 factory on this chain"
+        );
+        poolFactoryAddress = poolIsReal ? factoryOverride : address(new MockUniswapV3Factory());
         AssetFactory.ComponentDeployerSet memory deployers = AssetFactory.ComponentDeployerSet({
             token: address(new TokenDeployer()),
             vault: address(new VaultDeployer()),
@@ -77,10 +99,14 @@ contract DeployLocal is Script {
         AssetFactory factory =
             new AssetFactory(address(registry), address(musd), deployer, deployers);
         registry.grantRole(registry.FACTORY_ROLE(), address(factory));
-        factory.setApprovedPoolFactory(address(poolFactory), true);
+        factory.setApprovedPoolFactory(poolFactoryAddress, true);
         musdAddress = address(musd);
         registryAddress = address(registry);
         factoryAddress = address(factory);
+        // The asset token is the TokenDeployer's first CREATE, so the pool's token ordering is
+        // known before the token exists. Only matters on a real pool, where the initial price has
+        // to be encoded for the actual ordering; the mock ignores it and uses setOracleForTest.
+        predictedAssetIsToken0 = vm.computeCreateAddress(deployers.token, 1) < musdAddress;
 
         // Protocol-wide KYC registry. The deployer (issuer/verifier/keeper) and the demo investor
         // are the only verified wallets; every other address is blocked from holding SOLAR01.
@@ -125,9 +151,15 @@ contract DeployLocal is Script {
             redemptionPeriodLimitTokens: 25_000e18,
             operator: deployer,
             revenueDepositor: deployer,
-            poolFactory: address(poolFactory),
+            poolFactory: poolFactoryAddress,
             poolFee: 3_000,
-            initialSqrtPriceX96: uint160(1 << 96),
+            // On the mock this is ignored (setOracleForTest pins the tick instead), which is why
+            // it was Q96 — tick 0 — for so long. A real pool takes it literally, and tick 0 is NOT
+            // one mUSD once 6- and 18-decimal tokens are involved: the raw token1/token0 ratio is
+            // 1e-12 or 1e12 depending on ordering, i.e. tick ~±276325.
+            initialSqrtPriceX96: poolIsReal
+                ? (predictedAssetIsToken0 ? uint160(Q96 / 1e6) : uint160(Q96 * 1e6))
+                : uint160(Q96),
             identityRegistry: address(identityRegistry)
         });
         // D-026: the verifier approves the hash of the exact parameters that will be deployed.
@@ -209,8 +241,14 @@ contract DeployLocal is Script {
 
     function _configureMarket(AssetFactory.Deployment memory deployment) private {
         AssetMarketManager market = AssetMarketManager(deployment.marketManager);
-        int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
-        MockUniswapV3Pool(deployment.pool).setOracleForTest(oneDollarTick, oneDollarTick);
+        require(
+            market.assetIsToken0() == predictedAssetIsToken0,
+            "DeployLocal: token-ordering prediction failed; pool initialized at the wrong price"
+        );
+        if (!poolIsReal) {
+            int24 oneDollarTick = market.assetIsToken0() ? int24(-276_324) : int24(276_324);
+            MockUniswapV3Pool(deployment.pool).setOracleForTest(oneDollarTick, oneDollarTick);
+        }
         if (market.assetIsToken0()) {
             market.configureCorePositions(-278_400, -276_600, -276_600, -276_000);
             market.configureOptionalPosition(
@@ -226,9 +264,11 @@ contract DeployLocal is Script {
         }
 
         // D-036 demo pacing: 1-second rebalance cooldown, not 0, so two rebalances in the same
-        // block still trip SafetyCheckFailed(Cooldown) and the refusal stays demonstrable. First
-        // and third arguments are the retired TWAP knobs: accepted, ignored, passed as 0.
-        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
+        // block still trip SafetyCheckFailed(Cooldown) and the refusal stays demonstrable. The
+        // first and third arguments are the retired TWAP knobs and the fourth is the retired
+        // spot-vs-NAV band (D-039): all three are accepted, ignored, and passed as 0. Only the
+        // cooldown and the 1,200-tick range-move cap configure anything.
+        market.setSafetyPolicy(0, 1, 0, 0, 1_200);
     }
 
     /// @dev Modular compliance for the series: Indonesia-only recipients, and a resale hold
@@ -269,20 +309,66 @@ contract DeployLocal is Script {
         AssetMarketManager market = AssetMarketManager(deployment.marketManager);
         AssetToken assetToken = AssetToken(deployment.token);
 
-        musd.faucet(deployer, 10_000e6);
-        musd.approve(deployment.offering, 10_000e6);
-        PrimaryOffering(deployment.offering).buy(10_000e6, 0);
+        uint256 buyAmount = poolIsReal ? 40_000e6 : 10_000e6;
+        musd.faucet(deployer, buyAmount);
+        musd.approve(deployment.offering, buyAmount);
+        PrimaryOffering(deployment.offering).buy(buyAmount, 0);
 
-        // 5% of the raise reached the market allocation; put it and a slice of the tokens to work.
-        market.fundFromVault(500e6);
-        assetToken.approve(deployment.marketManager, 500e18);
-        market.fundTokenInventory(500e18);
+        if (!poolIsReal) {
+            // Mock: `liquidity x 1` of each token regardless of range, so L=1000 is 1000 wei a side.
+            market.fundFromVault(500e6);
+            assetToken.approve(deployment.marketManager, 500e18);
+            market.fundTokenInventory(500e18);
+            _seed(market, AssetMarketManager.PositionKind.Anchor, 1_000);
+            return;
+        }
+
+        // Real v3-core: L is not an amount. At these ranges L=1e16 costs ~573 SOLAR01 on discovery
+        // and, on the two mUSD-consuming ranges, ~849 mUSD (reserve floor) and ~137 mUSD + ~161
+        // SOLAR01 (anchor) — measured against a real pool, not guessed.
+        market.fundFromVault(vault_(deployment).marketMakingAllocation());
+        assetToken.approve(deployment.marketManager, 20_000e18);
+        market.fundTokenInventory(20_000e18);
+
+        // ONLY discovery is seeded, and the reason is the cost basis rather than laziness.
+        // `creditableSurplus()` is `max(0, mUSD balance - principalOutstanding)`, so mUSD deployed
+        // into a position leaves the balance while staying in the basis: the manager reads as
+        // under water and credits nothing until it has earned its draw back. Seeding the reserve
+        // floor (stable-only) or the anchor (both sides) therefore makes the FIRST trades credit
+        // zero — the engine is behaving correctly and conservatively, but a demo shows nothing.
+        // Discovery costs asset only, so the drawn mUSD stays free, and the first buy converts
+        // inventory straight into creditable surplus. Seeding a fuller book is a keeper action
+        // afterwards, once there is surplus to fund it with.
+        _seed(market, AssetMarketManager.PositionKind.Discovery, 1e16);
+    }
+
+    function vault_(AssetFactory.Deployment memory deployment) private pure returns (AssetVault) {
+        return AssetVault(deployment.vault);
+    }
+
+    /// @dev Functional, not size-based: a factory must answer `feeAmountTickSpacing(3000) == 60`.
+    ///      A bytecode-size check proves only that *some* large contract lives at the address, and
+    ///      with one deployer key across chains the same address holds DIFFERENT contracts — the
+    ///      Hedera factory's address on Arc is an unrelated 13,958-byte contract.
+    function _isV3Factory(address factory) private view returns (bool) {
+        if (factory.code.length == 0) return false;
+        (bool ok, bytes memory ret) = factory.staticcall(
+            abi.encodeWithSignature("feeAmountTickSpacing(uint24)", uint24(3_000))
+        );
+        return ok && ret.length == 32 && abi.decode(ret, (int256)) == 60;
+    }
+
+    function _seed(
+        AssetMarketManager market,
+        AssetMarketManager.PositionKind kind,
+        uint128 liquidity
+    ) private {
         market.addLiquidity(
             AssetMarketManager.AddLiquidityParams({
-                kind: AssetMarketManager.PositionKind.Anchor,
-                liquidity: 1_000,
-                maxAmount0: 500e18,
-                maxAmount1: 500e18,
+                kind: kind,
+                liquidity: liquidity,
+                maxAmount0: type(uint128).max,
+                maxAmount1: type(uint128).max,
                 minimumAmount0: 0,
                 minimumAmount1: 0,
                 deadline: block.timestamp + 1 hours

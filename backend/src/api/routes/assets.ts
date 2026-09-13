@@ -5,6 +5,7 @@ import { formatFixed, mulDiv, parseFixed, STABLE_DECIMALS, TOKEN_DECIMALS } from
 import { priceAtTick } from '../../lib/tick.js';
 import { buildMeta, respond, type Provenance } from '../envelope.js';
 import {
+  addressSchema,
   displayAddress,
   paginationSchema,
   positionKindName,
@@ -25,10 +26,12 @@ import {
   positionsSchema,
   redemptionsSchema,
   revenueSchema,
+  swapQuoteSchema,
 } from '../schemas/assets.js';
 import { toActivityItem, TIMELINE_CONTRACTS } from '../activity.js';
 import * as repo from '../repository.js';
 import { readAssetSnapshot, type AssetSnapshot } from '../../chain/snapshot.js';
+import { quoteSwapExactInput, QuoteRevertedError } from '../../chain/quote.js';
 import type { ApiDeps } from './context.js';
 
 const stable = (raw: bigint | string): string => formatFixed(BigInt(raw), STABLE_DECIMALS);
@@ -46,7 +49,7 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
   async function forRequest(request: FastifyRequest) {
     const query = chainQuerySchema.safeParse(request.query);
     if (!query.success) throw ApiError.badRequest('invalid chainId', query.error.issues);
-    const { chainId, client, registry } = await chains.resolve(query.data.chainId);
+    const { chainId, client, registry, stablecoin } = await chains.resolve(query.data.chainId);
 
     /** Cursor and head, shared by every response envelope on this router. */
     async function envelopeInputs() {
@@ -131,7 +134,17 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
       );
     }
 
-    return { chainId, registry, envelopeInputs, meta, resolve, change24h, snapshotFor };
+    return {
+      chainId,
+      client,
+      registry,
+      stablecoin,
+      envelopeInputs,
+      meta,
+      resolve,
+      change24h,
+      snapshotFor,
+    };
   }
 
   // --- GET /v1/assets ------------------------------------------------------
@@ -485,6 +498,91 @@ export async function registerAssetRoutes(app: FastifyInstance, deps: ApiDeps): 
         tickSpacing: market.tickSpacing,
         currentTick: market.currentTick,
         positions,
+      },
+      ctx.meta(inputs, 'onchain'),
+    );
+  });
+
+  // --- GET /v1/assets/:assetId/swap-quote ----------------------------------
+  //
+  // "If I put in X, what do I get out" for D-037's `swapExactInput`, before anyone signs
+  // anything. No math is reimplemented here: an `eth_call` runs the REAL trade, from a wallet
+  // provisioned once for exactly this (verified, approved, funded — see
+  // docs-handover/PRODUCT_KNOWLEDGE.md §7.5). The wallet's ADDRESS is configuration; its private
+  // key never exists on this process.
+
+  app.get('/v1/assets/:assetId/swap-quote', async (request, reply) => {
+    const ctx = await forRequest(request);
+    const params = assetIdParamSchema.safeParse(request.params);
+    if (!params.success) throw ApiError.badRequest('invalid assetId', params.error.issues);
+
+    const querySchema = z.object({
+      tokenIn: addressSchema,
+      amountIn: z.string().regex(/^\d+(\.\d+)?$/, 'amountIn must be a positive decimal string'),
+    });
+    const query = querySchema.safeParse(request.query);
+    if (!query.success) throw ApiError.badRequest('invalid swap-quote query', query.error.issues);
+
+    if (config.addresses.quoteWallet === undefined) {
+      throw new ApiError(
+        'QUOTE_UNAVAILABLE',
+        'no QUOTE_WALLET_ADDRESS is configured on this process; swap quotes are unavailable',
+      );
+    }
+
+    const { deployment } = await ctx.resolve(params.data.assetId);
+    if (deployment === null) throw ApiError.notFound('asset has no deployed system yet');
+    if (deployment.pool === null) throw ApiError.notFound('asset has no market yet');
+
+    const inputs = await ctx.envelopeInputs();
+    const tokenIn = query.data.tokenIn.toLowerCase();
+    const assetToken = deployment.token.toLowerCase();
+    const stablecoin = ctx.stablecoin;
+
+    let tokenOut: string;
+    let decimalsIn: number;
+    if (tokenIn === assetToken) {
+      tokenOut = stablecoin;
+      decimalsIn = TOKEN_DECIMALS;
+    } else if (tokenIn === stablecoin) {
+      tokenOut = assetToken;
+      decimalsIn = STABLE_DECIMALS;
+    } else {
+      throw ApiError.badRequest(
+        `tokenIn must be this asset's token (${assetToken}) or this chain's stablecoin (${stablecoin})`,
+      );
+    }
+
+    const amountIn = parseFixed(query.data.amountIn, decimalsIn);
+    if (amountIn <= 0n) throw ApiError.badRequest('amountIn must be greater than zero');
+
+    let quote: { amountOut: bigint; spent: bigint; partialFill: boolean };
+    try {
+      quote = await quoteSwapExactInput(
+        ctx.client,
+        deployment.market_manager,
+        config.addresses.quoteWallet,
+        tokenIn,
+        amountIn,
+      );
+    } catch (error) {
+      if (error instanceof QuoteRevertedError) {
+        throw ApiError.badRequest(error.message, { revertedWith: error.errorName });
+      }
+      throw error;
+    }
+
+    const decimalsOut = tokenOut === assetToken ? TOKEN_DECIMALS : STABLE_DECIMALS;
+    return respond(
+      reply,
+      swapQuoteSchema,
+      {
+        tokenIn,
+        tokenOut,
+        amountIn: formatFixed(amountIn, decimalsIn),
+        spent: formatFixed(quote.spent, decimalsIn),
+        amountOut: formatFixed(quote.amountOut, decimalsOut),
+        partialFill: quote.partialFill,
       },
       ctx.meta(inputs, 'onchain'),
     );

@@ -96,7 +96,10 @@ contract DemoRegistrar {
 
     function _isDemoChain() private view returns (bool) {
         uint256 id = block.chainid;
-        return id == 31_337 || id == 84_532 || id == 296;
+        // 5042002 is Circle Arc testnet (D-027 amendment, 2026-09-13). It was missing from this list
+        // when Arc was deployed, so the Arc DemoRegistrar reverts `UnsupportedChain(5042002)` and
+        // no judge wallet there can self-verify. The contract is immutable: Arc needs a redeploy.
+        return id == 31_337 || id == 84_532 || id == 296 || id == 5_042_002;
     }
 
     function _requireDemoChain() private view {

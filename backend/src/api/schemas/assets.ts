@@ -362,3 +362,22 @@ export const candlesSchema = z.object({
     }),
   ),
 });
+
+// --- §3.x swap quote --------------------------------------------------------
+//
+// A live `eth_call` simulation of `swapExactInput` (D-037), never a projection: `provenance` is
+// always `onchain`. `amountOut` is exactly what the real trade would return at this moment,
+// tick-crossing and partial-fill behaviour included -- see docs-handover/PRODUCT_KNOWLEDGE.md §7.5
+// for why this is safe to trust and backend/src/chain/quote.ts for the mechanism.
+
+export const swapQuoteSchema = z.object({
+  tokenIn: addressSchema,
+  tokenOut: addressSchema,
+  amountIn: decimalString,
+  /** What the trade would actually consume — may be LESS than `amountIn` on a partial fill
+   *  (D-037 refunds the rest). Compute effective price as `amountOut / spent`, never
+   *  `amountOut / amountIn` — they diverge exactly when `partialFill` is true. */
+  spent: decimalString,
+  amountOut: decimalString,
+  partialFill: z.boolean(),
+});

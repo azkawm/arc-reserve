@@ -149,7 +149,9 @@ contract DemoRegistrarTest is Test {
     // -----------------------------------------------------------------
 
     function test_worksOnEachSupportedTestnet() public {
-        uint256[3] memory chains = [uint256(31_337), 84_532, 296];
+        // Every chain in D-027's scope must be listed here. Arc (5042002) was added to the deploy
+        // scripts but not to DemoRegistrar, and nothing failed because this list did not name it.
+        uint256[4] memory chains = [uint256(31_337), 84_532, 296, 5_042_002];
         for (uint256 i = 0; i < chains.length; i++) {
             IdentityRegistry freshRegistry = new IdentityRegistry(address(this));
             DemoRegistrar fresh = new DemoRegistrar(address(freshRegistry));

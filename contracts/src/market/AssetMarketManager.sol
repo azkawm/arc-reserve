@@ -26,14 +26,27 @@ import { IFloorController } from "../interfaces/IFloorController.sol";
 ///      - `marketPrices()` keeps its three-value shape for ABI stability but returns 0 in both the
 ///        `twapPrice` and `meanTick` slots. A price of 0 cannot occur legitimately, so it reads as
 ///        "not published" rather than as a plausible wrong number.
-///      - `maxMarketNAVDeviationBps` now compares SPOT to NAV and is the only market guard left.
-///        It reacts to a single trade instead of a half-hour average, so it fires more often than
-///        it used to. That is the trade, not a regression.
 ///      - `slide` and `sweep` take their direction from the anchor position's own range rather
 ///        than from spot-versus-TWAP: while spot sits inside the range the position is working,
 ///        and once spot leaves it the position is single-sided and the anchor must follow.
 ///      - `SafetyFailure.SpotTwapDeviation` keeps value 5, reserved and never returned, so no
 ///        consumer's failure-code mapping shifts.
+///
+///      D-039: THIS ENGINE NO LONGER READS NAV AS A CONTROL INPUT. NAV is a reporting variable
+///      owned by the registry and consumed by redemption, the reserve ratio and the UI; it gates
+///      nothing here. Consequences, all deliberate:
+///      - No liquidity action — `addLiquidity`, `removeLiquidity`, `slide`, `sweep`,
+///        `refreshDiscovery`, `rebalanceToNAV`, `collectFees`, `swapExactInput` — can be blocked by
+///        a stale NAV or by spot having drifted away from NAV. A NAV publisher who goes quiet
+///        cannot halt the market.
+///      - `maxMarketNAVDeviationBps` is GONE, not merely ignored. `setSafetyPolicy` still accepts
+///        a value in its slot and discards it.
+///      - `SafetyFailure.StaleNAV` (4) and `SafetyFailure.MarketNAVDeviation` (6) join
+///        `SpotTwapDeviation` (5) as reserved-and-never-returned, so values 7 and 8 do not shift.
+///      - `marketPrices()` and `safetyState` still REPORT NAV, and `rebalanceToNAV` still uses it
+///        as a target to compute a range from. Reporting and targeting are not gating.
+///      - The accepted risk is that the engine will keep quoting against a NAV nobody has
+///        refreshed. That is monitored off-chain, not enforced here. See `docs/SECURITY.md`.
 contract AssetMarketManager is
     AccessControl,
     Pausable,
@@ -118,9 +131,6 @@ contract AssetMarketManager is
     int24 public immutable tickSpacing;
 
     uint32 public rebalanceCooldown = 30 minutes;
-    /// @notice Maximum deviation between SPOT and verified NAV. Since D-036 removed the TWAP this
-    ///         is the only market guard, and it reads spot directly rather than a smoothed average.
-    uint16 public maxMarketNAVDeviationBps = 2_000;
     int24 public maxTickShift = 1_200;
 
     /// @notice Published protected-floor level (D-025). Bound after deployment because the floor
@@ -458,6 +468,9 @@ contract AssetMarketManager is
     /// @notice Move the anchor after the price has left its range on the UPSIDE.
     /// @dev    D-036: the signal is the anchor's own range, not spot-versus-TWAP. Orientation-aware,
     ///         because with the asset as token1 a higher price is a LOWER tick.
+    ///
+    ///         D-038, now subsumed by D-039: NAV gates nothing in the engine at all, so this is no
+    ///         longer a special case and `safetyState` is once again the right question to ask.
     function slide(int24 newAnchorLower, int24 newAnchorUpper) external onlyRole(KEEPER_ROLE) {
         (uint256 spot, uint256 nav) = _enforceSafety(true);
         if (!_spotLeftAnchor(true)) revert InvalidRange();
@@ -542,14 +555,15 @@ contract AssetMarketManager is
         if (block.timestamp >= registry.maturityOf(assetId)) {
             return (SafetyFailure.Matured, 0, 0, 0);
         }
-        if (registry.isNAVStale(assetId)) return (SafetyFailure.StaleNAV, 0, 0, 0);
+        // D-039: NAV no longer gates anything here. `StaleNAV` (4) and `MarketNAVDeviation` (6) are
+        // RESERVED and never returned, as `SpotTwapDeviation` (5) has been since D-036. All three
+        // values are kept so that 7 and 8 do not shift under any consumer's mapping.
+        //
+        // NAV is now a tracing variable for the engine: read for the `Rebalanced` event and for
+        // display, never enforced. It still binds elsewhere — the redemption cap, the published
+        // floor's ceiling, and the reserve requirement — none of which is a market operation.
         (spot,,) = marketPrices();
         (nav,) = registry.navOf(assetId);
-        // D-036: `SafetyFailure.SpotTwapDeviation` (value 5) is RESERVED and never returned. The
-        // value is kept so no consumer's failure-code mapping shifts underneath it.
-        if (DecimalMath.deviationBps(spot, nav) > maxMarketNAVDeviationBps) {
-            return (SafetyFailure.MarketNAVDeviation, spot, 0, nav);
-        }
         if (!vault.isSolvent()) {
             return (SafetyFailure.ReserveBelowMinimum, spot, 0, nav);
         }
@@ -561,25 +575,23 @@ contract AssetMarketManager is
     }
 
     /// @notice Update the market safety policy.
-    /// @dev    D-036: the FIRST and THIRD parameters (formerly `twapWindow` and `spotTwapBps`) are
-    ///         ACCEPTED AND IGNORED. The TWAP is gone and both configure nothing. The five-parameter
-    ///         shape is retained deliberately so no caller has to re-encode, but their validation is
+    /// @dev    The FIRST, THIRD and FOURTH parameters (formerly `twapWindow`, `spotTwapBps` and
+    ///         `marketNavBps`) are ACCEPTED AND IGNORED — the first two since D-036 removed the
+    ///         TWAP, the fourth since D-039 removed NAV from the engine. Only `cooldown_` and
+    ///         `maxTickShift_` configure anything. The five-parameter shape is retained
+    ///         deliberately so no caller has to re-encode, but the dead parameters' validation is
     ///         dropped so a caller can pass 0 and mean "not applicable" rather than being forced to
     ///         supply a meaningful-looking number for a dead knob — and they are emitted as 0 for
-    ///         the same reason. Setting 1800 here configures NOTHING. Left unnamed so the compiler
-    ///         cannot be told they are used.
-    function setSafetyPolicy(
-        uint32,
-        uint32 cooldown_,
-        uint16,
-        uint16 marketNavBps_,
-        int24 maxTickShift_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (cooldown_ == 0 || marketNavBps_ == 0 || marketNavBps_ > 10_000 || maxTickShift_ <= 0) revert InvalidPolicy();
+    ///         the same reason. Setting 1800 or 2000 in those slots configures NOTHING. Left
+    ///         unnamed so the compiler cannot be told they are used.
+    function setSafetyPolicy(uint32, uint32 cooldown_, uint16, uint16, int24 maxTickShift_)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (cooldown_ == 0 || maxTickShift_ <= 0) revert InvalidPolicy();
         rebalanceCooldown = cooldown_;
-        maxMarketNAVDeviationBps = marketNavBps_;
         maxTickShift = maxTickShift_;
-        emit SafetyPolicyUpdated(0, cooldown_, 0, marketNavBps_, maxTickShift_);
+        emit SafetyPolicyUpdated(0, cooldown_, 0, 0, maxTickShift_);
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {

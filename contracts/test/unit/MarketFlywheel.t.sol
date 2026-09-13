@@ -149,4 +149,34 @@ contract MarketFlywheelTest is ArcReserveTestBase {
         vm.expectRevert(AssetVault.InsufficientCategoryBalance.selector);
         vault.withdrawMarketAllocation(allocation + 1);
     }
+
+    // -----------------------------------------------------------------
+    // D-039: the trading path does not consult NAV
+    // -----------------------------------------------------------------
+
+    /// @dev `swapExactInput` is the public trading entry point and the flywheel's trigger. A NAV
+    ///      nobody has republished for two days must not close the market to traders, and the
+    ///      crank that runs afterwards must not revert the trade either. The mock pool has no
+    ///      curve, so the conversion that creates surplus cannot happen here — what this pins is
+    ///      that the trade settles and the crank survives, with a stale NAV throughout.
+    function test_tradingAndTheCrankRunWithAStaleNav() public {
+        address trader = makeAddr("staleNavTrader");
+        _verify(trader);
+        // The mock pays out of its own balance, so give it inventory to sell.
+        vm.prank(alice);
+        token.transfer(address(pool), 5_000e18);
+
+        vm.warp(block.timestamp + 2 days + 1);
+        assertTrue(registry.isNAVStale(assetId), "precondition: NAV must actually be stale");
+
+        musd.faucet(trader, 1_000e6);
+        vm.startPrank(trader);
+        musd.approve(address(market), 1_000e6);
+        uint256 received =
+            market.swapExactInput(address(musd), 1_000e6, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+
+        assertGt(received, 0, "the trade must settle against a stale NAV");
+        assertEq(token.balanceOf(trader), received, "the pool must pay the trader directly");
+    }
 }

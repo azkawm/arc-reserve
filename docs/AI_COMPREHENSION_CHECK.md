@@ -171,12 +171,15 @@ Added 2026-08-27:
     asset as token1 a higher price is a *lower* tick — so a tick-naive implementation would invert
     on one chain and not the other. Before D-036 the answer was "spot above/below TWAP"; that is
     correct for its date.
-25. Active/unmatured asset, fresh NAV (two-day registry default), **spot**/NAV within 20%, solvent
-    vault, and the rebalance cooldown (30-minute contract default; the deploy scripts configure 1
-    second); max shift is 1,200 ticks. **Amended by D-036:** the spot/TWAP gate is gone — the enum
-    value is reserved at 5 and never returned — and the surviving check reads spot directly rather
-    than a smoothed average, so it trips on a single trade. An answer naming a 3% spot/TWAP band is
-    correct only for a date before 2026-09-12.
+25. Unpaused manager, Active/unmatured asset, solvent vault, and the rebalance cooldown (30-minute
+    contract default; the deploy scripts configure 1 second); max shift is 1,200 ticks, ranges
+    tick-aligned, and the target position must hold no liquidity. **There is no NAV precondition and
+    no price precondition of any kind (D-039).** An answer naming a 3% spot/TWAP band is correct
+    only before 2026-09-12 (D-036 removed it); an answer naming fresh NAV or a 20% spot/NAV band is
+    correct only before D-039 *the same day*. Enum values 4, 5 and 6 are all reserved and never
+    returned. A candidate who lists NAV freshness here has read a superseded doc — the sharp test
+    is whether they can say what NAV still does (redemption price, `minimumRequiredReserve`, the
+    floor ceiling, the UI) versus what it no longer does (anything in the engine).
 26. Remove liquidity, collect fees, and return idle mUSD remain available for recovery. New risk
     actions are blocked.
 27. Wallet writes are real when configured. Since Milestone E the marketplace and asset page read
@@ -201,7 +204,13 @@ Scenario answers:
    not mint.
 3. (Now hypothetical — the demo has no vesting.) A formerly yield-excluded balance becomes
    eligible only for deposits after its exclusion is lifted; never retroactively.
-4. No. Stale NAV stops guarded market funding, liquidity addition, swaps, and rebalances.
+4. **Yes — both (D-039).** This answer inverted on 2026-09-12: NAV's age gates nothing in the
+   engine, so funding, liquidity, swaps and every rebalance work against a NAV of any age. "No,
+   stale NAV blocks guarded market actions" was the correct answer before that date and is the most
+   likely stale answer to see. The scenario's second clause is a trap either way: that spot happens
+   to sit at the last published NAV was never what the old gate checked — it checked the NAV's
+   *timestamp*, independently. What a stale NAV does still affect is the redemption quote and
+   `minimumRequiredReserve`, neither of which is an engine action.
 5. It cannot add. The keeper can remove and return idle mUSD.
 6. No. Show stale/error state and preserve provenance.
 7. No. Redeploy and refresh environment addresses.

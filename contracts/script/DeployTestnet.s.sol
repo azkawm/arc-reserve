@@ -42,18 +42,24 @@ import {
 ///           `feeAmountTickSpacing(3000) == 60`). Hedera has no verified V3-compatible factory,
 ///           so it deploys the mock factory (D-027).
 ///         - On a canonical pool there is no `setOracleForTest`: the pool is initialized at the
-///           true one-mUSD price for the actual token ordering, and observation cardinality is
-///           grown so the 30-minute TWAP can start accumulating. Until observations age, the
-///           market manager's TWAP-gated operations revert with the pool's `OLD` error —
-///           expected on a fresh pool, not a defect.
+///           true one-mUSD price for the actual token ordering. **Observation cardinality is NOT
+///           grown (D-036)** — the engine reads no TWAP, so the pool stays at cardinality 1 for
+///           the life of the deployment. That is intended, not a misconfiguration, and re-adding
+///           the ring growth costs ~20M gas across three transactions for nothing.
 ///         - No demo liquidity seeding on a canonical pool (`DEMO_SEED_LIQUIDITY` applies to the
 ///           mock path only): the mock's deterministic mint/swap arithmetic does not hold on a
-///           real AMM, and TWAP gates block funding on a fresh pool anyway.
+///           real AMM. **Note this leaves a canonical deployment with ZERO pool liquidity** —
+///           seeding one needs the `L'` maths deferred to D-035 Phase B-2, so it is a manual
+///           `addLiquidity` step after deployment, not something this script can do.
 ///         - `DEMO_INVESTOR` / `DEMO_RETAIL` have no Anvil defaults here; unset means only the
 ///           deployer is registered in the identity registry.
 contract DeployTestnet is Script {
     uint256 private constant CHAIN_BASE_SEPOLIA = 84_532;
     uint256 private constant CHAIN_HEDERA_TESTNET = 296;
+    /// @dev Circle's Arc testnet (added 2026-09-12, extends D-027's testnet list). No canonical
+    ///      Uniswap V3, so it needs `UNISWAP_V3_FACTORY` from `DeployUniswapFactory` — or an
+    ///      explicit `ALLOW_MOCK_POOL=true` to accept a curveless pool.
+    uint256 private constant CHAIN_ARC_TESTNET = 5_042_002;
 
     /// @dev Uniswap v3 factory on Base Sepolia. Chain-specific: the SAME address is Uniswap's
     ///      V2 Router02 on Base mainnet — never copy it to another chain by pattern.
@@ -84,24 +90,24 @@ contract DeployTestnet is Script {
     CountryAllowModule private countryModule;
     TransferLockModule private lockModule;
 
-    /// @dev Zero-flag convenience: `forge script script/DeployTestnet.s.sol:DeployTestnet` with
-    ///      no `--rpc-url` forks `TESTNET_RPC_URL` (default `BASE_SEPOLIA_RPC_URL`, both from
-    ///      contracts/.env) at the LATEST block. Never fork block 0: Base Sepolia's public node
-    ///      prunes old history and refuses it. Set `BLOCK_NUMBER` to pin a specific block.
-    ///      For the future Hedera leg, set `TESTNET_RPC_URL` to the Hedera relay.
-    function setUp() public {
-        string memory rpc = vm.envOr("TESTNET_RPC_URL", vm.envString("BASE_SEPOLIA_RPC_URL"));
-        uint256 blockNumber = vm.envOr("BLOCK_NUMBER", uint256(0));
-        if (blockNumber == 0) {
-            vm.createSelectFork(rpc);
-        } else {
-            vm.createSelectFork(rpc, blockNumber);
-        }
-    }
+    // NO `setUp()` FORK, DELIBERATELY — REMOVED 2026-09-12 after it caused a wrong-chain
+    // deployment. This script previously forked a hardcoded endpoint in `setUp`, which OVERRIDES
+    // `--rpc-url`: the script then runs, and broadcasts, against the forked chain while the
+    // operator believes it is targeting the one they passed. Two failures came from it in one
+    // session. A Uniswap factory intended for Arc testnet was deployed to Hedera. And this
+    // script's own fork line read `HEDERA_TESTNET_RPC_URL` while the docstring directly above it
+    // claimed `TESTNET_RPC_URL` — so setting the documented variable did nothing, the fork went
+    // to Hedera regardless, and a factory that provably had 24,535 bytes on Arc was reported as
+    // having "no canonical-sized code". The guard was right; the chain was wrong.
+    //
+    // There is now exactly one source of truth for which chain this targets: `--rpc-url`.
+    // Do not reintroduce a fork here. If a pinned-block simulation is ever wanted, add an
+    // explicitly-named script rather than making this one lie about its target.
 
     function run() external returns (AssetFactory.Deployment memory deployment) {
         require(
-            block.chainid == CHAIN_BASE_SEPOLIA || block.chainid == CHAIN_HEDERA_TESTNET,
+            block.chainid == CHAIN_BASE_SEPOLIA || block.chainid == CHAIN_HEDERA_TESTNET
+                || block.chainid == CHAIN_ARC_TESTNET,
             "DeployTestnet: unsupported chain (use DeployLocal for 31337; D-027 forbids mainnet)"
         );
         poolIsCanonical = block.chainid == CHAIN_BASE_SEPOLIA;
@@ -147,6 +153,60 @@ contract DeployTestnet is Script {
         _log(deployment);
     }
 
+    /// @dev Set `UNISWAP_V3_FACTORY` to use a REAL v3-core factory on a chain that has none —
+    ///      Hedera being the case this exists for. ArcReserve needs the factory and nothing else:
+    ///      it calls `getPool`/`createPool` and drives the pool through callbacks, never touching
+    ///      periphery, so there is no `PoolAddress.POOL_INIT_CODE_HASH` in the path and no WETH9,
+    ///      router, quoter or position manager to deploy. One ~5.44M-gas transaction, which fits
+    ///      under Hedera's 15,000,000 cap with room to spare.
+    function _resolvePoolFactory() private returns (address) {
+        // Both spellings are accepted deliberately. The mismatch between them is a SILENT failure:
+        // an unrecognised name reads as "not set", the script falls through to the mock, and the
+        // deployment succeeds while the flywheel quietly cannot turn. Accepting both costs
+        // nothing; debugging a mock pool on a live chain costs an afternoon.
+        //
+        // CAUTION: contracts/.env is shared by every chain, so a factory address set there belongs
+        // to ONE chain. Pass `UNISWAP_V3_FACTORY` explicitly per deployment. The functional check
+        // below is what stops a wrong-chain value — the same address holds different contracts on
+        // different chains, so a size check cannot.
+        address factoryOverride = vm.envOr("UNISWAP_V3_FACTORY", address(0));
+        if (factoryOverride == address(0)) {
+            factoryOverride = vm.envOr("UNISWAP_FACTORY_ADDRESS", address(0));
+        }
+        if (factoryOverride != address(0)) {
+            require(
+                _isV3Factory(factoryOverride),
+                "DeployTestnet: UNISWAP_V3_FACTORY is not a Uniswap V3 factory on this chain"
+            );
+            poolIsCanonical = true;
+            return factoryOverride;
+        }
+        if (block.chainid == CHAIN_BASE_SEPOLIA) return BASE_SEPOLIA_V3_FACTORY;
+
+        // Hedera and anything else without a canonical V3. Falling back to the mock here is a
+        // legitimate choice but never an accidental one: the mock is a callback harness with no
+        // curve, so the D-035 flywheel can never turn and the market is not price discovery.
+        // Shipping that to a public chain by forgetting an environment variable is the failure
+        // this guard exists to prevent, so it must be asked for in writing.
+        require(
+            vm.envOr("ALLOW_MOCK_POOL", false),
+            "DeployTestnet: no real Uniswap on this chain. Set UNISWAP_V3_FACTORY (see script/DeployUniswapFactory.s.sol), or ALLOW_MOCK_POOL=true to accept a curveless mock pool"
+        );
+        return address(new MockUniswapV3Factory());
+    }
+
+    /// @dev Functional, not size-based: a factory must answer `feeAmountTickSpacing(3000) == 60`.
+    ///      A bytecode-size check proves only that *some* large contract lives at the address, and
+    ///      with one deployer key across chains the same address holds DIFFERENT contracts — the
+    ///      Hedera factory's address on Arc is an unrelated 13,958-byte contract.
+    function _isV3Factory(address factory) private view returns (bool) {
+        if (factory.code.length == 0) return false;
+        (bool ok, bytes memory ret) = factory.staticcall(
+            abi.encodeWithSignature("feeAmountTickSpacing(uint24)", uint24(3_000))
+        );
+        return ok && ret.length == 32 && abi.decode(ret, (int256)) == 60;
+    }
+
     function _deployCore() private returns (AssetFactory factory) {
         MockUSD musd = new MockUSD();
         AssetRegistry registry = new AssetRegistry(deployer);
@@ -160,8 +220,7 @@ contract DeployTestnet is Script {
         });
         factory = new AssetFactory(address(registry), address(musd), deployer, deployers);
         registry.grantRole(registry.FACTORY_ROLE(), address(factory));
-        poolFactoryAddress =
-            poolIsCanonical ? BASE_SEPOLIA_V3_FACTORY : address(new MockUniswapV3Factory());
+        poolFactoryAddress = _resolvePoolFactory();
         factory.setApprovedPoolFactory(poolFactoryAddress, true);
 
         musdAddress = address(musd);
@@ -283,8 +342,9 @@ contract DeployTestnet is Script {
         // D-036 demo pacing: a 1-second rebalance cooldown. Deliberately 1 and not 0 - two
         // rebalances in the same block still trip SafetyCheckFailed(Cooldown), so the refusal stays
         // demonstrable on a public chain, while a demo one second apart runs freely. The first and
-        // third arguments are the retired TWAP knobs: accepted, ignored, and passed as 0 to say so.
-        market.setSafetyPolicy(0, 1, 0, 2_000, 1_200);
+        // third arguments are the retired TWAP knobs and the fourth is the retired spot-vs-NAV
+        // band (D-039): accepted, ignored, and passed as 0 to say so.
+        market.setSafetyPolicy(0, 1, 0, 0, 1_200);
     }
 
     /// @dev D-023 / D-022 / D-028 policies: identical to the local demo configuration.
@@ -338,7 +398,7 @@ contract DeployTestnet is Script {
         if (!vm.envOr("DEMO_SEED_LIQUIDITY", false)) return;
         if (poolIsCanonical) {
             console2.log(
-                "DEMO_SEED_LIQUIDITY skipped: canonical pool (mock-only arithmetic; TWAP gates block funding on a fresh pool)"
+                "DEMO_SEED_LIQUIDITY skipped: canonical pool (mock-only arithmetic; seed manually with addLiquidity, see D-035 B-2)"
             );
             return;
         }

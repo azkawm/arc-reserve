@@ -84,46 +84,61 @@ contract AssetMarketManagerTest is ArcReserveTestBase {
         market.addLiquidity(_liquidityParams(10, 9, 10, 0, 0, block.timestamp));
     }
 
-    /// @dev D-036: the spot/TWAP gate is gone, so the second half now exercises the only remaining
-    ///      market guard - spot against NAV, which reads spot directly and so trips on a single
-    ///      move rather than waiting for a half-hour average to drift.
-    function testStaleNAVAndMarketNAVDeviationStopRebalancing() public {
+    /// @dev D-039 inverts what this test used to assert. NAV is a tracing variable: neither a
+    ///      two-day-stale NAV nor a spot price far away from it stops the engine. The old names are
+    ///      kept in the test name so the git history reads as an inversion, not a deletion.
+    function testStaleNAVAndMarketNAVDeviationNoLongerStopRebalancing() public {
         vm.warp(block.timestamp + 2 days + 1);
+        assertTrue(registry.isNAVStale(assetId), "precondition: NAV must actually be stale");
+
         (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(false);
-        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.StaleNAV));
+        assertEq(
+            uint8(failure),
+            uint8(AssetMarketManager.SafetyFailure.None),
+            "a stale NAV must not appear as a safety failure"
+        );
         int24 lower = _anchorLower();
         int24 upper = _anchorUpper();
-        vm.expectRevert();
         market.rebalanceToNAV(lower + 60, upper + 60);
+        assertEq(_anchorLower(), lower + 60, "rebalance must proceed against a stale NAV");
 
-        registry.publishNAV(assetId, 1e6);
-        // ~10.5% in price terms: inside the 20% guard, so this must NOT trip.
-        _setOneDollarOracle(1_000);
-        (failure,,,) = market.safetyState(false);
-        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.None));
-
-        // ~22%: outside it.
+        // ~22% away from NAV in price terms: past the band that used to halt the engine.
+        vm.warp(block.timestamp + 31 minutes);
         _setOneDollarOracle(2_000);
         (failure,,,) = market.safetyState(false);
-        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation));
+        assertEq(
+            uint8(failure),
+            uint8(AssetMarketManager.SafetyFailure.None),
+            "spot far from NAV must not appear as a safety failure"
+        );
+        market.rebalanceToNAV(lower + 120, upper + 120);
+        assertEq(_anchorLower(), lower + 120, "rebalance must proceed with spot far from NAV");
     }
 
-    /// @notice D-036: value 5 is reserved for the retired spot/TWAP failure and must never be
-    ///         returned, so no consumer's failure-code mapping shifts underneath it.
-    function testSpotTwapDeviationIsReservedAndNeverReturned() public {
+    /// @notice Three failure codes are reserved and must never be returned, so no consumer's
+    ///         failure-code mapping shifts underneath it: 5 since D-036 retired the spot/TWAP gate,
+    ///         4 and 6 since D-039 took NAV out of the engine entirely.
+    function testRetiredNavAndTwapFailureCodesAreReservedAndNeverReturned() public {
+        assertEq(uint8(AssetMarketManager.SafetyFailure.StaleNAV), 4);
         assertEq(uint8(AssetMarketManager.SafetyFailure.SpotTwapDeviation), 5);
         assertEq(uint8(AssetMarketManager.SafetyFailure.MarketNAVDeviation), 6);
         assertEq(uint8(AssetMarketManager.SafetyFailure.ReserveBelowMinimum), 7);
         assertEq(uint8(AssetMarketManager.SafetyFailure.Cooldown), 8);
 
+        // Both halves of the retired conditions: spot far from NAV, and NAV never republished.
         int24[5] memory offsets = [int24(0), int24(600), int24(-600), int24(3_000), int24(-3_000)];
-        for (uint256 i = 0; i < offsets.length; i++) {
-            _setOneDollarOracle(offsets[i]);
-            (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
-            assertTrue(
-                failure != AssetMarketManager.SafetyFailure.SpotTwapDeviation,
-                "reserved failure code was returned"
-            );
+        for (uint256 pass = 0; pass < 2; pass++) {
+            if (pass == 1) vm.warp(block.timestamp + 2 days + 1);
+            for (uint256 i = 0; i < offsets.length; i++) {
+                _setOneDollarOracle(offsets[i]);
+                (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
+                assertTrue(
+                    failure != AssetMarketManager.SafetyFailure.StaleNAV
+                        && failure != AssetMarketManager.SafetyFailure.SpotTwapDeviation
+                        && failure != AssetMarketManager.SafetyFailure.MarketNAVDeviation,
+                    "reserved failure code was returned"
+                );
+            }
         }
     }
 

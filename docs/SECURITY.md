@@ -56,8 +56,9 @@ resumes only after an authorized unpause.
 The market-making tests cover three complete position lifecycles plus the control and failure paths
 around them. Assertions include role boundaries, pool and manager balances, protected-reserve
 isolation, rollback after slippage failure, both swap directions, configured ticks and liquidity,
-rebalance cooldown, oracle direction, NAV freshness and divergence, maturity, asset status, pause,
-and vault solvency.
+rebalance cooldown, oracle direction, maturity, asset status, pause, and vault solvency. Since
+D-039 they also assert the *absence* of the NAV gates: the full engine cycle and the public trading
+path both run under a two-day-stale NAV.
 
 These tests run with the broader lifecycle, unit, fuzz, and financial invariant suites. The invariant
 handler continues to assert reserve solvency, supply caps, redemption limits, revenue bounds, and
@@ -70,8 +71,9 @@ the equality between token supply and outstanding obligations across randomized 
 | Unauthorized issuance | Immutable cap and role-gated mint | Admin can grant roles; production governance/timelock required |
 | Reserve category theft | Separate ledgers and scoped vault roles | Admin/role compromise remains critical |
 | NAV manipulation | Verifier role, per-update movement bound, staleness | Central verifier remains trusted; evidence/oracle system required |
-| Spot manipulation | **None (D-036).** The TWAP and the spot/TWAP deviation gate were removed; there is no smoothed reference left to compare spot against | **Accepted, not mitigated.** A keeper can act on a price pushed seconds earlier, and demo-pool liquidity is thin enough to make pushing it cheap. Bounded only by `maxTickShift`, the spot/NAV gate, and the cooldown. Tolerable solely because D-027 means MockUSD and no real value; restoring a TWAP is a prerequisite for anything real |
-| Market/NAV divergence | **spot**/NAV emergency threshold (2,000 bps) | NAV itself may be wrong or stale within threshold. Now reads spot directly, so it trips on a single trade rather than a half-hour average — more sensitive, and more easily tripped by an ordinary large trade |
+| Spot manipulation | **None (D-036).** The TWAP and the spot/TWAP deviation gate were removed; there is no smoothed reference left to compare spot against | **Accepted, not mitigated.** A keeper can act on a price pushed seconds earlier, and demo-pool liquidity is thin enough to make pushing it cheap. Bounded only by `maxTickShift` and the cooldown — D-039 removed the spot/NAV gate that also used to bound it. Tolerable solely because D-027 means MockUSD and no real value; restoring a TWAP is a prerequisite for anything real |
+| Market/NAV divergence | **None (D-039).** The spot/NAV threshold was removed along with every other NAV gate in the engine; nothing compares the two any more | **Accepted, not mitigated — deliberately.** The engine will quote against a NAV nobody has refreshed, at a spot price arbitrarily far from it. The replacement control is **off-chain monitoring**: alert on `isNAVStale` and on spot/NAV divergence, and pause the manager by hand if it matters. Chosen because a demo halted by a missed republish is a worse failure than one trading against a slightly old valuation; for real money this needs revisiting |
+| Stale NAV halts the market | **Removed (D-039).** Previously a stale NAV blocked every engine action, including the D-035 flywheel after one turn | The inverse risk is now the live one, above. Note the availability risk that was traded away: a quiet verifier can no longer stop trading, which is a liveness gain and a safety loss |
 | Malicious pool callback | Immutable pool, active payload hash, direction/input checks | Canonical pool/factory integration needs fork validation |
 | Reentrancy | Guards and checks/effects ordering at financial entries | Malicious-token matrix is incomplete |
 | Revenue capture by transfer | Pre-transfer checkpoint hook | Admin-controlled exclusion remains a governance risk |
@@ -101,6 +103,40 @@ the equality between token supply and outstanding obligations across randomized 
   rebalance. **If a future change lets a rebalance move value, this assumption must be revisited.**
 - `removeLiquidity`, `collectFees`, and `returnStablecoinToVault` intentionally lack the manager's
   pause gate for recovery.
+- **No engine action is NAV-gated (D-039, superseding D-038's narrower carve-out for `slide`/`sweep`).**
+  Neither staleness nor spot/NAV divergence blocks funding, deploying, repositioning, collecting,
+  or trading. `maxMarketNAVDeviationBps` is gone and `repositionSafetyState` — D-038's second view,
+  which no stack ever consumed — was deleted with it. There is one safety view again, `safetyState`,
+  and it never returns `StaleNAV` (4) or `MarketNAVDeviation` (6); both codes are reserved so 7 and
+  8 do not shift. The engine's remaining guards are listed in D-039.
+- **Nothing in the system consults `isNAVStale` any more.** Before D-039 exactly one caller did
+  (`AssetMarketManager.safetyState`); now the registry publishes the flag and only off-chain
+  consumers read it. Redemption prices off NAV, `minimumRequiredReserve` sizes off NAV, and the
+  floor's ceiling derives from NAV, all **without regard to its age** — as they always did. So a
+  stale NAV silently prices redemptions, and now also silently prices the market. **The control
+  for all of this is off-chain monitoring, not an on-chain gate.** Alert on `isNAVStale` and on
+  spot/NAV divergence; the response is a manual `pause()`.
+- **The masking condition NO LONGER HOLDS, and it went in one evening rather than over the term
+  (measured on Hedera 296, 2026-09-12).** The note above used to end "masked because backing sits
+  below NAV; it would stop being masked once backing climbs past NAV late in the term". Seeding
+  5,000 tokens against a pre-funded 20,000 mUSD reserve did it immediately: backing is
+  **4.359999** against NAV **1.000000**, and `redemptionPrice(Normal)` now returns exactly
+  `1000000` — **NAV is the binding term on a live chain.** Any error in NAV now passes straight
+  into what redeemers are paid.
+  **Both directions are live, and the upward one is worse — correcting an earlier reading that
+  called it harmless.** In `Normal` mode `redemptionPrice` is `min(nav, liquidBackingPerToken)`
+  with **no par cap** (par applies only in `Maturity` mode, `RedemptionController.sol:129`). With
+  backing 4.36x NAV the backing cap sits 4.36x away and constrains nothing in practice:
+  - NAV stale/wrong **LOW** underpays the redeeming holder by the full difference.
+  - NAV stale/wrong **HIGH** overpays, up to 4.36x par, out of the shared reserve. That is not
+    contained to the redeemer — it transfers value from every remaining holder to whoever redeems
+    first, and it is a race. Calling the high direction harmless was only true while backing was
+    the binding term.
+  This is a redemption property, not an engine one, and it predates D-039 — re-introducing a NAV
+  gate into the engine would not touch it and is explicitly forbidden by that decision. What
+  changed is that the off-chain `isNAVStale` alert is no longer one item on a monitoring list: it
+  is the **only** control standing between a stale valuation and mispriced redemptions, and the
+  live demo sits in exactly the state where that binds.
 - `AssetVault.creditMarketSurplus` is the **only** path from market capital into investor capital
   (D-035), and it is deliberately one-way: nothing moves the protected reserve back out to fund
   trading, because `withdrawMarketAllocation` draws from a separate bucket. It is restricted to
@@ -242,9 +278,10 @@ This is a design outline, not a production runbook:
   proves logic, never that a transaction will be accepted for broadcast — an 18.4M-gas
   `deployAssetSystem` passed every fork rehearsal before being refused at precheck on Base Sepolia.
 - Demo-pool liquidity is thin enough that a single oversized trade can exhaust every position and
-  pin the price at the tick boundary, which then trips the spot/NAV guard and blocks all keeper
-  actions until NAV is republished. Observed on the fork with a 40,000 mUSD order against ~1,350
-  mUSD of liquidity.
+  pin the price at the tick boundary. Observed on the fork with a 40,000 mUSD order against ~1,350
+  mUSD of liquidity. Under D-039 this no longer halts keeper actions — the spot/NAV guard that used
+  to trip is gone — so the failure is quieter than it was: the engine keeps operating around a
+  price pinned at a tick extreme instead of refusing to act. Size demo trades deliberately.
 - The frontend uses environment-configured local addresses and mixes selected live writes with many
   static fixtures. Some fallback values can look live and must be replaced with explicit error/stale
   states.

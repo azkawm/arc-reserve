@@ -1,0 +1,82 @@
+# ArcReserve backend -- REMOTE DEMO HOST deployment (hackathon, testnet only, D-027).
+#
+# Not used for local dev (that stays `docker compose up -d` with the plain docker-compose.yml,
+# just Postgres, and `npm run dev` on the host). This file is invoked explicitly with `-f` on the
+# demo server only: `docker compose -f docker-compose.deploy.yml up -d --build`.
+#
+# Topology (D-030: one indexer process per chain; one shared database; Boundary C `?chainId=` lets
+# the API answer for a chain it does not itself index):
+#
+#   Browser --https--> host nginx --http--> 127.0.0.1:4000 --> `api` container (indexes Hedera 296,
+#                                                                also holds an RPC for Arc 5042002
+#                                                                so it can serve LIVE reads for Arc
+#                                                                without indexing its events)
+#                                             `arc-indexer` container (indexes Arc 5042002 into the
+#                                             SAME database; nothing calls it directly -- it has no
+#                                             public port, and 127.0.0.1:4001 is for host-side
+#                                             debugging only)
+#                                             `postgres` (shared by both, internal network only)
+#
+# Both backend services share the two per-chain env files below. The Arc RPC URL/addresses appear
+# in BOTH: once as `RPC_HTTP_URL_5042002`/`*_5042002_*` on `api` (for live reads, Boundary C), and
+# once as the primary `RPC_HTTP_URL`/addresses on `arc-indexer` (for indexing). They must be kept
+# in sync by hand if Arc is ever redeployed -- there is no single source both containers read from.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arcreserve-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arcreserve
+      POSTGRES_PASSWORD: arcreserve
+      POSTGRES_DB: arcreserve
+    volumes:
+      - arcreserve-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arcreserve -d arcreserve"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    # Not published to the host at all -- only `api` and `arc-indexer` reach it, over the compose
+    # network, by service name (`postgres:5432`).
+
+  api:
+    build:
+      context: .
+      target: runtime
+    image: arcreserve-backend:local
+    container_name: arcreserve-backend-api
+    restart: unless-stopped
+    env_file:
+      - .env.hedera
+    environment:
+      DATABASE_URL: postgresql://arcreserve:arcreserve@postgres:5432/arcreserve
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  arc-indexer:
+    build:
+      context: .
+      target: runtime
+    image: arcreserve-backend:local
+    container_name: arcreserve-backend-arc-indexer
+    restart: unless-stopped
+    env_file:
+      - .env.arc
+    environment:
+      DATABASE_URL: postgresql://arcreserve:arcreserve@postgres:5432/arcreserve
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Published to loopback only, for `curl 127.0.0.1:4001/v1/health` from the host -- nginx never
+    # points at this one. Its API surface is identical to `api`'s; only ITS OWN chain's indexer
+    # progress and NAV risk numbers are meaningful from here, since Boundary C's `?chainId=` on
+    # THIS container has no RPC configured for 296.
+    ports:
+      - "127.0.0.1:4001:4000"
+
+volumes:
+  arcreserve-pgdata:

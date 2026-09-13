@@ -154,6 +154,142 @@ contract MarketSignalAndFloorLevelUpTest is ArcReserveTestBase {
     }
 
     // -----------------------------------------------------------------
+    // D-039: NAV gates nothing in the engine (subsumes D-038)
+    // -----------------------------------------------------------------
+
+    /// @dev D-038 exempted only `slide`/`sweep` and kept a second view, `repositionSafetyState`,
+    ///      to report the difference. D-039 removed the gates outright, so there is one view again
+    ///      and `safetyState` must answer `None` while NAV is stale.
+    function test_slideWorksWithAStaleNav() public {
+        _movePriceOutsideAnchor(true);
+        vm.warp(block.timestamp + 2 days + 1);
+        assertTrue(registry.isNAVStale(assetId), "precondition: NAV must actually be stale");
+
+        (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.None));
+
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        market.slide(lower + 60, upper + 60);
+        (int24 newLower,,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        assertEq(newLower, lower + 60, "slide should not be blocked by a stale NAV");
+    }
+
+    function test_sweepWorksWithAStaleNav() public {
+        _movePriceOutsideAnchor(false);
+        vm.warp(block.timestamp + 2 days + 1);
+
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        market.sweep(lower - 60, upper - 60);
+        (int24 newLower,,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        assertEq(newLower, lower - 60, "sweep should not be blocked by a stale NAV");
+    }
+
+    /// @dev The other retired gate: spot far from NAV. ~35% here, well outside the 20% band that
+    ///      used to halt the engine.
+    function test_slideWorksWhenSpotIsFarFromNav() public {
+        _setOneDollarOracle(3_000);
+
+        (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.None));
+
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        market.slide(lower + 60, upper + 60);
+        (int24 newLower,,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        assertEq(newLower, lower + 60);
+    }
+
+    /// @dev The inversion of D-038's containment test. Under D-038 a keeper could move an empty
+    ///      range while NAV was stale but could NOT fund it; under D-039 capital deployment is not
+    ///      NAV-gated either. This test asserts the liquidity actually lands, not merely that the
+    ///      call does not revert — "no revert" would also pass if the mint silently did nothing.
+    function test_addLiquidityIsNoLongerNavGated() public {
+        market.fundFromVault(1_000e6);
+        vm.startPrank(alice);
+        token.approve(address(market), 100e18);
+        market.fundTokenInventory(100e18);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 2 days + 1);
+        assertTrue(registry.isNAVStale(assetId), "precondition: NAV must actually be stale");
+
+        market.addLiquidity(
+            AssetMarketManager.AddLiquidityParams({
+                kind: AssetMarketManager.PositionKind.Anchor,
+                liquidity: 1e6,
+                maxAmount0: 1e6,
+                maxAmount1: 1e6,
+                minimumAmount0: 0,
+                minimumAmount1: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+        (,, uint128 liquidity,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        assertEq(liquidity, 1e6, "capital must deploy with a stale NAV");
+    }
+
+    /// @dev The engine's real guards are unchanged. Only the NAV ones went.
+    function test_repositioningStillRespectsPauseStatusAndCooldown() public {
+        _movePriceOutsideAnchor(true);
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+
+        market.pause();
+        (AssetMarketManager.SafetyFailure failure,,,) = market.safetyState(true);
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.Paused));
+        market.unpause();
+
+        registry.suspendAsset(assetId);
+        (failure,,,) = market.safetyState(true);
+        assertEq(uint8(failure), uint8(AssetMarketManager.SafetyFailure.AssetNotActive));
+        registry.resumeAsset(assetId);
+
+        market.slide(lower + 60, upper + 60);
+        (failure,,,) = market.safetyState(true);
+        assertEq(
+            uint8(failure), uint8(AssetMarketManager.SafetyFailure.Cooldown), "cooldown still binds"
+        );
+    }
+
+    /// @dev The whole engine, not just repositioning, under a NAV nobody has refreshed for two
+    ///      days: fund, deploy, move the anchor, refresh discovery, collect, withdraw. If any of
+    ///      these reacquires a NAV dependency, this is the test that catches it.
+    function test_fullEngineCycleWorksWithAStaleNav() public {
+        market.fundFromVault(1_000e6);
+        vm.startPrank(alice);
+        token.approve(address(market), 100e18);
+        market.fundTokenInventory(100e18);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 2 days + 1);
+        assertTrue(registry.isNAVStale(assetId), "precondition: NAV must actually be stale");
+
+        market.addLiquidity(
+            AssetMarketManager.AddLiquidityParams({
+                kind: AssetMarketManager.PositionKind.Anchor,
+                liquidity: 1e6,
+                maxAmount0: 1e6,
+                maxAmount1: 1e6,
+                minimumAmount0: 0,
+                minimumAmount1: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+        market.removeLiquidity(
+            AssetMarketManager.PositionKind.Anchor, 1e6, 0, 0, block.timestamp + 1 hours
+        );
+
+        _movePriceOutsideAnchor(true);
+        (int24 lower, int24 upper,,) = market.positions(AssetMarketManager.PositionKind.Anchor);
+        market.slide(lower + 60, upper + 60);
+
+        vm.warp(block.timestamp + 31 minutes);
+        (int24 dLower, int24 dUpper,,) = market.positions(AssetMarketManager.PositionKind.Discovery);
+        market.refreshDiscovery(dLower + 60, dUpper + 60);
+
+        market.collectFees(AssetMarketManager.PositionKind.Anchor);
+        market.returnStablecoinToVault(1e6);
+    }
+
+    // -----------------------------------------------------------------
     // Opportunistic floor level-up on the rebalance path
     // -----------------------------------------------------------------
 

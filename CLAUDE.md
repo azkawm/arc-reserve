@@ -72,7 +72,10 @@ Do not weaken these rules without an explicit product decision and corresponding
    withdraw only the vault's market allocation.
 4. **NAV, market spot, protected floor reference, and redemption price are distinct values.**
    (Four since D-036 removed TWAP from the engine; the principle is unchanged — the remaining four
-   must never be collapsed into one another.)
+   must never be collapsed into one another.) Since D-039 NAV is additionally **read-only with
+   respect to the liquidity engine**: it prices redemption, sizes `minimumRequiredReserve` and caps
+   the floor, but gates no market action. Do not reintroduce a NAV check into
+   `AssetMarketManager` without a new decision.
 5. **Redemption is reserve-limited.** It is not an always-on promise to redeem at NAV.
 6. **Asset tokens burn before stablecoin leaves the vault during redemption.**
 7. **Revenue uses yield-eligible circulating supply.** Yield-excluded vesting balances do not dilute
@@ -93,7 +96,7 @@ Do not weaken these rules without an explicit product decision and corresponding
 | --- | --- | --- |
 | Solidity contracts | Implemented | Foundry project under `contracts/` |
 | Local deployment | Implemented | Anvil deployment script and deterministic mock pool |
-| Contract tests | Implemented | 247 passing tests at the last verification (2026-08-30, after task 10) |
+| Contract tests | Implemented | 321 passing tests at the last verification (2026-09-12, after D-039), plus 9 Base Sepolia fork tests under `--profile fork` |
 | Transfer compliance | Implemented | ERC-3643-shaped `IdentityRegistry` + `ModularCompliance`; token checks both legs of every transfer; pool and market manager are exempt infrastructure |
 | Market-manager coverage | Strong | 98.28% lines, 95.44% statements, 73.47% branches, 100% functions (2026-09-11) |
 | Frontend | Migrated to the API | Marketplace and asset page read `/v1` with a provenance badge per panel; issuer/verifier/engine panels still fixtures. See `docs/FRONTEND.md` §3 |
@@ -201,10 +204,10 @@ The local script deploys one series with these values:
 | Compliance modules | `CountryAllowModule` (Indonesia only), `TransferLockModule` (hold period 0) |
 | NAV stale threshold | Two days |
 | Maximum NAV move | 20% per update |
-| Market TWAP window | 30 minutes |
-| Rebalance cooldown | 30 minutes |
-| Maximum spot/TWAP deviation | 3% |
-| Maximum TWAP/NAV deviation | 20% |
+| Market TWAP window | **None — the TWAP was removed (D-036)** |
+| Rebalance cooldown | 30 minutes contract default; **the deploy scripts configure 1 second** |
+| Maximum spot/TWAP deviation | **None (D-036)** |
+| Maximum spot/NAV deviation | **None — NAV gates nothing in the engine (D-039)** |
 | Maximum range move | 1,200 ticks |
 
 The script mints nothing at deploy time (D-031). Total supply starts at zero, `PrimaryOffering` is
@@ -437,7 +440,7 @@ fresh chain. The checked-in `deployments/31337.json` may describe an older local
 
 Last contract verification:
 
-- 247 tests passed (2026-09-11, re-verified on `main`);
+- 330 tests passed (2026-09-12, after D-039), plus 9 fork tests under `FOUNDRY_PROFILE=fork`;
 - zero failures and zero skips;
 - seven stateful financial invariants;
 - `AssetMarketManager`: 98.28% lines, 95.44% statements, 73.47% branches, 100% functions;
@@ -491,7 +494,12 @@ Do not combine steps 7-9 into the current direct offering without a migration an
 - Frontend mojibake was cleaned up; a byte scan on 2026-08-27 found only valid UTF-8 punctuation in
   `frontend/src`. Keep files UTF-8 when editing on Windows.
 - The mock pool models only a linear stand-in price impact — no impact curve, tick crossing, fee
-  growth, MEV, or liquidity exhaustion.
+  growth, MEV, or liquidity exhaustion. Since 2026-09-12 it is no longer the only local option:
+  `contracts/test/local/` deploys **real v3-core** from vendored canonical bytecode and needs no
+  RPC, so anything depending on genuine AMM behaviour (the D-035 flywheel especially) belongs
+  there rather than against the mock. `DeployLocal` also accepts `UNISWAP_V3_FACTORY=0x…` to run
+  the Anvil demo against a real locally-deployed Uniswap — the flywheel has now been observed
+  turning there, so it is no longer a Base-only demo. See `docs/DEMO.md` §13.5.
 - `collectFees` cannot separate fees from principal at the generic manager interface level.
 - A paused market still permits authorized liquidity removal, fee collection, and return of idle mUSD.
   This is intentional recovery behavior.

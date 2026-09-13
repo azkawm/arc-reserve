@@ -4,13 +4,49 @@ Status: baselines updated 2026-09-05; suite map below predates tasks 1-10 and is
 
 ## 1. Baseline
 
-The last full Foundry run (2026-09-05, `main` at task 10) completed with:
+The last full Foundry run (2026-09-12, `main` after D-039) completed with:
 
 ```text
-247 tests passed
+330 tests passed
 0 failed
 0 skipped
 ```
+
+That is the default profile, which excludes `test/fork/**`. The 9 fork tests run separately and
+need `BASE_SEPOLIA_RPC_URL`: `FOUNDRY_PROFILE=fork forge test`.
+
+### Three rungs of pool fidelity
+
+Market tests run against one of three pools, and the distinction matters when reading a result:
+
+| Rung | Pool | Needs network | What it can prove |
+| --- | --- | --- | --- |
+| `MockUniswapV3Pool` | callback harness | no | control flow, roles, accounting, events |
+| `test/local/**` | **real v3-core, deployed locally** | **no** | everything the mock cannot: `L` math, range/token asymmetry, tick crossing, fee accrual, the flywheel |
+| `test/fork/**` | canonical pool on Base Sepolia | yes (RPC) | the above, plus the real chain's own pool state and factory |
+
+The mock is a harness, not an AMM: no curve, no tick crossing, no fee growth, and `mint` charges
+`liquidity × 1` on both sides regardless of range. It therefore **cannot** produce the inventory
+conversion that creates flywheel surplus — on the mock the engine correctly reports
+`FlywheelSkipped("NO_SURPLUS")` forever, which is right behaviour and no evidence at all.
+
+`test/local/**` closes that gap without a network. It deploys the canonical `UniswapV3Factory`
+from bytecode vendored at `test/artifacts/UniswapV3Factory.json` (v3-core 1.0.1 npm; its pool init
+code hash is the mainnet constant `0xe34f199b…`), so it is the same AMM, and it runs in the default
+`forge test`. It reproduces the fork's numbers exactly — reserve 24,000.000000 → 24,630.323486 and
+backing 0.300000 → 0.307879 on the flywheel, and identical mint amounts on all three ranges —
+which is the evidence that the two rungs agree.
+
+**Why ArcReserve can deploy V3 locally when most integrations cannot:** the usual blocker is
+`PoolAddress.POOL_INIT_CODE_HASH`, a constant periphery hardcodes that breaks whenever core is
+recompiled. ArcReserve never uses periphery — `AssetFactory` calls `factory.getPool()` /
+`createPool()` and the manager drives the pool through mint/burn/collect/swap callbacks — so no
+init-code-hash constant is anywhere in the path.
+
+The fork suite is still worth keeping: it is the only rung that exercises the actual chain. But it
+is no longer the only place real Uniswap behaviour is covered, and after its first run Foundry
+serves it from the pinned-block RPC cache, so it re-verifies the contracts rather than the network
+unless you clear `~/.foundry/cache/rpc`.
 
 Backend: its own suite (unit + real-PostgreSQL integration + replay/reorg) is green per
 `backend/README.md` and the Milestone E entry in `docs/stacks/HANDOFF_LOG.md`; run it with
@@ -90,18 +126,21 @@ Two things to keep in mind when reading a green fork run:
 | `AssetRegistryTest` | 4 | Submission/approval, unauthorized verifier, NAV bounds/staleness, suspension |
 | `AssetTokenAndVaultTest` | 6 | Cap/permit, roles/pause, 70/20/10, protected reserve, market allocation, reentrancy |
 | `ComplianceGateTest` | 18 | Identity gate on buy/transfer, expiry and deletion, pool as exempt infrastructure, freeze/partial freeze/forced transfer, `transferRestriction` preview, modular compliance binding, country and resale-lock modules |
-| `AssetMarketManagerTest` | 6 | Price sources, base liquidity lifecycle, callbacks, deadlines/slippage, stale/deviation, cooldown |
-| `AssetMarketManagerControlsTest` | 16 | Roles, configuration, funding round trip, pause recovery, failures, rebalances, swaps, safety policy/state |
+| `AssetMarketManagerTest` | 8 | Price sources, base liquidity lifecycle, callbacks, deadlines/slippage, cooldown, and the D-039 inversions: staleness and spot/NAV divergence do **not** stop rebalancing, and codes 4/5/6 are never returned |
+| `AssetMarketManagerControlsTest` | 17 | Roles, configuration, funding round trip, pause recovery, failures, rebalances, swaps, safety policy/state |
 | `OfferingRevenueRedemptionTest` | 9 | Offering limits, transfer-aware revenue, vesting exclusion, reserve growth, redemption modes/limits |
 | `MockUSDAndDecimalMathTest` | 4 | Six decimals, conversions, rounding, fuzz conversion bound |
 | `ArcReserveLifecycleIntegrationTest` | 3 | Complete lifecycle, default/emergency path, full holder redemption |
 | `MarketMakingHappyPathTest` | 3 | Hikari-inspired slide, sweep, discovery refresh and remint |
 | `FinancialInvariantsTest` | 5 | Supply, accounting/solvency, claims, reserve, obligation equality |
-| `MarketFlywheelTest` | 9 | D-035 accounting and authority: `principalOutstanding` as cost basis, `creditableSurplus` cap (borrowed capital is never creditable, an under-water manager reads 0), market-manager-only crossing (not keeper, not admin), and that the crossing is one-way |
+| `MarketFlywheelTest` | 10 | D-035 accounting and authority: `principalOutstanding` as cost basis, `creditableSurplus` cap (borrowed capital is never creditable, an under-water manager reads 0), market-manager-only crossing (not keeper, not admin), that the crossing is one-way, and (D-039) that the public `swapExactInput` path and the crank behind it run under a stale NAV |
+| `MarketSignalAndFloorLevelUpTest` | 14 | The D-036 anchor-range signal proven under **both** token orderings, the opportunistic floor level-up including a hostile controller on both try/catch arms, and the D-039 NAV-independence set — full engine cycle under a two-day-stale NAV, plus the inversion of D-038's containment test |
+| `LocalUniswapV3MarketTest` | 9 | **Real v3-core, deployed locally, no RPC.** Pool identity (factory fee-tier table, canonical bytecode sizes); range/token asymmetry across all three positions; a genuine swap driving the D-036 anchor signal; fee accrual and collection; **the D-035 flywheel end to end**; the unspent-input refund; and D-039 NAV independence re-proven where the liquidity math is real |
 | `BaseSepoliaMarketForkTest` | 9 | **Fork, canonical Uniswap V3.** Real pool identity; range/token asymmetry (below-spot ranges need stable only, above-spot need asset only, straddling needs both); a genuine swap driving the D-036 anchor signal; fee accrual and collection on live and emptied positions; **the D-035 flywheel end to end** — trade in, surplus credited, backing up, floor ratcheted — and the unspent-input refund |
 
-Total: 247 (2026-09-05; the table above lists only the pre-task-1 suites — see `contracts/test/`
-for the compliance, schedule, floor, terms, and class-cap suites added since).
+Total: 330 in the default profile (2026-09-12), plus 9 fork tests under `FOUNDRY_PROFILE=fork`. The table
+above lists only a subset — see `contracts/test/` for the compliance, schedule, floor, terms,
+class-cap, residual-reserve and two-phase-deployment suites added since.
 Every test in `ArcReserveTestBase` runs against a permissioned token:
 `alice`, `bob`, and the test contract are registered in the `IdentityRegistry`; `attacker` is not.
 
@@ -182,8 +221,13 @@ The control suite verifies:
 - both swap directions and exact mock accounting;
 - zero/expired/input/output swap rejection;
 - safety policy bounds;
-- inactive, matured, market/NAV-divergent, and insolvent states; and
-- configured/no-accrual fee collection.
+- inactive, matured, and insolvent states;
+- configured/no-accrual fee collection; and
+- **NAV independence (D-039)**: the full keeper cycle and the public `swapExactInput` path both run
+  under a two-day-stale NAV, and codes 4, 5 and 6 are asserted never to be returned — under a stale
+  NAV and under a spot price far from it. These assert an *absence* of behaviour, which is exactly
+  the kind that erodes silently; `test_addLiquidityIsNoLongerNavGated` checks the liquidity actually
+  lands rather than only that the call did not revert.
 
 These tests prove manager control logic against the harness. They do not prove economic behavior of a
 real concentrated-liquidity pool.

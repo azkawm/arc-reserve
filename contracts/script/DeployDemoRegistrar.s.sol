@@ -29,6 +29,7 @@ contract DeployDemoRegistrar is Script {
     uint256 private constant CHAIN_ANVIL = 31_337;
     uint256 private constant CHAIN_BASE_SEPOLIA = 84_532;
     uint256 private constant CHAIN_HEDERA_TESTNET = 296;
+    uint256 private constant CHAIN_ARC_TESTNET = 5_042_002;
 
     uint256 private constant DEFAULT_ANVIL_PRIVATE_KEY =
         0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
@@ -36,7 +37,7 @@ contract DeployDemoRegistrar is Script {
     function run() external returns (address registrarAddress) {
         require(
             block.chainid == CHAIN_ANVIL || block.chainid == CHAIN_BASE_SEPOLIA
-                || block.chainid == CHAIN_HEDERA_TESTNET,
+                || block.chainid == CHAIN_HEDERA_TESTNET || block.chainid == CHAIN_ARC_TESTNET,
             "DeployDemoRegistrar: testnets only (D-027)"
         );
 
@@ -56,22 +57,30 @@ contract DeployDemoRegistrar is Script {
         // second one would leave two agents holding the same role over the same registry, which is
         // the standing-privilege smell D-032 exists to avoid.
         address existing = _existingRegistrar(path);
-        if (
-            existing != address(0) && existing.code.length != 0
-                && address(DemoRegistrar(existing).identityRegistry()) == identityRegistry
-                && registry.hasRole(agentRole, existing)
-        ) {
-            console2.log("DemoRegistrar already attached; nothing to do", existing);
+        bool existingAttached = existing != address(0) && existing.code.length != 0
+            && address(DemoRegistrar(existing).identityRegistry()) == identityRegistry
+            && registry.hasRole(agentRole, existing);
+        // "Attached" is not "working". On Arc (2026-09-13) the registrar was attached, held the
+        // role, and reverted `UnsupportedChain(5042002)` on every call — the old check reported it
+        // as done. Only a registrar that accepts registrations on THIS chain counts.
+        if (existingAttached && _acceptsRegistrationsHere(existing)) {
+            console2.log("DemoRegistrar already attached and working; nothing to do", existing);
             return existing;
         }
 
         vm.startBroadcast(privateKey);
         DemoRegistrar registrar = new DemoRegistrar(identityRegistry);
         registry.grantRole(agentRole, address(registrar));
+        // D-032: a registrar that cannot serve this chain keeps no standing role.
+        if (existingAttached) registry.revokeRole(agentRole, existing);
         vm.stopBroadcast();
 
         registrarAddress = address(registrar);
         require(registrar.isActive(), "DeployDemoRegistrar: grant did not take effect");
+        require(
+            _acceptsRegistrationsHere(registrarAddress),
+            "DeployDemoRegistrar: new registrar does not accept registrations on this chain"
+        );
 
         vm.writeJson(string.concat('"', vm.toString(registrarAddress), '"'), path, ".demoRegistrar");
 
@@ -79,6 +88,18 @@ contract DeployDemoRegistrar is Script {
         console2.log("Identity registry", identityRegistry);
         console2.log("DemoRegistrar", registrarAddress);
         console2.log("DEMO: anyone can now self-verify on this chain. Label it that way.");
+    }
+
+    /// @dev Asks the registrar whether it would register a wallet no registry will ever contain, so
+    ///      the answer reflects only its chain check. Behaviour, not presence — see the idempotency
+    ///      note in `run`.
+    function _acceptsRegistrationsHere(address registrar) private view returns (bool) {
+        address probe = address(uint160(uint256(keccak256("arcreserve.demo-registrar.probe"))));
+        try DemoRegistrar(registrar).canSelfRegister(probe) returns (bool ok) {
+            return ok;
+        } catch {
+            return false;
+        }
     }
 
     function _privateKey() private view returns (uint256 privateKey) {

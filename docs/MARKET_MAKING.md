@@ -38,10 +38,15 @@ keeps its three-value shape for ABI stability but returns **0** in the `twapPric
 slots — deliberately 0 rather than spot, because a plausible number under a wrong label is the one
 failure a consumer cannot detect. NAV and its timestamp come from the registry.
 
-The engine therefore rejects stale NAV and **spot**/NAV deviation above its emergency threshold.
-That is now the only market guard, and because it reads spot directly rather than a smoothed
-average it reacts to a single trade. Expect it to fire more often than the old TWAP/NAV check did;
-that is the trade D-036 made, not a regression.
+**The engine has no price-based guard at all (D-039).** D-036 left one — spot against NAV — and
+D-039 removed that too, along with every other use of NAV as a control input. NAV is now a
+*reporting* variable here: `safetyState` and `marketPrices()` still return it, and `rebalanceToNAV`
+still uses it as a target to compute a range from, but no engine action can be blocked by its age
+or by how far spot has drifted from it. What still guards the engine is structural rather than
+price-based: pause, asset status, maturity, vault solvency, cooldown, tick alignment,
+`maxTickShift`, the empty-position requirement, the anchor-range signal, deadlines, slippage bounds
+and role checks. The accepted risk — the engine quoting against a NAV nobody refreshed — is
+monitored off-chain, not enforced. See `docs/SECURITY.md`.
 
 The displayed redemption value comes from the redemption controller and is the lesser of its mode's
 reference and liquid reserve backing per outstanding token. It is neither spot nor NAV.
@@ -52,7 +57,8 @@ reference and liquid reserve backing per outstanding token. It is neither spot n
   empty anchor range.
 - `sweep`: requires spot to have left the anchor range on the **downside**, then updates it.
 - `refreshDiscovery`: updates the discovery target range.
-- `rebalanceToNAV`: gradually changes the anchor after a verified NAV update.
+- `rebalanceToNAV`: gradually changes the anchor after a verified NAV update. It *targets* NAV; it
+  is not *gated* on it (D-039), so it works against a NAV of any age.
 
 ### The flywheel (D-035, Phase B-1)
 
@@ -88,11 +94,19 @@ trading) and capped at `max(0, manager mUSD balance − principalOutstanding)`, 
 can never be credited as earnings. Discovery is **not re-minted** after a harvest — that needs the
 `L'` liquidity maths, which is the unbuilt half of D-035; a keeper refills with `addLiquidity`.
 
-Each operation requires an active, unmatured asset; fresh NAV; acceptable price deviations; vault
-solvency; a completed cooldown; tick-aligned ranges; and a bounded tick shift. Active liquidity must
-be removed before a range changes. The keeper then remints explicitly with maximum inputs, minimum
-received amounts, and a deadline. This two-transaction lifecycle is intentionally observable and
-safe for the MVP, but exposes the strategy to an interval without active liquidity.
+Each operation requires an active, unmatured asset; vault solvency; a completed cooldown;
+tick-aligned ranges; and a bounded tick shift.
+
+**No operation requires a fresh NAV (D-039).** D-038 exempted only `slide`/`sweep` and added a
+second view, `repositionSafetyState`, to report the difference; D-039 removed the gates outright and
+deleted that view. **There is one safety view again — `safetyState` — and it answers for every
+entry point.** Anything built against `repositionSafetyState` must move back to `safetyState`; it
+never shipped to a consumer.
+
+Active liquidity must still be removed before a range changes. The keeper then remints explicitly
+with maximum inputs, minimum received amounts, and a deadline. This two-transaction lifecycle is
+intentionally observable and safe for the MVP, but exposes the strategy to an interval without
+active liquidity.
 
 **The signal is the position's own range (D-036).** While spot sits inside the anchor band the
 position is working on both sides and no rebalance is needed; once spot leaves it the position is
@@ -120,24 +134,25 @@ should add an orientation-aware range-direction constraint or a policy-generated
 | Control | Default |
 | --- | ---: |
 | Rebalance cooldown | 30 minutes (contract default); **the deploy scripts configure 1 second** |
-| Maximum **spot**/NAV deviation | 2,000 bps |
 | Maximum shift per endpoint | 1,200 ticks |
-| Registry NAV stale threshold | 2 days |
-| Registry NAV movement limit | 2,000 bps per update |
 
-The TWAP window and the spot/TWAP deviation limit are **gone** (D-036). `setSafetyPolicy` still
-takes five parameters so no caller has to re-encode, but the first and third are accepted and
-ignored: they configure nothing, they are no longer validated so a caller may honestly pass `0`,
-and they are emitted as `0`. Setting 1800 there does nothing.
+Those two are the whole policy. The maximum spot/NAV deviation is **gone** (D-039), as the TWAP
+window and the spot/TWAP deviation limit already were (D-036). The registry's own NAV stale
+threshold (2 days) and movement limit (2,000 bps per update) still exist, but they are registry
+policy, not engine policy — nothing in the market manager reads either one.
+
+`setSafetyPolicy` still takes five parameters so no caller has to re-encode, but the **first, third
+and fourth** are accepted and ignored: they configure nothing, they are no longer validated so a
+caller may honestly pass `0`, and they are emitted as `0`. Setting 1800 or 2000 there does nothing.
 
 The 1-second cooldown is deliberately 1 and not 0: two rebalances in the same block still trip
 `SafetyCheckFailed(Cooldown)`, so the refusal stays demonstrable on a public chain, while a demo a
 second apart runs freely.
 
 The market safety check returns its first failure in this order: pause, inactive status, maturity,
-stale NAV, **spot**/NAV deviation, reserve insolvency, and cooldown. `SafetyFailure` value **5**
-(`SpotTwapDeviation`) is retained and **never returned**, so no consumer's failure-code mapping
-shifts underneath it.
+reserve insolvency, and cooldown. Three `SafetyFailure` values are retained and **never returned**
+so no consumer's failure-code mapping shifts underneath it: **4** (`StaleNAV`) and **6**
+(`MarketNAVDeviation`) since D-039, **5** (`SpotTwapDeviation`) since D-036.
 
 ### Hikari reference and MVP happy paths
 
@@ -180,7 +195,8 @@ for the post-hackathon hardening phase.
 | Vault separation | Market-allocation withdrawal and return reconcile exactly without changing the protected redemption reserve |
 | Liquidity lifecycle | Configured-position requirement, bounded mint inputs, minimum removal proceeds, deadlines, and rollback on failure |
 | Rebalancing | Active liquidity must be removed; slide/sweep direction, tick alignment, maximum shift, cooldown, and NAV rebalance are enforced |
-| Safety state | Pause, inactive asset, maturity, stale NAV, spot/NAV divergence, vault insolvency, and cooldown are surfaced explicitly; the retired spot/TWAP code is asserted never to be returned |
+| Safety state | Pause, inactive asset, maturity, vault insolvency, and cooldown are surfaced explicitly; the three retired codes (4, 5, 6) are asserted never to be returned, under both a stale NAV and a spot price far from it |
+| NAV independence (D-039) | The full keeper cycle — fund, deploy, remove, slide, refresh discovery, collect, withdraw — and the public `swapExactInput` path with the flywheel behind it both run under a two-day-stale NAV |
 | Floor level-up | A rebalance opportunistically advances the published floor; a controller that is unset, ineligible or reverting is skipped with a reason and never fails the rebalance |
 | Swaps | Both token directions, exact callback accounting, maximum input, minimum output, nonzero amount, and deadline |
 | Emergency recovery | Pause blocks new risk while existing liquidity can still be removed; unpause restores guarded operation |
@@ -191,7 +207,9 @@ The focused suites are:
 - `MarketMakingHappyPathTest`: Hikari-inspired slide, sweep, and discovery-refresh lifecycles.
 - `AssetMarketManagerControlsTest`: role, accounting, safety, recovery, swap, configuration, and failure paths.
 - `AssetMarketManagerTest`: price-source separation, callback authentication, basic liquidity, slippage,
-  staleness, divergence, and cooldown checks.
+  cooldown, and the D-039 assertions that staleness and divergence do *not* stop the engine.
+- `MarketSignalAndFloorLevelUpTest`: the anchor-range signal under both token orderings, the
+  opportunistic floor level-up, and the D-039 NAV-independence cycle.
 
 The full Foundry suite must remain green alongside these focused tests. Coverage numbers are a useful
 regression signal, not an audit or proof of economic correctness.

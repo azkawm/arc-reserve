@@ -12,10 +12,18 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
-fs_permissions = [{ access = "read-write", path = "./deployments" }]
+fs_permissions = [
+  { access = "read-write", path = "./deployments" },
+  # Canonical Uniswap v3-core artifact, vendored from the v3-core 1.0.1 npm package. Its pool init
+  # code hash is the mainnet constant e34f199b..., so this is the real AMM, not a recompile.
+  # Read by test/local (in-process) and by script/DeployUniswapFactory (chains with no Uniswap).
+  { access = "read", path = "./vendor" }
+]
 # Fork tests hit a real RPC and take seconds-to-minutes each, against ~3s for the whole mock suite.
 # They are excluded here so `forge test` stays fast, and run deliberately:
 #   FOUNDRY_PROFILE=fork forge test
+# `test/local/**` is NOT excluded: it runs real Uniswap too, but deploys it from the vendored
+# artifact, so it needs no RPC and belongs in the default run.
 no_match_path = "test/fork/**"
 
 remappings = [

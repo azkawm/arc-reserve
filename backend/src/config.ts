@@ -68,6 +68,17 @@ const envSchema = z
       .optional()
       .transform((value) => (value === undefined || value === '' ? undefined : value))
       .pipe(addressSchema.optional()),
+    // A verified wallet, pre-approved to every asset's market manager, holding a working balance
+    // of both tokens on every LIVE chain. `eth_call`ing `swapExactInput` from this address quotes
+    // a trade using the pool's own tick-crossing math -- no reimplementation, no state changes,
+    // no private key on this process (a quote needs a `from` address, never a signature). Same
+    // address across chains works: it is funded and registered independently per chain. Unset
+    // means the swap-quote endpoint reports itself unavailable rather than guessing a quote.
+    QUOTE_WALLET_ADDRESS: z
+      .string()
+      .optional()
+      .transform((value) => (value === undefined || value === '' ? undefined : value))
+      .pipe(addressSchema.optional()),
 
     STALE_AFTER_SECONDS: z.coerce.number().int().min(1).max(86_400).default(60),
     ALLOW_MOCK_MARKET_DATA: booleanSchema.default('false'),
@@ -105,6 +116,7 @@ export interface Config extends Omit<RawEnv, 'CHAIN_ID'> {
     factory: `0x${string}`;
     stablecoin: `0x${string}`;
     companyVesting?: `0x${string}`;
+    quoteWallet?: `0x${string}`;
   };
   /**
    * RPC per chain. The process indexes `CHAIN_ID` with `RPC_HTTP_URL`; the API can also serve
@@ -164,6 +176,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
       stablecoin: env.MUSD_ADDRESS.toLowerCase() as `0x${string}`,
       ...(env.COMPANY_VESTING_ADDRESS
         ? { companyVesting: env.COMPANY_VESTING_ADDRESS.toLowerCase() as `0x${string}` }
+        : {}),
+      ...(env.QUOTE_WALLET_ADDRESS
+        ? { quoteWallet: env.QUOTE_WALLET_ADDRESS.toLowerCase() as `0x${string}` }
         : {}),
     },
     rpcUrls,

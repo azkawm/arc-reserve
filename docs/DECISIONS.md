@@ -422,6 +422,13 @@ verifier (and, in the institutional flow, restarts the approval time-lock). Clos
 
 Status: accepted 2026-08-27; governs every other decision.
 
+**Amended 2026-09-12/13 (owner):** a fourth testnet is in scope — **Circle Arc testnet (5042002)**,
+gas paid in USDC, no canonical Uniswap V3 (a real v3-core factory is deployed with
+`DeployUniswapFactory`, exactly as on Hedera). Live targets are now **Hedera 296 and Arc 5042002**, integrated in that order (owner, 2026-09-13:
+Hedera first, then Arc);
+**Base Sepolia 84532 is parked** by owner decision (deployed, unseeded, not indexed). Mainnet remains
+forbidden on every chain, including Arc mainnet.
+
 ArcReserve is a **hackathon submission**. Deployment targets are local Anvil (31337),
 **Base Sepolia (84532)**, and **Hedera testnet (296)**. There is no mainnet target, no real
 stablecoin (`MockUSD` everywhere), no real investors, and no audit. Institution-grade mechanisms
@@ -912,6 +919,108 @@ the *"Mock or static today"* list describing the frontend's fixtures, and line 4
 "Sell is intentionally not implemented **in the frontend**." Neither asserts that the contracts
 withhold a sell path. They go stale only when the frontend builds the UI against
 `swapExactInput` — at which point the owner, who maintains that file, should revisit them.
+
+## D-038: NAV does not gate repositioning an empty range
+
+Status: **superseded by D-039 the same day (2026-09-12).** D-039 removed the NAV gates from the
+whole engine, not just from repositioning, so this decision's careful half-measure — a second
+`repositionSafetyState` view, and a containment test proving `addLiquidity` was still gated — no
+longer describes the code. `repositionSafetyState` was deleted, never having been consumed by any
+stack. The entry is kept in full below because the reasoning in it is the reasoning D-039 extends,
+and because the boundary docs briefly advertised the retracted view.
+
+Originally: accepted and implemented 2026-09-12 (owner).
+
+**Decision.** `slide` and `sweep` are no longer gated on either NAV check — not staleness, not
+spot/NAV deviation. Everything else they enforced still applies: pause, asset status, maturity,
+vault solvency, the rebalance cooldown, tick alignment, `maxTickShift`, the empty-position
+requirement, and the D-036 anchor-range signal.
+
+**Why this is safe, and it rests on one fact.** `_rebalance` refuses a position that still holds
+liquidity, so `slide`/`sweep` move ticks on an **empty** position. No capital moves. Capital is
+deployed by `addLiquidity`, which **retains both NAV gates**. So a keeper may pre-position a range
+while the oracle is stale or the market is far from NAV, but cannot fund it there. `maxTickShift`
+(1,200 ticks) still bounds every move, so a range cannot teleport either.
+
+Put differently: NAV is an opinion about what the asset is *worth*. Repositioning an empty range
+expresses no such opinion — it is bookkeeping about where liquidity *would* go. Requiring a fresh
+valuation to relabel an empty range was over-application.
+
+**`repositionSafetyState(bool)` is added** because otherwise the relaxation is invisible to
+consumers. A UI gating the slide/sweep buttons on `safetyState` would disable calls that actually
+succeed. It returns the same `SafetyFailure` enum and simply never returns `StaleNAV` or
+`MarketNAVDeviation`. **`safetyState` is unchanged** — it remains the conservative superset, so
+nothing reading it today breaks; it is just now the wrong question for two of the eight entry
+points.
+
+Solvency is deliberately retained even though `minimumRequiredReserve` reads the NAV *value*: that
+is a statement about the vault, not about the oracle, and it never consults the NAV's age.
+
+**The containment is load-bearing and is pinned by a test.**
+`test_addLiquidityIsStillNavGated` asserts that funding a position with a stale NAV still reverts
+`SafetyCheckFailed(StaleNAV)`. Deleting it would silently turn this decision into "the engine
+ignores NAV", which is emphatically not what was decided.
+
+**What this does NOT fix.** A stale NAV still blocks `fundFromVault` and `addLiquidity`, so the
+D-035 flywheel still cannot refill discovery once it has been harvested — one turn, then
+`FlywheelSkipped("NO_DISCOVERY_LIQUIDITY")` until NAV is republished. Keeping the engine alive
+through a stale oracle end to end would mean relaxing the gate on capital deployment too, which is
+a materially different decision and has not been taken.
+
+*(That last paragraph is what D-039 then took.)*
+
+## D-039: NAV is a reporting variable and gates nothing in the liquidity engine
+
+Status: accepted and implemented 2026-09-12 (owner). **Subsumes D-038.**
+
+**Decision.** The market engine no longer reads NAV as a control input. No liquidity or trading
+action can be blocked by NAV — not by its age, not by how far spot has drifted from it.
+`AssetMarketManager` keeps NAV only as something it *reports* and, in `rebalanceToNAV`, as a
+*target* it computes a range from. Reporting and targeting are not gating.
+
+**Why.** D-038 exempted `slide`/`sweep` on the argument that moving an empty range expresses no
+opinion about value. The owner's follow-up was that the same is true of every other engine action:
+an AMM position quotes at the price the pool is at, not at the price a verifier last typed in. NAV
+belongs to redemption, to the reserve ratio, and to the UI — three places where it answers a real
+question. Wiring it into liquidity management meant a quiet verifier could halt a market that was
+functioning perfectly, and left the D-035 flywheel able to turn exactly once before stalling.
+
+**What changed in the engine.**
+
+- `safetyState` no longer returns `StaleNAV` or `MarketNAVDeviation`. It still *reports* spot and
+  NAV in its return values.
+- `maxMarketNAVDeviationBps` is deleted — the state variable, the getter and the policy validation.
+- `repositionSafetyState` and `_enforceRepositionSafety` are deleted; `slide` and `sweep` are back
+  on the single `_enforceSafety` path. There is one safety view again.
+- `setSafetyPolicy` keeps its five-parameter shape for ABI stability. Its fourth parameter joins the
+  first and third as accepted-and-ignored: validation dropped, emitted as 0. Only `cooldown_` and
+  `maxTickShift_` configure anything.
+
+**Failure codes 4, 5 and 6 are reserved and never returned** — 5 since D-036, 4 and 6 since this
+decision — so `ReserveBelowMinimum` (7) and `Cooldown` (8) do not shift under any consumer's
+mapping. `testRetiredNavAndTwapFailureCodesAreReservedAndNeverReturned` pins this.
+
+**What still guards the engine**, unchanged: pause, asset status, maturity, vault solvency, the
+rebalance cooldown, tick alignment, `maxTickShift`, the empty-position requirement, the D-036
+anchor-range signal, the floor ceiling on the market-floor range, deadlines, slippage bounds, and
+every role check.
+
+**NAV still gates, outside the engine**, and deliberately so: `RedemptionController` prices against
+it and `AssetVault.minimumRequiredReserve` values investor supply with it. Those are statements
+about what a holder is owed, which is exactly what NAV is for. Neither consults the NAV's *age*.
+
+**The accepted risk, stated plainly.** The engine will keep quoting against a NAV nobody has
+refreshed. Where the old gate would have halted trading, the market now simply runs. **The
+mitigation is monitoring, not enforcement** — see `SECURITY.md`. For a testnet demo this is the
+right trade: a demo that stops because a cron job missed a republish is a worse failure than a
+demo that keeps trading against a slightly old valuation. For a system holding real money it would
+need revisiting, and that is a production-hardening item, not a hackathon one.
+
+**Tests.** `test_fullEngineCycleWorksWithAStaleNav` runs fund → deploy → remove → slide → refresh
+discovery → collect → withdraw under a two-day-stale NAV. `test_tradingAndTheCrankRunWithAStaleNav`
+does the same for the public `swapExactInput` path and the flywheel behind it.
+`test_addLiquidityIsNoLongerNavGated` is the explicit inversion of D-038's containment test and
+asserts the liquidity actually lands, not merely that the call does not revert.
 
 ## Open decisions
 

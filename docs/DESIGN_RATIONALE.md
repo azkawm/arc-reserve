@@ -125,7 +125,47 @@ assets it also markets is a conflict of interest. Documented, not deployed (D-02
 Scope bounds *what*: testnets, mock stablecoin, no legal wrapper, one admin key per chain. It never
 bounds *how well*. Judges should see a small system built to a production standard.
 
-## 10. Verified vs assumed — read before relying on any of these
+## 10. Flag, never absorb — the property this system is actually built on
+
+Named here 2026-09-12 because it had been four separate local decisions in three stacks, and every
+one of them either caught a real defect or prevented one in a single day.
+
+**The rule: when a component meets something it cannot correctly handle, it must make that visible
+rather than substitute a plausible value.** A plausible wrong answer is the one failure a consumer
+cannot detect. An explicit refusal, a reason code, or a recorded anomaly can always be acted on.
+
+The four instances, deliberately from different layers so the pattern is not mistaken for a local
+habit:
+
+| Where | Could have | Does instead |
+| --- | --- | --- |
+| `AssetMarketManager.marketPrices()` (D-036) | returned spot in the retired `twapPrice` slot | returns **0** — never a legitimate price, so it reads as "not published" |
+| `_runFlywheel` / `_tryLevelUpFloor` (D-035, D-036) | let a failed harvest revert the trade, or swallow it | emits `FlywheelSkipped(reason)` / `FloorLevelUpSkipped(reason)` — the trade survives, the reason is on chain |
+| `allocationChanged` (backend) | guessed a column for an unrecognised vault category | flags `unknown_vault_category` and stops |
+| the reserve mismatch check (backend) | silently reconciled an emitted balance against its own | flagged — and **caught an error in the boundary doc instructing it**, inside ten minutes |
+
+The fourth is the one worth dwelling on. A contracts-side boundary row told the backend to project
+`MarketSurplusCredited` as a growth source; it is an annotation on an `AllocationChanged` that
+already carries the movement, so following the instruction would have double-counted every credit
+and inflated the published redemption reserve. The check caught its own author. **A read model that
+reconciles silently would have shipped an inflated reserve and looked healthy doing it.**
+
+Two corollaries earned the same day:
+
+- **A boundary document is where a true statement gets read at the wrong level.** "The reserve now
+  has a fourth growth source" is true economically and false as a projection instruction, and the
+  stack reading it holds only the second meaning. Boundary rows about consumption should be written
+  in the negative — say what must *not* be done — because the natural reading of a new event
+  carrying a new balance is that it is a new source.
+- **The consuming stack sometimes already knows better.** The backend's projector was already
+  correct and predated the instruction; only its own check stopped a confident boundary row from
+  making a correct codebase wrong. Guidance from another stack is evidence, not authority.
+
+Related but distinct: the semantic-drift rule from D-036 (a field whose label no longer matches its
+value — emit both and name them, as `SwapExactInput` does with `amountRequested`/`amountSpent`).
+Drift is about *naming*; this is about *behaviour when you cannot answer*.
+
+## 11. Verified vs assumed — read before relying on any of these
 
 | Claim | Status |
 | --- | --- |
