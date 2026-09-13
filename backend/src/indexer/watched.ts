@@ -73,9 +73,12 @@ export async function persistWatched(
   entry: WatchedAddress,
   discoveredAtBlock: bigint | null,
 ): Promise<void> {
+  // A component discovered by a log (discoveredAtBlock set) owes a backfill of the logs it emitted
+  // before that range; a configured root (no block) is fetched from START_BLOCK and owes none. On
+  // conflict the flag is left alone: re-announcing a component must neither reopen nor close its backfill.
   await db.query(
-    `INSERT INTO watched_addresses (chain_id, address, kind, asset_id, discovered_at_block)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO watched_addresses (chain_id, address, kind, asset_id, discovered_at_block, backfilled)
+     VALUES ($1, $2, $3, $4, $5, $5::bigint IS NULL)
      ON CONFLICT (chain_id, address, kind)
      DO UPDATE SET asset_id = COALESCE(watched_addresses.asset_id, EXCLUDED.asset_id)`,
     [

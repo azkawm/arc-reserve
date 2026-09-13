@@ -406,6 +406,29 @@ describe('GET /v1/health', () => {
     expect(body.data.riskCoverage.notComputed[0]!.reason).toContain('RPC_HTTP_URL_84532');
   });
 
+  it('reports pending backfills and degrades while the indexed chain owes one', async () => {
+    // A component whose earlier logs are not fetched is served under onchain provenance while
+    // incomplete, and no receipt diff sees it when no broadcast record lists it. So it is counted.
+    await registerChain(db, config);
+    const component = '0x00000000000000000000000000000000000000c1';
+    await db.query(
+      `INSERT INTO watched_addresses (chain_id, address, kind, discovered_at_block, backfilled)
+       VALUES (31337, $1, 'compliance', 42, FALSE), (31337, $1, 'complianceModule', 42, FALSE)`,
+      [component],
+    );
+
+    const server = await serve(stubClient());
+    const owed = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+    expect(owed.data.status).toBe('degraded');
+    // One address under two kinds is one backfill.
+    expect(owed.data.pendingBackfills).toEqual([{ chainId: 31337, count: 1 }]);
+
+    await db.query('UPDATE watched_addresses SET backfilled = TRUE WHERE address = $1', [component]);
+    const settled = envelope.parse((await server.inject({ method: 'GET', url: '/v1/health' })).json());
+    expect(settled.data.status).toBe('healthy');
+    expect(settled.data.pendingBackfills).toEqual([]);
+  });
+
   it('reports rollbacks from the durable record without degrading status', async () => {
     // Recorded outside the cursor row on purpose: a deep rollback deletes the cursor, so a counter
     // kept there is destroyed by the event it counts. A reorg is chain behaviour, not an unwell

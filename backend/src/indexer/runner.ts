@@ -14,6 +14,15 @@ import { reconcileCursor } from './reorg.js';
 const MAX_DISCOVERY_PASSES = 16;
 
 /**
+ * Consecutive failed creation-block searches before this process stops trusting the relay's history.
+ * A failure propagates so a blip is retried, never guessed at; but a load balancer can pass the
+ * history probe on one backend and route deep reads to backends without history, forever. Past this
+ * many in a row the relay is treated as not serving history — START_BLOCK bounds, more getLogs, always
+ * correct — rather than retrying one range until the indexer is effectively stopped.
+ */
+const MAX_CREATION_SEARCH_FAILURES = 3;
+
+/**
  * The indexer loop.
  *
  * Backfill and live tailing are the same code path: work out the safe head, walk forward in
@@ -41,6 +50,8 @@ export interface SyncSummary {
 export class Indexer {
   /** Whether the relay serves eth_getCode at past blocks; decided once, on first need. */
   private historicalCode: 'supported' | 'unsupported' | null = null;
+  /** Creation-block searches that have failed in a row, across polls. Any success resets it. */
+  private creationSearchFailures = 0;
 
   private readonly deps: IndexerDeps;
   private watched: WatchedSet | null = null;
@@ -177,7 +188,6 @@ export class Indexer {
     // ones, are read by the API only. Keep it that way, or make the reader tolerate a later write.
     for (let pass = 0; pass < MAX_DISCOVERY_PASSES; pass += 1) {
       const sizeBefore = watched.size();
-      const knownBefore = new Set(watched.addresses());
 
       const logs = (await client.getLogs({
         address: watched.addresses(),
@@ -209,10 +219,12 @@ export class Indexer {
       // before the event that announces them. On a fast chain that gap crosses range boundaries: on
       // Arc, compliance emitted both ModuleAdded logs one range before ComplianceAdded, so they were
       // never fetched and the modules they reveal were never discovered. Backfill closes that gap.
-      const discovered = watched.addresses().filter((address) => !knownBefore.has(address));
-      if (discovered.length > 0 && fromBlock > config.START_BLOCK) {
-        await this.backfill(watched, discovered, fromBlock - 1n);
-      }
+      //
+      // What is owed comes from the table, not from "new in this pass". An attempt that discovered a
+      // component and then failed has already persisted it, so a retry would see nothing new and skip
+      // the backfill for good: the range would converge and the cursor advance over missing logs.
+      // Reading the obligation makes a retry, or a restart, redo exactly the unfinished work.
+      await this.settleBackfills(watched, fromBlock);
 
       if (pass === 0) {
         totals.blocksIngested = result.blocksIngested;
@@ -288,8 +300,37 @@ export class Indexer {
    * with the chain's age (Arc produces ~172,800 blocks a day). What a backfill ingests can discover
    * further components — compliance's ModuleAdded reveals its modules — so it runs in rounds until
    * nothing new appears. It never moves the cursor, and a read that fails propagates: the range stays
-   * unfinished and is retried, rather than finishing over logs it never fetched.
+   * unfinished and is retried, rather than finishing over logs it never fetched. A round's components
+   * are marked backfilled only after every one of its windows succeeded.
    */
+  private async settleBackfills(watched: WatchedSet, fromBlock: bigint): Promise<void> {
+    const owed = await this.owedBackfills();
+    if (owed.length === 0) return;
+    // A range that starts at START_BLOCK has nothing before it to fetch.
+    if (fromBlock <= this.deps.config.START_BLOCK) {
+      await this.markBackfilled(owed);
+      return;
+    }
+    await this.backfill(watched, owed, fromBlock - 1n);
+  }
+
+  private async owedBackfills(): Promise<string[]> {
+    const { db, config } = this.deps;
+    const { rows } = await db.query<{ address: string }>(
+      'SELECT DISTINCT address FROM watched_addresses WHERE chain_id = $1 AND NOT backfilled ORDER BY address',
+      [config.CHAIN_ID],
+    );
+    return rows.map((row) => row.address);
+  }
+
+  private async markBackfilled(addresses: string[]): Promise<void> {
+    const { db, config } = this.deps;
+    await db.query(
+      'UPDATE watched_addresses SET backfilled = TRUE WHERE chain_id = $1 AND address = ANY($2::text[])',
+      [config.CHAIN_ID, addresses],
+    );
+  }
+
   private async backfill(watched: WatchedSet, addresses: string[], upTo: bigint): Promise<void> {
     const { client, db, config, logger } = this.deps;
     let pending = addresses;
@@ -304,7 +345,6 @@ export class Indexer {
       const creations: bigint[] = [];
       for (const address of pending) creations.push(await this.creationBlock(address, upTo));
       const lower = creations.reduce((earliest, block) => (block < earliest ? block : earliest), upTo + 1n);
-      const knownBefore = new Set(watched.addresses());
 
       for (let start = lower; start <= upTo; start += BigInt(config.MAX_BLOCK_RANGE)) {
         const end = min(start + BigInt(config.MAX_BLOCK_RANGE) - 1n, upTo);
@@ -336,8 +376,10 @@ export class Indexer {
         );
       }
 
-      // Anything the backfill itself discovered gets its own round, from its own creation block.
-      pending = watched.addresses().filter((address) => !knownBefore.has(address));
+      // Every window of this round succeeded, so its components are settled. Anything the round itself
+      // discovered was persisted as owing a backfill, and is the next round, from its own creation block.
+      await this.markBackfilled(pending);
+      pending = await this.owedBackfills();
     }
   }
 
@@ -358,6 +400,32 @@ export class Indexer {
    * relay serves no historical state at all.
    */
   private async creationBlock(address: string, upTo: bigint): Promise<bigint> {
+    const { config, logger } = this.deps;
+    try {
+      const block = await this.searchCreationBlock(address, upTo);
+      this.creationSearchFailures = 0;
+      return block;
+    } catch (error) {
+      this.creationSearchFailures += 1;
+      if (this.creationSearchFailures < MAX_CREATION_SEARCH_FAILURES) throw error;
+
+      // Counted per process, not per component: a relay that cannot serve deep history for one
+      // component cannot for the next either, and a per-component count would multiply the stall by
+      // the number of components in each discovery wave.
+      this.historicalCode = 'unsupported';
+      logger.warn(
+        {
+          failures: this.creationSearchFailures,
+          address: address.toLowerCase(),
+          startBlock: config.START_BLOCK.toString(),
+        },
+        'creation-block searches keep failing though the history probe passed; backfilling from START_BLOCK from now on',
+      );
+      return config.START_BLOCK;
+    }
+  }
+
+  private async searchCreationBlock(address: string, upTo: bigint): Promise<bigint> {
     const { client, config } = this.deps;
     const floor = config.START_BLOCK;
     if ((await this.historicalCodeSupport()) === 'unsupported') return floor;

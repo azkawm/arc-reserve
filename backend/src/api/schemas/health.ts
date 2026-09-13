@@ -96,12 +96,6 @@ export const healthSchema = z.object({
     }),
   ),
   /**
-   * Every rollback the indexer has performed, per chain, from a durable record. Informational: a
-   * genuine reorg is chain behaviour, not an unwell service, so this never moves `status`. What it
-   * makes visible is a rollback nobody expected — on Hedera, which has no reorgs, any count at all
-   * is a defect; on a relay-fronted chain, a count that climbs is worth reading before trusting.
-   */
-  /**
    * Which chains `risks` covers. A chain in the database this process cannot read — no RPC for it —
    * is listed in notComputed with the reason, so that chain's risk is never silently absent: an
    * absent row would read exactly like a chain with nothing to worry about.
@@ -110,6 +104,12 @@ export const healthSchema = z.object({
     computed: z.array(z.number().int()),
     notComputed: z.array(z.object({ chainId: z.number().int(), reason: z.string() })),
   }),
+  /**
+   * Every rollback the indexer has performed, per chain, from a durable record. Informational: a
+   * genuine reorg is chain behaviour, not an unwell service, so this never moves `status`. What it
+   * makes visible is a rollback nobody expected — on Hedera, which has no reorgs, any count at all
+   * is a defect; on a relay-fronted chain, a count that climbs is worth reading before trusting.
+   */
   rollbacks: z.array(
     z.object({
       chainId: z.number().int(),
@@ -123,6 +123,15 @@ export const healthSchema = z.object({
         cursorDeleted: z.boolean(),
       }),
     }),
+  ),
+  /**
+   * Discovered components whose logs from before their discovery are not fetched yet, per chain
+   * (chains with none are absent). Their data is knowingly incomplete until the count returns to
+   * zero. A non-zero count on the indexed chain moves `status` to degraded. It is normal for one poll
+   * while a backfill runs; a count that persists means the backfill keeps failing.
+   */
+  pendingBackfills: z.array(
+    z.object({ chainId: z.number().int(), count: z.number().int().positive() }),
   ),
   /** Whether this process is permitted to serve synthetic market data at all (D-019). */
   allowMockMarketData: z.boolean(),

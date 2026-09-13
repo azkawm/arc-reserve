@@ -253,10 +253,27 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     }));
   }
 
+  // Components whose logs from before their discovery have not been fetched yet. Their read model is
+  // knowingly incomplete, served under onchain provenance, and a receipt diff cannot see it for a
+  // component no broadcast record lists. So it is surfaced for every chain, and degrades this one.
+  let pendingBackfills: HealthPayload['pendingBackfills'] = [];
+  if (database.ok) {
+    const { rows } = await db.query<{ chain_id: string; count: string }>(
+      `SELECT chain_id::text, count(DISTINCT address)::text AS count
+         FROM watched_addresses
+        WHERE NOT backfilled
+        GROUP BY chain_id
+        ORDER BY chain_id`,
+    );
+    pendingBackfills = rows.map((row) => ({ chainId: Number(row.chain_id), count: Number(row.count) }));
+  }
+
   const status = deriveStatus({
     databaseOk: database.ok,
     rpcOk: rpc.ok,
     openAnomalies: openOnIndexedChain,
+    pendingBackfills:
+      pendingBackfills.find((entry) => entry.chainId === config.CHAIN_ID)?.count ?? 0,
     now,
     // Same reasoning: another chain's cursor being stale or errored is another process's
     // problem. This one answers for the chain it indexes.
@@ -304,6 +321,7 @@ export async function collectHealth(deps: HealthDeps): Promise<HealthResult> {
     risks,
     riskCoverage,
     rollbacks,
+    pendingBackfills,
     allowMockMarketData: config.ALLOW_MOCK_MARKET_DATA,
     staleAfterSeconds: config.STALE_AFTER_SECONDS,
   };
@@ -323,6 +341,7 @@ function deriveStatus(input: {
   databaseOk: boolean;
   rpcOk: boolean;
   openAnomalies: number;
+  pendingBackfills: number;
   now: number;
   indexers: Array<{
     lagBlocks: number;
@@ -337,6 +356,7 @@ function deriveStatus(input: {
 
   const degraded =
     input.openAnomalies > 0 ||
+    input.pendingBackfills > 0 ||
     input.indexers.some(
       (indexer) =>
         indexer.lastError !== null ||

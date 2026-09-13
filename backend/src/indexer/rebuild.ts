@@ -95,6 +95,15 @@ export async function rebuildProjections(
   let result: RebuildResult = { logsReplayed: 0, logsProjected: 0, logsUnknown: 0 };
 
   await db.withTransaction(async (tx) => {
+    // Backfill status describes what has been FETCHED, which a rebuild neither adds to nor loses: it
+    // replays raw_logs. Without carrying it over, every rediscovered component would read as owing a
+    // fresh backfill, and the next range would re-fetch each one's history from the relay. A component
+    // that only a rebuild discovers keeps owing one, which is right: its earlier logs were never fetched.
+    const alreadyBackfilled = await tx.query<{ address: string; kind: string }>(
+      'SELECT address, kind FROM watched_addresses WHERE chain_id = $1 AND backfilled AND discovered_at_block IS NOT NULL',
+      [config.CHAIN_ID],
+    );
+
     await clearProjections(tx, config.CHAIN_ID);
     await seedRootAddresses(tx, config);
 
@@ -154,6 +163,13 @@ export async function rebuildProjections(
       );
       await clearProjections(tx, config.CHAIN_ID, { keepWatched: true });
       watched = await loadWatchedSet(tx, config.CHAIN_ID);
+    }
+
+    for (const row of alreadyBackfilled.rows) {
+      await tx.query(
+        'UPDATE watched_addresses SET backfilled = TRUE WHERE chain_id = $1 AND address = $2 AND kind = $3',
+        [config.CHAIN_ID, row.address, row.kind],
+      );
     }
   });
 

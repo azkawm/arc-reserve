@@ -7,6 +7,7 @@ import { closeTestDatabase, testDatabase, truncateAll } from '../helpers/databas
 import { testConfig } from '../helpers/chain.js';
 import { createLogger } from '../../src/observability/logger.js';
 import { Indexer } from '../../src/indexer/runner.js';
+import { rebuildProjections } from '../../src/indexer/rebuild.js';
 import type { ArcPublicClient } from '../../src/chain/client.js';
 import type { Database } from '../../src/db/client.js';
 
@@ -67,7 +68,7 @@ const timestampOf = (block: number): bigint => {
 const hashOf = (block: bigint): `0x${string}` => keccak256(toHex(`arc-block-${block}`));
 
 /** A chain that answers exactly as Arc did for this deployment. */
-function arcClient(options: { ignoresBlockNumber?: boolean } = {}): ArcPublicClient {
+function arcClient(options: { ignoresBlockNumber?: boolean; failsDeepHistory?: boolean } = {}): ArcPublicClient {
   const stub = {
     chain: { id: fixture.chainId },
     async getChainId() {
@@ -85,6 +86,15 @@ function arcClient(options: { ignoresBlockNumber?: boolean } = {}): ArcPublicCli
       };
     },
     async getCode({ address, blockNumber }: { address: string; blockNumber?: bigint }) {
+      // A load-balanced relay whose history probe passes (head, and the block before START) but whose
+      // deeper historical reads land on backends that do not have them, every time.
+      if (
+        options.failsDeepHistory &&
+        blockNumber !== undefined &&
+        blockNumber !== BigInt(fixture.startBlock - 1)
+      ) {
+        throw new Error('injected: this backend does not serve history that deep');
+      }
       const created = firstEmitted.get(address.toLowerCase());
       if (created === undefined) return '0x';
       // A relay that ignores the block parameter answers with current state at every height.
@@ -126,7 +136,11 @@ afterAll(async () => {
   await closeTestDatabase();
 });
 
-async function replay(maxBlockRange: number, clientOptions: { ignoresBlockNumber?: boolean } = {}) {
+async function replay(
+  maxBlockRange: number,
+  clientOptions: { ignoresBlockNumber?: boolean; failsDeepHistory?: boolean } = {},
+  attempts = 1,
+) {
   const config = testConfig({
     CHAIN_ID: String(fixture.chainId),
     RPC_HTTP_URL: 'http://arc.test',
@@ -149,7 +163,17 @@ async function replay(maxBlockRange: number, clientOptions: { ignoresBlockNumber
 
   const indexer = new Indexer({ config, db, client: arcClient(clientOptions), logger });
   await indexer.prepare();
-  await indexer.syncToHead();
+  // Each attempt is one poll of the running loop: a failed pass leaves the range unfinished to retry.
+  let attemptsUsed = 0;
+  for (;;) {
+    attemptsUsed += 1;
+    try {
+      await indexer.syncToHead();
+      break;
+    } catch (error) {
+      if (attemptsUsed >= attempts) throw error;
+    }
+  }
 
   const stored = await db.query<{ block_number: string; log_index: number }>(
     'SELECT block_number::text, log_index FROM raw_logs WHERE chain_id = $1',
@@ -162,7 +186,17 @@ async function replay(maxBlockRange: number, clientOptions: { ignoresBlockNumber
   return {
     stored: new Set(stored.rows.map((row) => `${row.block_number}:${row.log_index}`)),
     kinds: kinds.rows.map((row) => row.kind),
+    attemptsUsed,
+    config,
   };
+}
+
+async function owedBackfills(): Promise<number> {
+  const row = await db.one<{ n: string }>(
+    'SELECT count(*)::text AS n FROM watched_addresses WHERE chain_id = $1 AND NOT backfilled',
+    [fixture.chainId],
+  );
+  return Number(row.n);
 }
 
 // Every log the deployment emitted from a contract the indexer should watch: all but the Uniswap
@@ -195,6 +229,58 @@ describe("Arc's real deployment", () => {
     expect([...expected].filter((key) => !stored.has(key)), 'missing behind a block-ignoring relay').toEqual([]);
     for (const kind of ['compliance', 'complianceModule', 'floorController']) {
       expect(kinds, `discovered ${kind} behind a block-ignoring relay`).toContain(kind);
+    }
+  });
+
+  it('does not stall forever behind a relay whose deep history keeps failing', async () => {
+    // Retrying a transient failure is right; retrying a persistent one freezes the chain. The first
+    // polls must fail (proving the retry path ran), and a bounded number later the range must complete.
+    const { stored, kinds, attemptsUsed } = await replay(100, { failsDeepHistory: true }, 10);
+
+    expect(attemptsUsed, 'polls before converging').toBeGreaterThan(1);
+    expect(attemptsUsed, 'polls before converging').toBeLessThanOrEqual(4);
+    expect([...expected].filter((key) => !stored.has(key)), 'missing behind a failing-history relay').toEqual([]);
+    for (const kind of ['compliance', 'complianceModule', 'floorController']) {
+      expect(kinds, `discovered ${kind} behind a failing-history relay`).toContain(kind);
+    }
+    // Before the obligation was durable, the failed first attempt had already persisted these
+    // components, the retry saw nothing new, and the range converged twelve logs short.
+    expect(await owedBackfills(), 'backfills still owed after converging').toBe(0);
+  });
+
+  it('treats a watched row written without the backfill flag as owing one', async () => {
+    // Only rows that existed at migration time were verified complete. Any later writer that omits
+    // the column (an older process, a fixture, a manual repair) must fail toward a redundant backfill.
+    await truncateAll(db);
+    await db.query(
+      `INSERT INTO chains (chain_id, name, finality_confirmations, registry_address,
+                           factory_address, stablecoin_address, start_block)
+       VALUES ($1, 'Arc Testnet', 2, $2, $3, $4, $5)`,
+      [fixture.chainId, fixture.roots.registry, fixture.roots.factory, fixture.roots.stablecoin, fixture.startBlock],
+    );
+    await db.query(
+      `INSERT INTO watched_addresses (chain_id, address, kind, discovered_at_block)
+       VALUES ($1, '0x00000000000000000000000000000000000000c1', 'compliance', 42)`,
+      [fixture.chainId],
+    );
+    expect(await owedBackfills(), 'a row inserted without the flag').toBe(1);
+  });
+
+  it('keeps settled backfills settled through a rebuild', async () => {
+    // A rebuild replays logs already fetched, so it cannot un-fetch a backfill. Rediscovered
+    // components that came back owing one would re-fetch their whole history on the next range.
+    const { config } = await replay(100);
+    expect(await owedBackfills(), 'owed after the sync').toBe(0);
+
+    await rebuildProjections(db, config, logger);
+
+    expect(await owedBackfills(), 'owed after the rebuild').toBe(0);
+    const kinds = await db.query<{ kind: string }>(
+      'SELECT DISTINCT kind FROM watched_addresses WHERE chain_id = $1',
+      [fixture.chainId],
+    );
+    for (const kind of ['compliance', 'complianceModule', 'floorController', 'identityRegistry']) {
+      expect(kinds.rows.map((row) => row.kind), `rebuild rediscovered ${kind}`).toContain(kind);
     }
   });
 

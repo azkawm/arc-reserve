@@ -219,7 +219,17 @@ Component addresses come from `AssetSystemDeployed`; the identity registry and c
 come from the token's own `IdentityRegistryAdded` / `ComplianceAdded`; modules come from
 `ModuleAdded`. Since a range can contain the deployment that introduces addresses whose components
 emit in that same block, a range whose watched set grew is simply replayed with the larger filter —
-idempotent, so it costs one RPC round trip and converges.
+idempotent, so it costs one RPC round trip and converges. The cursor moves once, after the range
+converges, never while a later replay pass may still fetch logs.
+
+**Backfill from the creation block.** Components emit *before* the event that announces them, and on
+a fast chain (Arc, ~0.5 s blocks) that gap crosses range boundaries, where a replay of the current
+range cannot reach. So a newly discovered component's earlier logs are fetched from its creation
+block, found by binary search on historical `eth_getCode`. If the relay serves no history, or deep
+reads keep failing (three consecutive searches), the backfill starts from `START_BLOCK` instead:
+more getLogs, never fewer logs. The obligation is durable: `watched_addresses.backfilled` is false
+from discovery until every window has been fetched, so a failed attempt or a crash redoes exactly
+the unfinished work. `/v1/health` `pendingBackfills` counts what is still owed.
 
 **Decoding is keyed by address kind, not by topic0.** `Transfer` on the asset token and `Transfer`
 on mUSD are byte-identical selectors; resolving through the watched set makes confusing an
