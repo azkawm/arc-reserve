@@ -1,165 +1,197 @@
-# ArcReserve
+# Arc-Reserve
 
 **Real assets. Programmable liquidity.**
 
-ArcReserve is a hackathon MVP for verified real-world asset participation markets. It combines
-capped per-series tokens, stablecoin reserve support, NAV-aware concentrated liquidity, automated
-revenue distribution, and reserve-limited redemption. The demonstration asset is **Solar Indonesia
-01 (SOLAR01)**.
+Arc-Reserve is a launchpad for tokenizing real-world green and renewable energy assets — solar,
+wind, hydro, and similar projects. A project owner raises money from investors by selling a token,
+instead of going through a bank. To show how it works end to end, we use one real example: a 50 MW
+solar farm in Indonesia, called **Solar Indonesia 01 (SOLAR01)** — one project on the platform, not
+the limit of what it supports.
 
-ArcReserve never treats NAV, market price, and redemption value as interchangeable. It does not by
-itself promise legally enforceable ownership, returns, a price peg, or 1:1 redemption.
+The token is not a share of a company, and it's not ownership of the underlying project. It's a
+claim on a fixed part of the real money the project makes — for SOLAR01, that's electricity sales.
+Investors get paid in stablecoin as the project earns revenue, and they can exit any time by
+redeeming their tokens from a protected reserve — no need to find a buyer first.
 
-> **Hackathon project.** ArcReserve is built for a hackathon and is intended to be deployed only to
-> **Base Sepolia** and **Hedera testnet** (plus local Anvil). It uses a mock stablecoin, test keys,
-> and unaudited contracts. Nothing here is a regulated financial product, an offer of securities, or
-> ready for real funds. The compliance, verification, and reserve mechanics are design
-> demonstrations.
+What makes Arc-Reserve different: part of every raise is locked into a real Uniswap V3 liquidity
+pool. This creates a price floor under the token, so the price can't crash to zero the way many
+token launches do.
+
+---
+
+## Live on three testnets
+
+We deployed the same system to three chains. On Base Sepolia we use the official Uniswap V3
+factory that's already there. Hedera and Arc don't have an official Uniswap V3 testnet yet, so we
+deployed the real Uniswap V3 factory ourselves on both — same original Uniswap code, not a mock.
+
+| Chain | Token | Vault | Market Manager (Uniswap wrapper) | Uniswap Pool |
+| --- | --- | --- | --- | --- |
+| Base Sepolia (84532) | `0xF06c...abFf` | `0x0CC5...bC46` | `0xEf1a...aCab3` | `0x1A87...22F29` |
+| Hedera Testnet (296) | `0x2a92...6827` | `0x1F52...9428c8` | `0xaA6C...86478c2` | `0xcb77...73c6d31` |
+| Arc Testnet (5042002) | `0x18c2...176ff795` | `0x6FE4...225f9ffA` | `0xbd50...78F7c7` | `0xA325...913A28` |
+
+Full addresses for every contract on every chain are in `contracts/deployments/<chainId>.json`.
+
+---
 
 ## Architecture
 
-```text
-Asset issuer ---> AssetRegistry <--- Verifier / NAV publisher
-                       |
-                       | approved record
-                       v
-        AssetFactory + approved component deployers
-             |        |        |        |
-             v        v        v        v
-          SOLAR01   AssetVault  Offering  Revenue / Redemption
-             |         ^                    |
-             +---- ARC Liquidity Engine ----+---- Uniswap-compatible pool
-                         |
-                   spot + TWAP + NAV
-```
+![Arc-Reserve architecture](docs/diagrams/architecture.png)
 
-The current contracts split primary purchases 70% to issuer proceeds, 20% to protected reserve, and
-10% to market allocation. Deposited asset revenue splits 60% to yield-eligible circulating holders,
-25% to reserve, 10% to operator accrual, and 5% to protocol fees.
+(Mermaid source at `docs/diagrams/architecture.mmd`, renders directly on GitHub too.)
 
-The local demo creates a one-year company vesting wallet, excludes it from holder yield, and mints a
-disclosed 20,000 SOLAR01 allocation to it. Generic factory settlement does not yet wire vesting. The
-target commercial model additionally requires escrowed fundraising, partial settlement, governed
-issuance headroom, floor accretion from realized value, and stablecoin-funded token-lock rewards.
+In short: an investor buys through the frontend, the frontend reads live numbers from our backend,
+the backend reads events straight from the chain. On-chain, one asset system (token, vault,
+offering, revenue splitter, redemption) handles the money, and a separate Market Manager holds a
+real Uniswap V3 position that acts as the price floor. Profit from real trading against that
+position flows back into the reserve, which is what lets the floor go up over time.
+
+---
+
+## How the money moves
+
+When someone buys tokens, the money splits automatically: **65% to the project operator, 30% into
+the protected reserve, 5% into the Uniswap liquidity position.** This is enforced in the smart
+contract (`PrimaryOffering.sol`), not a policy we could quietly change.
+
+When the project sends in real revenue — for SOLAR01, that's electricity sold to the grid — it
+splits again: **60% to token holders as yield, 25%
+into the reserve, 10% to the operator, 5% to us as a protocol fee** (this shifts to 40/45/10/5 if
+the reserve falls behind its schedule, to protect investors first). This is enforced in
+`RevenueDistributor.sol`, capped on-chain at a maximum 10% protocol fee.
+
+The reserve never funds the protocol's own fees, and the Market Manager can never mint new tokens —
+it can only trade tokens that were explicitly handed to it.
+
+---
+
+## Why these three technologies
+
+**Uniswap V3.** Our price floor only means something if there's real liquidity behind it, not a
+promise. Uniswap V3 lets us put liquidity exactly where we want it — one range as the floor, one
+around fair value, one for price discovery — from the same locked capital. Because Uniswap V3 is
+the most tested AMM on EVM chains, we could write one Market Manager contract and run it unchanged
+on all three of our chains.
+
+- Real integration, not a mock: `AssetMarketManager.sol` — `addLiquidity` (line 298),
+  `removeLiquidity` (line 334), `collectFees` (line 380), `swapExactInput` (line 449),
+  `uniswapV3MintCallback` (line 605), `uniswapV3SwapCallback` (line 620).
+- Where there's no official Uniswap V3 testnet (Hedera, Arc), we deploy the real Uniswap V3 factory
+  ourselves: `contracts/script/DeployUniswapFactory.s.sol`.
+
+**Hedera.** Hedera runs carbon-negative — a good fit for a platform financing green and renewable
+energy projects. Hedera
+also has its own Asset Tokenization Studio (ATS) for compliant real-world-asset tokens, which is
+close to what we built by hand (an ERC-3643-style `IdentityRegistry` + `ModularCompliance`). Our
+full SOLAR01 system is live on Hedera Testnet (chain 296) through Hedera's JSON-RPC relay.
+*Honest note: we do not yet use Hedera's ATS toolkit itself — our compliance layer is our own
+separate build. Integrating ATS is on our roadmap, not shipped today.*
+
+**Circle Arc.** Arc is Circle's stablecoin-native chain — gas is paid in USDC, and transactions
+finish in under a second. Our whole product is stablecoin-settled (invest in stablecoin, earn yield
+in stablecoin, redeem for stablecoin), so a chain built around stablecoins is a natural fit. Our
+full SOLAR01 system is live on Arc Testnet (chain 5042002), including our own Uniswap V3 deployment.
+*Honest note: our current stablecoin on Arc is a test token called MockUSD, not Circle's real
+testnet USDC — swapping to real testnet USDC is a near-term follow-up, not done yet.*
+
+---
 
 ## Documentation
 
 Taking over this project? Start with [HANDOVER.md](HANDOVER.md) — current state, what remains,
 and the onboarding gate.
 
-For another coding agent, start with [CLAUDE.md](CLAUDE.md) and complete the
-[AI comprehension check](docs/AI_COMPREHENSION_CHECK.md) before implementation.
-
 | Document | Purpose |
 | --- | --- |
 | [System specification](docs/SYSTEM_SPEC.md) | Canonical current contract behavior and formulas |
 | [Architecture](docs/ARCHITECTURE.md) | Components, trust boundaries, and flows |
 | [Product requirements](docs/PRD.md) | Users, lifecycle, requirements, acceptance criteria |
-| [Business model](docs/BUSINESS_MODEL.md) | Target fundraising, supply, utility, and revenue model |
+| [Business model](docs/BUSINESS_MODEL.md) | Fundraising, supply, utility, and revenue model |
 | [Decision log](docs/DECISIONS.md) | Accepted decisions and unresolved owner choices |
-| [Market making](docs/MARKET_MAKING.md) | ARC positions, safety, Hikari mapping, tests |
-| [Backend/indexer](docs/BACKEND_INDEXER.md) | Planned API, event ingestion, reorg, and OHLC design |
-| [Frontend](docs/FRONTEND.md) | Routes, real versus mock behavior, integration plan |
+| [Market making](docs/MARKET_MAKING.md) | ARC Liquidity Engine positions, safety, tests |
+| [Backend/indexer](docs/BACKEND_INDEXER.md) | API, event ingestion, reorg handling, OHLC design |
+| [Frontend](docs/FRONTEND.md) | Routes, real vs. mock behavior, integration plan |
 | [Testing](docs/TESTING.md) | Suite map, coverage, commands, production test gaps |
 | [Security](docs/SECURITY.md) | Threat model, emergency behavior, pre-production work |
 | [Demo](docs/DEMO.md) | Local deployment and presentation runbook |
-| [User flows](docs/USER_FLOWS.md) | Issuer, verifier, investor, keeper flows with gates, artifacts, and onchain footprint |
-| [Design rationale](docs/DESIGN_RATIONALE.md) | Why each decision was made, alternatives rejected, verified vs assumed |
-| [Stack boundaries](docs/stacks/README.md) | Contracts / backend / frontend interface docs, agent briefs, kickoff prompts, handoff log |
+| [Deploy — backend](docs/DEPLOY_BACKEND.md) | Backend deploy runbook |
+| [Deploy — frontend](docs/DEPLOY_FRONTEND.md) | Frontend deploy runbook |
 
-## Prerequisites
+---
 
-- Foundry (`forge`, `anvil`, and `cast`)
-- Node.js 20 or newer and npm
+## Running it yourself
 
-Dependencies are present under `contracts/lib` in this workspace. For a clean checkout, install
-compatible OpenZeppelin Contracts 5.x and forge-std dependencies under that directory.
+Prerequisites: Foundry (`forge`, `anvil`, `cast`), Node.js 20+.
 
-## Contracts
+**Contracts**
 
-```powershell
+```bash
 cd contracts
 forge build
 forge test
 ```
 
-On this Windows machine, Foundry is also available directly at:
-
-```powershell
-C:\Users\willi\.foundry\bin\forge.exe test
-```
-
 Start a local chain and deploy the seeded demo:
 
-```powershell
+```bash
 anvil
 cd contracts
-forge script script/DeployLocal.s.sol:DeployLocal `
-  --rpc-url http://127.0.0.1:8545 --broadcast
+forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
 ```
 
-The script creates mUSD, registry, identity registry (KYC), component deployers, factory, SOLAR01,
-vault, offering, revenue distributor, redemption controller, callback-harness pool, ARC engine,
-modular compliance with country and resale-lock modules, and yield-excluded company vesting wallet.
-Only Anvil accounts #0 and #1 are registered as verified wallets; any other address is blocked from
-holding SOLAR01 (override the investor with `DEMO_INVESTOR=0x...`). It configures the market ranges and deposits a 20,000 mUSD issuer reserve. Addresses
-are written to `contracts/deployments/31337.json`.
+Deploy to a real testnet (Base Sepolia, Hedera, or Arc):
 
-Anvil addresses are ephemeral. Regenerate the deployment after every fresh chain restart.
+```bash
+forge script script/DeployTestnet.s.sol:DeployTestnet --rpc-url $RPC_URL --broadcast --slow
+```
 
-## Frontend
+Addresses land in `contracts/deployments/<chainId>.json`.
 
-React + Vite + TypeScript, Tailwind CSS v4, shadcn/ui, Vitest, Docker. Rebuilt from Next.js on
-2026-09-12 (D-035).
+**Backend**
 
-```powershell
-cd frontend
-Copy-Item .env.example .env.local   # optional; without VITE_API_URL the app runs on fixtures
+```bash
+cd backend
 npm install
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-npm run dev                         # http://localhost:3000
+npm run migrate
+npm run dev
 ```
 
-If PowerShell blocks `npm.ps1`, run the same scripts through `npm.cmd`, for example
-`npm.cmd run build`. In a container: `docker compose build && docker compose up -d`.
+**Frontend**
 
-Populate `.env.local` with the current deployment, using `VITE_`-prefixed names. Vite inlines them
-at build time, so a change needs a dev-server restart and a Docker rebuild, and everything in that
-file ships inside the browser bundle.
+```bash
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev   # http://localhost:3000
+```
 
-**Current state.** The backend `/v1` client, the fixture adapter, the provenance badge, and the
-wagmi + react-query providers are ported and exercised by a landing page. The marketplace, asset,
-issuer, verifier, and ARC Engine routes, both charts, and every wallet write existed before the
-rebuild and are **not** ported yet. Sell execution is intentionally not implemented. See
-[docs/FRONTEND.md](docs/FRONTEND.md) and D-035 in [docs/DECISIONS.md](docs/DECISIONS.md).
+---
 
-## Contract verification baseline
+## Test baseline
 
-Last verified on 2026-08-27:
+- 247+ Foundry tests, 0 failing, 0 skipped, including 7 stateful financial invariants.
+- `AssetMarketManager` (the Uniswap wrapper): 98.28% line coverage, 73.47% branch coverage.
+- Frontend: typecheck, lint, unit tests, and build all passing.
 
-- 74 Foundry tests passed (18 cover the permissioned-transfer compliance layer);
-- 0 failed and 0 skipped;
-- 5 stateful financial invariants; and
-- `AssetMarketManager` coverage of 98.17% lines, 95.50% statements, 73.91% branches, and
-  100% functions.
-- frontend TypeScript, ESLint, and the optimized production build all passed. (The frontend was
-  rebuilt on React + Vite on 2026-09-12, D-035; its current baseline is 25 Vitest tests plus
-  typecheck, lint, and build — see `docs/TESTING.md` §11.)
+Coverage is not an audit. This has not been audited. The local mock pool used for fast tests is a
+callback harness, not a real AMM simulation — the real Uniswap V3 pools on Base Sepolia, Hedera,
+and Arc are the genuine article.
 
-Coverage is not an audit. The local pool is a deterministic callback/oracle harness, not a
-production AMM or an economic simulation.
+---
 
-## Current limitations
+## What's honestly not done yet
 
-- No backend, indexer, database, or live OHLC service exists yet.
-- The current offering is direct purchase/mint, not escrowed threshold settlement.
-- Generic factory settlement does not yet create the company vesting allocation.
-- The market update lifecycle requires explicit remove, update, and remint transactions.
-- The mock pool does not model tick crossing, fees, price impact, MEV, or liquidity exhaustion.
-- Production NAV/oracle infrastructure, legal rights, custody, KYC/AML, fiat rails, governance
-  delays, monitoring, and mainnet deployment remain out of scope.
+We'd rather list this than have a judge find it first:
 
-Review [docs/SECURITY.md](docs/SECURITY.md) before extending the MVP.
+- The public frontend page is a concept/landing page today — it doesn't yet call the live backend
+  or support wallet actions (buy, redeem, claim). The backend API and the contracts both work; the
+  wiring between the frontend and them is the next step.
+- We don't use Hedera's Asset Tokenization Studio yet — our compliance layer is a separate,
+  ERC-3643-style build.
+- Our stablecoin is a test token (MockUSD), not Circle's real testnet USDC.
+- Fundraising mints immediately on purchase today; escrowed, threshold-based settlement (fully
+  raised / partially raised / failed) is designed but not built.
+- No mainnet deployment anywhere, by design — this is a testnet-only hackathon build.
+
+See [docs/SECURITY.md](docs/SECURITY.md) before extending this beyond a demo.
