@@ -1,23 +1,27 @@
-import { defineChain } from "viem";
 import { createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
-
-export const anvil = defineChain({
-  id: 31_337,
-  name: "Anvil",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: [import.meta.env.VITE_RPC_URL ?? "http://127.0.0.1:8545"] },
-  },
-});
+import { anvil, arc, hedera } from "@/lib/chains";
 
 /**
- * `ssr` is deliberately absent. The Next.js build set `ssr: true` because wagmi had to survive
- * a server render pass; this is a client-rendered SPA, so hydration-safe storage is not needed
- * and claiming it would be misleading about how the app runs.
+ * Wallet configuration.
+ *
+ * Both live product chains plus Anvil for local development. The `chains` order does **not**
+ * decide which chain the portal shows — that is the chain context (`lib/chain-context.tsx`),
+ * which defaults to Hedera. It only decides wagmi's fallback when no wallet is connected.
+ *
+ * `ssr` is deliberately absent: this is a client-rendered SPA, so hydration-safe storage is not
+ * needed and claiming it would misdescribe how the app runs.
+ *
+ * Transports mirror the backend's constraints: Hedera's public RPC rejects JSON-RPC batching,
+ * and Arc's free dRPC tier caps a batch at 3 — so both are configured without batching rather
+ * than risking an oversized request.
  */
 export const wagmiConfig = createConfig({
-  chains: [anvil],
+  chains: [anvil, hedera, arc],
   connectors: [injected()],
-  transports: { [anvil.id]: http(anvil.rpcUrls.default.http[0]) },
+  transports: {
+    [anvil.id]: http(anvil.rpcUrls.default.http[0]),
+    [hedera.id]: http(hedera.rpcUrls.default.http[0], { batch: false }),
+    [arc.id]: http(arc.rpcUrls.default.http[0], { batch: false, retryCount: 2 }),
+  },
 });

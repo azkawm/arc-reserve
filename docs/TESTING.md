@@ -325,15 +325,15 @@ npm.cmd run test:e2e
 npm.cmd run build
 ```
 
-Last verified on 2026-09-12, after `openspec/changes/concept-landing-page` (D-036) landed on top of
-the D-035 Vite rebuild:
+Last verified on 2026-09-13, after `openspec/changes/launchpad-portal` (D-040) added the portal:
 
-- TypeScript `tsc -b` (now three project references — app, node, and e2e; see below): passed;
+- TypeScript `tsc -b` (app, node and e2e project references): passed;
 - ESLint 10 (flat config, mirrors the backend's): passed;
-- Vitest: 83 tests across 17 files, all passed;
-- Playwright: 12 cases across 3 viewport projects, all passed (2 correctly skipped where not
+- Vitest: 116 tests across 25 files, all passed;
+- Playwright: 30 cases across 3 viewport projects (28 passed, 2 correctly skipped where not
   applicable — see below); and
-- Vite production build: passed (`dist/` bundle emitted).
+- Vite production build: passed (`dist/` bundle emitted; one >500 kB chunk-size warning, not a
+  failure).
 
 ### Two runners, because they can prove different things
 
@@ -348,10 +348,13 @@ breakpoint class never actually computes and `getBoundingClientRect()` returns z
 Node-only `tsconfig.node.json` does not carry), covers what only a real browser can: no horizontal
 document overflow, navigation actually hiding/showing at the right pixel widths, and wide content
 (a five-column table) genuinely needing to scroll inside its own container at phone width rather
-than merely being styled as if it would. Chromium only — these are standard CSS layout assertions,
-not engine-specific rendering, so testing one engine is a scope choice, not a gap. There is no CI in
-this repository, so `npm run test:e2e` is a local command run by habit, not a gate anything enforces
-automatically.
+than merely being styled as if it would. It runs against **system Chrome** (`channel: "chrome"`) on
+port **4318**: on this machine a Windows Application Control policy blocks the Playwright-downloaded
+browsers under `%LOCALAPPDATA%\ms-playwright`, and Docker already holds the app's 3000. The suite is
+hermetic — `VITE_API_URL` is unset, so the portal renders from `lib/fixtures.ts` with every panel
+labelled `mock`. These are standard CSS layout assertions, not engine-specific rendering, so testing
+one engine is a scope choice, not a gap. There is no CI in this repository, so `npm run test:e2e` is
+a local command run by habit, not a gate anything enforces automatically.
 
 Two of the twelve Playwright cases are intentionally skipped outside the `phone` project via
 `test.skip(condition, reason)`: the five-column reference table needs to scroll at 390px but not
@@ -379,7 +382,16 @@ false about wider viewports.
 | `src/components/landing/safety-ladder.test.tsx` | All four stages render in their real order; no guarantee language or invented jurisdiction *at any selected stage* (checked by clicking through all four, since only one stage's detail panel is in the DOM at a time); the real 40/45/10/5 split figures, not the reference's invented 85/15 |
 | `src/components/landing/closing-cta.test.tsx` | No audit claim, no misstatement of who may participate, both CTAs resolve to real in-page sections |
 | `src/App.test.tsx` | Page-level: claim rules hold across every section at once (not just within one), the concept statement sits inside the shared sticky wrapper, exactly six concept markers exist across the whole page, all six sections render in their documented order with every nav href resolving to a real section id, no animation frame loop starts without WebGL, and mounting the page issues no backend request at all |
-| `e2e/responsive.spec.ts` | Real-browser layout at phone/tablet/desktop — see above |
+| `src/lib/queries.test.tsx` | Chain-aware client (INTEGRATION_GUIDE §2.1) — every request carries `chainId`, and a response naming another chain throws `CHAIN_MISMATCH` |
+| `src/components/data-source.test.tsx` | Field provenance overrides the envelope; `asOf: null` is "not indexed" for a live read but not for a fixture; error codes map to distinct messages |
+| `src/lib/safety.test.ts` | `SafetyFailure` indices 0–8 in order; 4/5/6 present and marked reserved so 7/8 do not shift |
+| `src/lib/ticks.test.ts` | Tick↔price round-trips under both `assetIsToken0` orderings; `t` and `-t` give the same human price |
+| `src/lib/swap.test.ts` | Swap summary uses the input token's decimals; the refund is shown only when `amountRequested > amountSpent` |
+| `src/lib/null-values.test.ts` | Null renders a dash, never `0`; a real zero still renders zero |
+| `src/portal-claims.test.ts` | The portal source (comments stripped) carries no forbidden claim and does state the honest disclaimer |
+| `src/lib/contract-shapes.test.ts` | Typed response fixtures for the portal routes, so a backend shape change fails `tsc`; asserts no `twap` field |
+| `e2e/responsive.spec.ts` | Real-browser layout at phone/tablet/desktop — landing page (see above) |
+| `e2e/portal-responsive.spec.ts` | Real-browser layout for `/offerings` and `/assets/:slug` — no horizontal overflow, disclosure nav reachable below `lg`, chain switch reachable and route-reflecting, chart contained, header controls within the viewport |
 
 One bug the tests themselves caught, worth keeping in mind when writing the next claim-rule check: a
 first draft of `App.test.tsx`'s "no guarantee language" check searched the *entire* rendered page,
@@ -388,7 +400,8 @@ truthful, mandated content, not a claim. Fixed by scoping the check to `<main>` 
 ClosingCta); a blunt whole-page string search over-corrects when the required disclaimer legitimately
 uses the same word to deny something rather than assert it.
 
-Gaps worth closing once the deferred SOLAR01 deep-dive lands: transaction state machines (submitted →
+Closed by `launchpad-portal` (D-040) — the SOLAR01 deep-dive has landed. The list below is what it
+added coverage for: transaction state machines (submitted →
 receipt confirmed), stale and error rendering per panel, and tick↔price conversion under both token
 orderings.
 
@@ -419,3 +432,35 @@ not obscure functional diffs.
 
 Do not reduce assertions merely to increase line coverage. Financial state and authorization effects
 are the required evidence.
+
+## 14. Portal demo checklist (launchpad-portal, D-040)
+
+Run manually before a demo, on both chains. This is the plan §E.4 script; it needs a wallet and a
+live backend, so it is run by the owner, not by the automated gate.
+
+Per chain (Hedera 296, then Arc 5042002), with a fresh wallet:
+
+1. Connect the wallet; switch the portal to the chain under test (default Hedera).
+2. `Get mUSD` (faucet) -> confirm `FaucetUsed`.
+3. `Verify me` -> confirm `IdentityRegistry.isVerified` reads true afterwards.
+4. Subscribe (buy SOLAR01) -> confirm `TokensPurchased`.
+5. Swap mUSD -> SOLAR01, then SOLAR01 -> mUSD (buy <= ~10 mUSD, sell <= ~5 SOLAR01) -> confirm
+   `SwapExactInput`, the `amountSpent` shown, and any refund.
+6. Claim revenue -> confirm `RevenueClaimed` (or `NoRevenueToClaim`).
+7. Redeem -> confirm `Redeemed`; the price is `min(NAV, backing)`, not the published floor.
+
+Also verify the failure states:
+
+- wrong-chain wallet: the write is disabled and offers a switch;
+- unverified wallet: buy and swap block with the verification reason;
+- disconnected wallet: actions are disabled with "connect" guidance;
+- API down: an error state, never a fixture;
+- `/v1/health` degraded: the banner appears and data still serves.
+
+Liquidity is thin (about 135 mUSD of buys and 176 mUSD of sells per re-arm, with one flywheel turn
+per re-arm); after a large buy, re-arm with the keeper's `removeLiquidity(Anchor)` plus `ArmMarket`
+before the next demo. See `docs-handover/PRODUCT_KNOWLEDGE.md` §7.7.
+
+Automated status: the journey's units and layout are covered by Vitest and Playwright; the live
+wallet steps above have **not** been executed as part of this change and remain the owner's manual
+run.

@@ -8,7 +8,6 @@ export const solarAsset = {
     "A verified demonstration record for a distributed solar generation portfolio in Indonesia, with simulated electricity-sale revenue settled in mUSD.",
   nav: 1.0,
   spot: 1.018,
-  twap: 1.006,
   floor: 0.82,
   redemption: 0.82,
   reserve: 24_600,
@@ -40,14 +39,18 @@ export const solarAsset = {
   },
 };
 
+/**
+ * OHLC fixture history. There is deliberately no `twap` column: D-036 removed the time-weighted
+ * price, the API serves `null`, and no surface draws one. Do not add it back.
+ */
 export const priceHistory = [
-  { time: "09:00", open: 0.978, high: 0.990, low: 0.974, close: 0.984, twap: 0.992, nav: 1.0, floor: 0.82 },
-  { time: "10:00", open: 0.984, high: 0.996, low: 0.981, close: 0.991, twap: 0.994, nav: 1.0, floor: 0.82 },
-  { time: "11:00", open: 0.991, high: 1.011, low: 0.988, close: 1.006, twap: 0.997, nav: 1.0, floor: 0.82 },
-  { time: "12:00", open: 1.006, high: 1.017, low: 1.002, close: 1.012, twap: 1.0, nav: 1.0, floor: 0.82 },
-  { time: "13:00", open: 1.012, high: 1.016, low: 1.003, close: 1.008, twap: 1.002, nav: 1.0, floor: 0.82 },
-  { time: "14:00", open: 1.008, high: 1.025, low: 1.005, close: 1.021, twap: 1.004, nav: 1.0, floor: 0.82 },
-  { time: "15:00", open: 1.021, high: 1.027, low: 1.013, close: 1.018, twap: 1.006, nav: 1.0, floor: 0.82 },
+  { time: "09:00", open: 0.978, high: 0.990, low: 0.974, close: 0.984, nav: 1.0, floor: 0.82 },
+  { time: "10:00", open: 0.984, high: 0.996, low: 0.981, close: 0.991, nav: 1.0, floor: 0.82 },
+  { time: "11:00", open: 0.991, high: 1.011, low: 0.988, close: 1.006, nav: 1.0, floor: 0.82 },
+  { time: "12:00", open: 1.006, high: 1.017, low: 1.002, close: 1.012, nav: 1.0, floor: 0.82 },
+  { time: "13:00", open: 1.012, high: 1.016, low: 1.003, close: 1.008, nav: 1.0, floor: 0.82 },
+  { time: "14:00", open: 1.008, high: 1.025, low: 1.005, close: 1.021, nav: 1.0, floor: 0.82 },
+  { time: "15:00", open: 1.021, high: 1.027, low: 1.013, close: 1.018, nav: 1.0, floor: 0.82 },
 ];
 
 export const marketPipeline = [
@@ -123,7 +126,7 @@ export const liquidityPositions = [
 ] as const;
 
 export const rebalances = [
-  { time: "15:08", action: "Slide", reason: "Spot held above TWAP", shift: "+60 ticks" },
+  { time: "15:08", action: "Slide", reason: "Spot held above the anchor band", shift: "+60 ticks" },
   { time: "12:32", action: "Collect", reason: "Anchor fee checkpoint", shift: "42.8 mUSD" },
   { time: "09:14", action: "NAV sync", reason: "Verified NAV published", shift: "+30 ticks" },
 ];

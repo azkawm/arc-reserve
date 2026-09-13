@@ -118,6 +118,11 @@ It is cosmetic, not a correctness fix: the tree only ever contained **one** Reac
 everything deduped to it), and the emitted bundle is byte-identical with and without the override.
 Removing the entry brings the warnings back; it does not break the app.
 
+One runtime dependency is worth calling out: **`lightweight-charts`** (v5, Apache-2.0) renders the
+SOLAR01 candlestick chart. It is lazy-loaded, so it becomes its own chunk and does not grow the
+portal's initial bundle. Its license requires a visible TradingView attribution link, which the
+chart enables via `layout.attributionLogo` — do not disable it.
+
 The deprecation warnings that remain on install (`@walletconnect/*`, `@metamask/sdk`, `uuid@9`) come
 from wagmi's connector dependencies and cannot be resolved from here.
 

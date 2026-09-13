@@ -110,3 +110,17 @@ export function shortAddress(address: string | null | undefined): string {
 export function toPlotNumber(value: string): number {
   return Number(value);
 }
+
+/**
+ * A decimal string to base units, by its own digits — no float. Used only to build a value the
+ * wallet sends (`amountIn`, an allowance), never to compute money. `toBaseUnits("1.5", 6)` is
+ * `1_500_000n`.
+ */
+export function toBaseUnits(value: string, decimals: number): bigint {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith("-");
+  const [whole = "0", fraction = ""] = (negative ? trimmed.slice(1) : trimmed).split(".");
+  const scaled = fraction.padEnd(decimals, "0").slice(0, decimals);
+  const magnitude = BigInt(`${whole === "" ? "0" : whole}${scaled}`);
+  return negative ? -magnitude : magnitude;
+}

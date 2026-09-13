@@ -1,28 +1,36 @@
 # Frontend Specification and Integration Status
 
-**Status (2026-09-12, D-035 + D-036 + `openspec/changes/concept-landing-page`): rebuilt on React +
-Vite; the public page is now a labelled concept landing page; the data layer has no consumer.**
+**Status (2026-09-13, D-040, `openspec/changes/launchpad-portal`): the portal is live against the
+two testnets; the landing page remains a labelled concept.**
 
 `frontend/` is a React 19 + Vite 8 single-page app with TypeScript, Tailwind CSS v4, shadcn/ui
-components, wagmi, viem, TanStack Query, Lucide icons, Vitest, Playwright, and a Docker image. It
-replaces the Next.js 15 App Router implementation, which is retired and lives in git history.
+components, wagmi, viem, TanStack Query, `react-router-dom`, Lucide icons, Vitest and Playwright,
+and a Docker image. It replaces the Next.js 15 App Router implementation, which is retired and lives
+in git history.
 
-What exists today: a marketing-shaped concept landing page (hero, illustrative telemetry, the dual
-participant engine, the five independent value references, the four-stage safety escalation ladder,
-a closing call to action) built from a Stitch design reference, carrying a persistent, non-dismissible
-"design concept — not the deployed protocol" banner and per-panel concept markers on every
-illustrative figure. It reads no live data and calls the backend nowhere. Separately, the `/v1`
-client, the fixture adapter, and the provenance components (`DataSourceBadge`, `DataPanel`) are all
-intact in `src/lib/` and `src/components/data-source.tsx` — they simply have **no consumer on this
-page**, since the page that exercised them (D-035's scaffold) was replaced. 83 Vitest tests and a
-12-case Playwright responsive suite (phone/tablet/desktop) pass; typecheck, lint, and build are clean.
+There are now two surfaces:
 
-What does **not** exist today, and did exist before the D-035 rebuild: the marketplace, asset,
-issuer, verifier, and engine routes; the candle and engine charts; routing itself; and every live
-wallet write (buy, claim, redeem, issuer deposits, verifier actions, keeper range calls). The SOLAR01
-deep-dive, the yield/floor simulator, and the offerings table from the Stitch reference are also not
-built — deferred to a follow-up change (`openspec/changes/concept-landing-page/design.md`,
-Non-Goals).
+- **`/` — the concept landing page** (unchanged from `concept-landing-page`): a Stitch-derived story
+  page carrying a persistent, non-dismissible "design concept — not the deployed protocol" banner
+  and per-panel concept markers. It reads no live data and calls the backend nowhere.
+- **`/offerings` and `/assets/:slug` — the portal** (D-040): the offerings list and the SOLAR01
+  trading desk, reading `/v1` and the contracts for an **explicitly selected chain** (default Hedera
+  testnet 296, switch to Arc 5042002). Every value carries its provenance; the Stitch reference's
+  false claims (audit, regulation, guarantee, forward APR, "Base Sepolia") are removed or redesigned
+  to the real figure. Wallet writes cover faucet, self-registration, buy, swap, claim and redeem,
+  each with a chain guard, a KYC preflight, decoded reverts and receipt confirmation.
+
+The `/v1` client, the fixture adapter, and the provenance components (`DataSourceBadge`,
+`DataPanel`) are now consumed by the portal.
+
+What does **not** exist today: the owner-side screens (listing wizard and its steps, operational
+reporting, telemetry, the revenue waterfall), the verifier and issuer gated flows, a portfolio view,
+and the engine chart. The landing-page change deferred these to a later change, of which
+`launchpad-portal` is the demo-critical slice.
+
+Environment note: the router's one new runtime dependency is `react-router-dom`; routing was
+rejected on the landing page while there were no panels to route to, and D-040 records why the
+portal changes that.
 
 > **Read sections 1 and 3 onward as the porting specification, not as a description of the running
 > app.** They record how the previous implementation behaved, including its real-versus-mock
@@ -36,42 +44,42 @@ full rationale, including the specific claims it deliberately does not carry ove
 reference (a fabricated audit attribution, guarantee language, an "instant" redemption promise, and
 others — see `design.md`'s Decisions section).
 
-## 1. Routes (previous implementation — the porting target)
+## 1. Routes (current)
 
 | Route | Purpose | Data status |
 | --- | --- | --- |
-| `/` | Marketplace and pipeline | Static fixtures |
-| `/assets/solar-indonesia-01` | Asset market, chart, supply, issuer, actions | Hybrid fixture plus selected writes/read |
-| `/engine` | Position visualization and keeper controls | Fixture visualization plus selected writes |
-| `/issuer` | Target settlement preview and issuer forms | Fixture preview plus selected writes |
-| `/verifier` | Review queue and verifier actions | Fixture queue plus selected writes |
+| `/` | Concept landing page (unchanged from `concept-landing-page`) | Static, labelled concept |
+| `/offerings` | Offerings list for the active chain | `/v1/assets` + `/metrics`; fixture mode when no API URL |
+| `/assets/:slug` | SOLAR01 trading desk: prices, chart, position, swap, redeem | `/v1` plus direct chain reads and writes |
 
-Shared navigation and wallet controls are in `src/components/app-shell.tsx` and
-`src/components/wallet-button.tsx`.
+Shared portal chrome (top navigation, disclosure menu, chain switch, wallet and faucet controls,
+service status) is in `src/components/portal/portal-shell.tsx`. The active chain lives in
+`src/lib/chain-context.ts` with `src/components/chain-provider.tsx`.
+
+The previous Next.js App Router routes (`/assets/solar-indonesia-01`, `/engine`, `/issuer`,
+`/verifier`), which this file used to specify as the porting target, are superseded: that
+implementation is retired (D-035) and the portal above is the replacement.
 
 ## 2. Environment (current)
 
 Vite exposes only `VITE_`-prefixed variables to client code. The app expects:
 
 ```text
-VITE_RPC_URL
-VITE_MUSD_ADDRESS
-VITE_REGISTRY_ADDRESS
-VITE_TOKEN_ADDRESS
-VITE_VAULT_ADDRESS
-VITE_OFFERING_ADDRESS
-VITE_MARKET_MANAGER_ADDRESS
-VITE_REVENUE_DISTRIBUTOR_ADDRESS
-VITE_REDEMPTION_CONTROLLER_ADDRESS
-VITE_ASSET_ID
 VITE_API_URL
+VITE_RPC_URL   # Anvil only, for local development
 ```
 
-The typed surface is `frontend/src/vite-env.d.ts`; keep it in step with `.env.example`.
-`NEXT_PUBLIC_SITE_URL` was dropped in the rebuild — nothing read it.
+Contract addresses are **no longer environment variables**. They come from
+`contracts/deployments/<chainId>.json`, transcribed into `frontend/src/lib/deployments.ts` and keyed
+by `(chainId, address)`, because the same address is a different contract on each chain
+(INTEGRATION_GUIDE §2.3). Per-asset components are read from `/v1/assets/:assetId?chainId=`
+`contracts` where available.
 
-`contractsConfigured` becomes true only when all eight component addresses are nonzero. The app is
-configured for chain ID 31337 and the local RPC by default.
+The wallet chains are defined in `frontend/src/lib/chains.ts`: Hedera testnet 296, Arc testnet
+5042002, and Anvil 31337 for local development. The page's chain is separate from the wallet's;
+`src/lib/use-chain-guard.ts` blocks a write until the two agree.
+
+The typed surface is `frontend/src/vite-env.d.ts`; keep it in step with `.env.example`.
 
 `VITE_API_URL` governs the provenance mode (D-019): absent means configured fixture mode with a
 `Mock` badge on every panel; present means live reads where a *failed* request is an error state,
@@ -244,26 +252,31 @@ Recorded so the frontend agent does not rediscover them. File references are as 
 
 ## 6. Chart implementation
 
-`PriceChart` uses a Recharts `ComposedChart`:
+The SOLAR01 desk uses **TradingView Lightweight Charts** (`lightweight-charts` v5, Apache-2.0),
+lazy-loaded into its own chunk from `src/components/asset/candlestick-chart.tsx`. It replaces the
+corridor line chart and the retired Recharts implementation.
 
-- custom `Bar` shape for candle wicks and bodies;
-- bullish and bearish colors;
-- TWAP line;
-- NAV dashed line;
-- protected-floor dashed line; and
-- static 1H/1D/1W/1M buttons that currently change selection only.
+- **Candles** (`CandlestickSeries`) and **volume** (`HistogramSeries`) come from indexed canonical
+  pool `Swap` events via `/candles`. This is the only series taken from the pool.
+- **Verified NAV** (`LineSeries`, `lineType: WithSteps`) comes from `/nav-history` and is padded to
+  the candle window so it spans the chart; it holds until the next verifier update.
+- **Published floor** and **parity** (`schedule target backing`) are horizontal `createPriceLine`
+  references. They are **not** read from the pool's current tick: spot is the pool price, the floor
+  is a published reference shown with its coverage, and NAV is a verifier number (CLAUDE.md rule 4).
+- Interval pills (15m/1H/1D) drive the request interval. A `MOCK_DISABLED` response renders
+  "no trades yet" and mounts no chart rather than drawing an empty one.
+- A crosshair legend shows the hovered candle's O/H/L/C and change; a collapsible **data table** is
+  the text alternative required by §12, since the chart is a canvas.
 
-It does not use the TradingView widget or TradingView Lightweight Charts. It does not fetch OHLC.
+`src/lib/chart-data.ts` holds the pure decimal-string-to-series mapping (sorted, de-duplicated,
+numeric for plotting only) and is unit-tested.
 
-The correct future source is indexed canonical pool `Swap` events. See `BACKEND_INDEXER.md`. If the
-chart library is changed, preserve:
+Lightweight Charts requires a visible TradingView attribution link; it is enabled via
+`layout.attributionLogo`. Do not disable it.
 
-- OHLC candles;
-- independent NAV/TWAP/floor overlays;
-- exact timestamps and interval selection;
-- source/staleness labels;
-- accessible tooltip values; and
-- explicit empty/no-trade buckets.
+The chart library is the one place the app is allowed to turn a money string into a JavaScript
+number, and only for pixel positions — the same allowance `format.ts#toPlotNumber` documents. It
+never feeds a balance or a transaction.
 
 ## 7. Position liquidity presentation
 
@@ -381,10 +394,20 @@ Preferred wording:
 | Floor accretion | Guaranteed yield |
 | Authorized capped supply | Unlimited mint |
 | Target policy preview | Live contract behavior |
+| Published floor reference (covered: yes/no) | Guaranteed floor, peg |
+| Realised distributions (historical) | Est. Cash Yield, APR, dividend, coupon |
+| Schedule target backing | Par peg, Genesis Par Peg |
+| Permissioned token (demo KYC: anyone can self-verify on this testnet) | ERC-3643 certified, ERC-4626 |
+| Unaudited testnet demo | Audited, attested, certified, any named firm |
 
-Every asset page should eventually show market price, TWAP, NAV and timestamp, protected floor,
-redemption quote, reserve, reserve ratio, issued supply, excluded supply, circulating eligible supply,
-maximum supply, maturity, and status separately.
+The portal (`/offerings`, `/assets/:slug`) applies these mechanically: `src/portal-claims.test.ts`
+scans its source for the forbidden terms and asserts the honest disclaimer is present. There is no
+TWAP anywhere (D-036); the four prices are spot, verified NAV, published floor with coverage, and
+redemption price, and none is described as equal to another.
+
+The asset desk shows market price, NAV and its age, published floor with coverage, redemption
+quote, reserve categories and ratio, reserve schedule, issued/excluded/eligible supply, maturity,
+and status separately. Cost basis and P&L are not shown — there is no on-chain cost basis.
 
 ## 12. Accessibility and responsive requirements
 

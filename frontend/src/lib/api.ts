@@ -10,6 +10,9 @@
  * API URL configured, a failed request is an *error state* — it never quietly becomes a
  * fixture. Those two behaviours look similar in a screenshot and are completely different
  * claims about what the user is looking at.
+ *
+ * The response types below mirror `backend/src/api/schemas/` field for field. When that schema
+ * changes, this file changes with it — a shape the API no longer sends must not keep compiling.
  */
 
 export type Provenance = "onchain" | "derived" | "mock";
@@ -29,23 +32,33 @@ export interface Envelope<T> {
   meta: ResponseMeta;
 }
 
+/**
+ * Backend codes plus two the client owns: `NETWORK` (the request never reached a server) and
+ * `CHAIN_MISMATCH` (the response arrived for a chain other than the one requested).
+ */
 export type ApiErrorCode =
   | "ASSET_NOT_FOUND"
   | "INDEXER_BEHIND"
   | "MOCK_DISABLED"
   | "BAD_REQUEST"
+  | "CHAIN_UNAVAILABLE"
+  | "QUOTE_UNAVAILABLE"
+  | "CHAIN_MISMATCH"
   | "INTERNAL"
   | "NETWORK";
 
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly status: number;
+  /** Backend `error.details`, when present (for example a swap quote's `revertedWith`). */
+  readonly details: unknown;
 
-  constructor(code: ApiErrorCode, message: string, status = 0) {
+  constructor(code: ApiErrorCode, message: string, status = 0, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -74,12 +87,13 @@ export async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<
   if (!response.ok) {
     const error =
       body !== null && typeof body === "object" && "error" in body
-        ? (body as { error: { code?: string; message?: string } }).error
+        ? (body as { error: { code?: string; message?: string; details?: unknown } }).error
         : null;
     throw new ApiError(
       (error?.code as ApiErrorCode) ?? "INTERNAL",
       error?.message ?? `request failed with ${response.status}`,
       response.status,
+      error?.details,
     );
   }
 
@@ -110,7 +124,7 @@ export function fixtureEnvelope<T>(data: T): Envelope<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Response shapes — BACKEND_TO_FRONTEND.md §3
+// Response shapes — mirror backend/src/api/schemas/
 // ---------------------------------------------------------------------------
 
 export interface Provenanced<T> {
@@ -174,10 +188,21 @@ export interface Amount {
   raw: string;
 }
 
+/** `ready` — spot is live; `unavailable` — no pool or a failed price read; `warming_up` reserved. */
+export type MarketStatus = "ready" | "warming_up" | "unavailable";
+
 export interface AssetMetrics {
-  nav: { value: string; raw: string; timestamp: number; stale: boolean };
+  nav: {
+    value: string;
+    raw: string;
+    timestamp: number;
+    stale: boolean;
+    /** How long a published NAV stays valid, and when this one lapses. */
+    staleAfterSeconds: number | null;
+    expiresAt: number | null;
+  };
+  marketStatus: MarketStatus;
   spot: Provenanced<Amount & { sourceBlock: number }> | null;
-  twap: Provenanced<Amount & { windowSeconds: number }> | null;
   floorReference: Amount & { formula: string };
   redemptionPrice: { normal: string | null; maturity: string | null; emergency: string | null };
   reserve: {
@@ -345,8 +370,147 @@ export interface AccountPosition {
   history: ActivityItem[];
 }
 
+export interface RevenueDeposit {
+  timestamp: number;
+  txHash: string;
+  periodId: string | null;
+  reportHash: string | null;
+  behindSchedule: boolean | null;
+  gross: string;
+  holder: string;
+  reserve: string;
+  operator: string;
+  protocol: string;
+}
+
+export interface Revenue {
+  totalDeposited: string;
+  totalHolder: string;
+  totalReserve: string;
+  totalOperator: string;
+  totalProtocol: string;
+  totalClaimed: string;
+  operatorAccrued: string;
+  deposits: RevenueDeposit[];
+}
+
+export type RedemptionMode = "Normal" | "Maturity" | "Emergency";
+
+export interface RedemptionHistoryItem {
+  timestamp: number;
+  txHash: string;
+  holder: string;
+  mode: RedemptionMode;
+  tokenAmount: string;
+  stablecoinAmount: string;
+  nav: string;
+  price: string;
+}
+
+export interface Redemptions {
+  totalRedeemedTokens: string;
+  totalStablecoinPaid: string;
+  emergencySettlementPrice: string;
+  currentPeriod: {
+    startedAt: number;
+    duration: number;
+    redeemed: string;
+    limit: string;
+    remaining: string;
+  };
+  history: RedemptionHistoryItem[];
+}
+
+/**
+ * A live `eth_call` of the real `swapExactInput`, never a projection. `spent` may be **less**
+ * than `amountIn` on a partial fill (D-037): compute the price as `amountOut / spent`, never
+ * `amountOut / amountIn`.
+ */
+export interface SwapQuote {
+  tokenIn: string;
+  tokenOut: string;
+  amountIn: string;
+  spent: string;
+  amountOut: string;
+  partialFill: boolean;
+}
+
+export interface HealthIndexer {
+  chainId: number;
+  worker: string;
+  blockNumber: number;
+  blockHash: string;
+  blockTimestamp: number;
+  updatedAt: number;
+  lagBlocks: number;
+  lagSeconds: number;
+  reorgDepth: number;
+  lastError: string | null;
+}
+
+export interface HealthChainSummary {
+  chainId: number;
+  name: string;
+  confirmations: number;
+  registry: string;
+  factory: string;
+  stablecoin: string;
+  indexedByThisProcess: boolean;
+}
+
+export interface HealthRisk {
+  chainId: number;
+  assetId: string;
+  navExpiresAt: number | null;
+  navStale: boolean;
+  lastPriceVsNavBps: number | null;
+}
+
 export interface HealthPayload {
   status: "healthy" | "degraded" | "unhealthy";
-  chain: { configuredChainId: number; latestBlock: number | null; rpcOk: boolean };
-  indexers: Array<{ worker: string; blockNumber: number; lagBlocks: number }>;
+  service: {
+    name: "arcreserve-backend";
+    version: string;
+    nodeEnv: string;
+    uptimeSeconds: number;
+    milestone: string;
+  };
+  chain: {
+    configuredChainId: number;
+    rpcChainId: number | null;
+    name: string;
+    latestBlock: number | null;
+    rpcOk: boolean;
+    rpcLatencyMs: number | null;
+    error: string | null;
+  };
+  database: { connected: boolean; latencyMs: number; error: string | null };
+  indexers: HealthIndexer[];
+  chains: HealthChainSummary[];
+  watchedContracts: number;
+  anomalies: {
+    open: number;
+    indexedChain: number;
+    byChain: Array<{ chainId: number; open: number }>;
+  };
+  risks: HealthRisk[];
+  riskCoverage: {
+    computed: number[];
+    notComputed: Array<{ chainId: number; reason: string }>;
+  };
+  rollbacks: Array<{
+    chainId: number;
+    count: number;
+    last: {
+      at: number;
+      fromBlock: number;
+      ancestorBlock: number;
+      blocksDiscarded: number;
+      logsDiscarded: number;
+      cursorDeleted: boolean;
+    };
+  }>;
+  pendingBackfills: Array<{ chainId: number; count: number }>;
+  allowMockMarketData: boolean;
+  staleAfterSeconds: number;
 }

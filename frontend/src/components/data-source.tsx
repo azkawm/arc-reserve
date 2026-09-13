@@ -89,16 +89,20 @@ export function PanelLoading({ label = "Loading" }: { label?: string }) {
  * than showing a plausible number, because a plausible number is indistinguishable from a
  * true one.
  */
+/** Each backend error means something different; saying which is the whole point. */
+const ERROR_EXPLANATION: Partial<Record<ApiError["code"], string>> = {
+  MOCK_DISABLED: "No canonical market data exists for this asset, and synthetic demo data is disabled.",
+  INDEXER_BEHIND: "The indexer has not caught up yet. Nothing is being shown rather than something stale.",
+  ASSET_NOT_FOUND: "This asset is not in the index.",
+  CHAIN_UNAVAILABLE: "This deployment cannot serve that network. The asset is not dead — the data is unavailable here.",
+  CHAIN_MISMATCH: "The response came back for a different network than the one requested. Refusing to show it.",
+  BAD_REQUEST: "That network is not served here. Pick one of the indexed networks.",
+  QUOTE_UNAVAILABLE: "A live quote is not available right now, so the trade cannot be priced.",
+};
+
 export function PanelError({ error, onRetry }: { error: Error; onRetry?: () => void }) {
   const code = error instanceof ApiError ? error.code : "NETWORK";
-  const explanation =
-    code === "MOCK_DISABLED"
-      ? "No canonical market data exists for this asset, and synthetic demo data is disabled."
-      : code === "INDEXER_BEHIND"
-        ? "The indexer has not caught up yet. Nothing is being shown rather than something stale."
-        : code === "ASSET_NOT_FOUND"
-          ? "This asset is not in the index."
-          : "The backend could not be reached.";
+  const explanation = ERROR_EXPLANATION[code] ?? "The backend could not be reached.";
 
   return (
     <Alert variant="destructive" role="alert">
@@ -113,6 +117,21 @@ export function PanelError({ error, onRetry }: { error: Error; onRetry?: () => v
         )}
       </AlertDescription>
     </Alert>
+  );
+}
+
+/**
+ * Nothing has been indexed for this chain yet. This is distinct from an error and from a zero:
+ * `asOf: null` means the indexer has no block to report, so there is no number to show.
+ */
+export function PanelNotIndexed({ label = "Not indexed yet" }: { label?: string }) {
+  return (
+    <div
+      className="border-mist text-ash rounded-lg border border-dashed px-3 py-6 text-center text-xs"
+      role="status"
+    >
+      {label}
+    </div>
   );
 }
 
@@ -137,5 +156,10 @@ export function DataPanel<T>({
   if (query.isPending) return <PanelLoading {...(loadingLabel ? { label: loadingLabel } : {})} />;
   if (query.error !== null) return <PanelError error={query.error} onRetry={query.refetch} />;
   if (query.data === undefined) return <PanelError error={new Error("no data")} />;
+  // A live response with `asOf: null` has indexed nothing yet. Fixtures also carry null, but are
+  // labelled `mock` and are a configured local mode, not an un-indexed chain.
+  if (query.data.meta.asOf === null && query.data.meta.provenance !== "mock") {
+    return <PanelNotIndexed />;
+  }
   return <>{children(query.data.data, query.data.meta)}</>;
 }

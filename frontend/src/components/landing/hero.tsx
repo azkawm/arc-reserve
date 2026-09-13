@@ -39,7 +39,10 @@ export function Hero() {
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-          <Button asChild size="lg" className="group">
+          <Button asChild size="lg">
+            <a href="/offerings">Launch app</a>
+          </Button>
+          <Button asChild size="lg" variant="outline" className="group">
             <a href="#engine">
               Explore the Concept
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />

@@ -12,7 +12,17 @@ import tseslint from "typescript-eslint";
  * chart pixel math.
  */
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "coverage/**", "src/components/ui/**"] },
+  {
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "coverage/**",
+      "src/components/ui/**",
+      ".next/**",
+      "playwright-report/**",
+      "test-results/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   reactHooks.configs.flat["recommended-latest"],

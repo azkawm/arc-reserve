@@ -1022,6 +1022,67 @@ does the same for the public `swapExactInput` path and the flywheel behind it.
 `test_addLiquidityIsNoLongerNavGated` is the explicit inversion of D-038's containment test and
 asserts the liquidity actually lands, not merely that the call does not revert.
 
+## D-040: The portal uses a router and an explicit chain context
+
+Status: accepted and implemented 2026-09-13 (frontend, `openspec/changes/launchpad-portal`).
+
+**Decision.** The frontend gains client-side routing and an explicit, switchable chain. `/` stays
+the concept landing page; `/offerings` and `/assets/:slug` form the portal under a shared shell. The
+active chain lives in a `ChainProvider` (default Hedera testnet, 296), is mirrored into `?chainId=`,
+and is never inferred from the wallet. Contract addresses come from a `chainId -> addresses` map
+built from `contracts/deployments/<chainId>.json`, keyed by `(chainId, address)`.
+
+**Why.** The landing page deliberately had no router while there were no panels to route to; the
+portal has three. Without routing the offerings and asset views cannot be linked or shared. Chain
+had to be explicit for a reason stronger than tidy state: one deployer nonce put different contracts
+at the same address on the two live chains (`AssetRegistry` on Hedera, `AssetFactory` on Arc), so an
+address is meaningless without its chain; and the single API serves both chains behind `?chainId=`,
+so omitting it silently serves whichever chain the process indexes.
+
+**Alternatives considered.** (a) Two base URLs, one per chain: rejected, Arc's second port is an
+indexer worker, not a second API. (b) Infer the chain from the wallet: rejected, the page and the
+wallet can disagree and then nothing is authoritative; the guard resolves the disagreement at write
+time instead. (c) `@tanstack/react-router` over `react-router` v7: both fit; `react-router` in
+library mode was chosen for its smaller adoption cost against three routes.
+
+**Consequences.** Adding `react-router-dom` is the portal's one new runtime dependency. The chain is
+part of every query key and every request; a response whose `meta.chainId` differs from the
+requested chain is an error (`CHAIN_MISMATCH`), never data. A write on the wrong chain is blocked
+with a `switchChain` affordance (`frontend/src/lib/use-chain-guard.ts`). The landing page's in-page
+anchors are unaffected.
+
+**Tests.** `frontend/src/lib/queries.test.tsx` asserts the request carries the chain and that a
+mismatched response throws; `frontend/e2e/portal-responsive.spec.ts` asserts switching to Arc
+updates the route; the typed contract-shape fixtures pin the per-chain response shapes.
+
+## D-041: The price chart is TradingView Lightweight Charts
+
+Status: accepted and implemented 2026-09-13 (frontend, `openspec/changes/launchpad-portal`).
+
+**Decision.** The SOLAR01 price chart is rendered with `lightweight-charts` (TradingView,
+Apache-2.0), lazy-loaded as its own chunk. It draws OHLC candles and a volume histogram from the
+canonical pool, a stepped verified-NAV line from `/nav-history`, and horizontal published-floor and
+schedule-parity reference lines. The previous hand-rolled SVG close-line ("corridor") chart is
+removed.
+
+**Why.** The product needs a real OHLC chart a judge recognises, and the OHLC data (open/high/low)
+was already fetched but unused. TradingView's own library is the closest match to the familiar
+TradingView look (candles, crosshair readout, pan/zoom, volume pane) without embedding the
+third-party widget or reimplementing candle rendering and a crosshair by hand.
+
+**What it must not do.** It must not imply that the floor or NAV come from the pool. Only candles
+and volume are pool data; NAV is verifier-published and the floor/parity are references. The floor
+line is labelled with its coverage, and none of the four prices is collapsed into another.
+
+**Consequences.** One new runtime dependency, code-split behind `React.lazy` so the portal's initial
+bundle is unchanged. Lightweight Charts is canvas-only, so the panel carries a collapsible data
+table as the accessible alternative (FRONTEND.md §12). The library's license requires a visible
+TradingView attribution link, enabled via `layout.attributionLogo`.
+
+**Tests.** `frontend/src/lib/chart-data.test.ts` covers the series mapping (sorting, de-duplication,
+NAV padding, reference labels); `frontend/e2e/portal-responsive.spec.ts` asserts the chart renders
+and stays inside its panel at all three viewports.
+
 ## Open decisions
 
 The following require explicit owner input before implementation:

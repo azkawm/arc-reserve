@@ -2,6 +2,7 @@ import { Menu, X } from "lucide-react";
 import { useId, useState } from "react";
 import { ArcMonogram } from "@/components/landing/arc-monogram";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { href: "#hero", label: "Overview" },
@@ -48,6 +49,14 @@ export function LandingHeader() {
           <Badge variant="outline" className="text-ash hidden sm:inline-flex">
             Testnet demo
           </Badge>
+          {/* Plain anchors, not router Links: this header is also rendered standalone in tests,
+              where no <Router> context exists, and a hard navigation is fine. */}
+          <Button asChild size="sm" variant="outline">
+            <a href="/faucet">Faucet</a>
+          </Button>
+          <Button asChild size="sm">
+            <a href="/offerings">Launch app</a>
+          </Button>
           <button
             type="button"
             className="text-ink hover:bg-linen rounded-md p-2 lg:hidden"
